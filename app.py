@@ -564,7 +564,30 @@ with tab_pf:
     if not df.empty:
         with st.expander("✏️ 銘柄の修正・削除", expanded=False):
             edf = df.copy(); edf["削除"] = False
-            edited = st.data_editor(edf, num_rows="dynamic", use_container_width=True, hide_index=True)
+            account_options = ["SBI証券", "楽天証券", "持ち株会(野村證券)", "NISA(成長投資枠)", "NISA(積立投資枠)"]
+            market_options = ["日本株", "米国株", "投資信託", "その他資産"]
+            edited = st.data_editor(
+                edf,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "口座区分": st.column_config.SelectboxColumn(
+                        "口座区分",
+                        options=account_options,
+                        required=True,
+                    ),
+                    "市場": st.column_config.SelectboxColumn(
+                        "市場",
+                        options=market_options,
+                        required=True,
+                    ),
+                    "保有株数": st.column_config.NumberColumn("保有株数", min_value=0, format="%.4f"),
+                    "取得単価": st.column_config.NumberColumn("取得単価", min_value=0, format="%.2f"),
+                    "手動配当利回り(%)": st.column_config.NumberColumn("手動利回り(%)", min_value=0, format="%.2f"),
+                    "削除": st.column_config.CheckboxColumn("削除", default=False),
+                },
+            )
             if st.button("💾 変更を保存", key="sv_edit"):
                 save_data(edited[edited["削除"] == False].drop(columns=["削除"]))
                 st.cache_data.clear(); st.success("更新しました！"); st.rerun()
