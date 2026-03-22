@@ -91,39 +91,72 @@ def load_data():
     if gc is None: return pd.DataFrame(columns=expected_cols)
     try:
         sh = gc.open("PortfolioData")
-        data = sh.sheet1.get_all_records()
-        df = pd.DataFrame(data) if data else pd.DataFrame(columns=expected_cols)
-        # 旧「口座」+「口座区分」から新「口座区分」へのマイグレーション
-        if "口座" in df.columns and "口座区分" in df.columns:
-            def _migrate_account(row):
-                old_broker = str(row.get("口座", ""))
-                old_tax = str(row.get("口座区分", ""))
-                if "NISA" in old_tax:
-                    if "積立" in old_tax: return "NISA(積立投資枠)"
-                    return "NISA(成長投資枠)"
-                if "SBI" in old_broker: return "SBI証券"
-                if "楽天" in old_broker: return "楽天証券"
-                if "野村" in old_broker or "持ち株" in old_broker: return "持ち株会(野村證券)"
-                if old_broker and old_broker != "-": return old_broker
-                return "SBI証券"
-            df["口座区分"] = df.apply(_migrate_account, axis=1)
-            if "口座" in df.columns:
-                df = df.drop(columns=["口座"])
-        elif "口座" in df.columns and "口座区分" not in df.columns:
-            df.rename(columns={"口座": "口座区分"}, inplace=True)
+        
+        # ★ get_all_records()は空ヘッダーでクラッシュするので get_all_values() を使う
+        all_values = sh.sheet1.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return pd.DataFrame(columns=expected_cols)
+        
+        # ヘッダー行: 空セルを除いた有効列数だけ使う
+        raw_headers = all_values[0]
+        valid_col_count = 0
+        for i, h in enumerate(raw_headers):
+            if h.strip():
+                valid_col_count = i + 1  # 最後の非空ヘッダーまで
+        if valid_col_count == 0:
+            return pd.DataFrame(columns=expected_cols)
+        
+        headers = raw_headers[:valid_col_count]
+        rows = []
+        for row in all_values[1:]:
+            trimmed = row[:valid_col_count]
+            if any(cell.strip() for cell in trimmed):
+                rows.append(trimmed)
+        
+        if not rows:
+            return pd.DataFrame(columns=expected_cols)
+        
+        df = pd.DataFrame(rows, columns=headers)
+        
+        # ── 旧「口座」列 → 新「口座区分」へのマイグレーション ──
+        def _normalize_account(row):
+            old_broker = str(row.get("口座", "")) if "口座" in row.index else ""
+            old_tax = str(row.get("口座区分", "")) if "口座区分" in row.index else ""
+            combined = old_broker + " " + old_tax
+            if old_tax in ACCOUNT_OPTIONS: return old_tax
+            if "NISA" in combined or "非課税" in combined:
+                if "積立" in combined: return "NISA(積立投資枠)"
+                return "NISA(成長投資枠)"
+            if "楽天" in combined: return "楽天証券"
+            if "野村" in combined or "持ち株" in combined: return "持ち株会(野村證券)"
+            if "SBI" in combined or old_broker.strip(): return "SBI証券"
+            return "SBI証券"
+        
+        df["口座区分"] = df.apply(_normalize_account, axis=1)
+        if "口座" in df.columns:
+            df = df.drop(columns=["口座"])
+        
+        # 不足列を補完
         for col in expected_cols:
             if col not in df.columns:
                 if col == "口座区分": df[col] = "SBI証券"
-                elif col in ["手動配当利回り(%)"]: df[col] = 0.0
+                elif col == "手動配当利回り(%)": df[col] = 0.0
                 elif col == "配当月": df[col] = ""
                 else: df[col] = "-"
+        
+        # 型変換
         df["銘柄コード"] = df["銘柄コード"].astype(str)
         df["銘柄名"] = df["銘柄名"].astype(str)
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
         df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
         df["手動配当利回り(%)"] = pd.to_numeric(df["手動配当利回り(%)"], errors='coerce').fillna(0.0)
+        
+        ordered = [c for c in expected_cols if c in df.columns]
+        extra = [c for c in df.columns if c not in expected_cols]
+        df = df[ordered + extra]
         return df
-    except:
+    except Exception as e:
+        st.error(f"データ読み込みエラー: {e}")
         return pd.DataFrame(columns=expected_cols)
 
 def save_data(df):
