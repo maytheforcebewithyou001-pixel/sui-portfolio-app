@@ -98,21 +98,20 @@ def get_spreadsheet():
 @st.cache_data(ttl=120, show_spinner=False)
 def load_data():
     sh = get_spreadsheet()
-    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座区分", "手動配当利回り(%)", "配当月", "最新更新日"]
-    ACCOUNT_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)", "NISA(成長投資枠)", "NISA(積立投資枠)"]
+    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "配当月", "最新更新日"]
+    BROKER_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)"]
+    TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
     if sh is None: return pd.DataFrame(columns=expected_cols)
     try:
-        # ★ get_all_records()は空ヘッダーでクラッシュするので get_all_values() を使う
         all_values = sh.sheet1.get_all_values()
         if not all_values or len(all_values) < 2:
             return pd.DataFrame(columns=expected_cols)
         
-        # ヘッダー行: 空セルを除いた有効列数だけ使う
         raw_headers = all_values[0]
         valid_col_count = 0
         for i, h in enumerate(raw_headers):
             if h.strip():
-                valid_col_count = i + 1  # 最後の非空ヘッダーまで
+                valid_col_count = i + 1
         if valid_col_count == 0:
             return pd.DataFrame(columns=expected_cols)
         
@@ -128,33 +127,65 @@ def load_data():
         
         df = pd.DataFrame(rows, columns=headers)
         
-        # ── 旧「口座」列 → 新「口座区分」へのマイグレーション ──
-        def _normalize_account(row):
-            old_broker = str(row.get("口座", "")) if "口座" in row.index else ""
-            old_tax = str(row.get("口座区分", "")) if "口座区分" in row.index else ""
-            combined = old_broker + " " + old_tax
-            if old_tax in ACCOUNT_OPTIONS: return old_tax
-            if "NISA" in combined or "非課税" in combined:
-                if "積立" in combined: return "NISA(積立投資枠)"
-                return "NISA(成長投資枠)"
-            if "楽天" in combined: return "楽天証券"
-            if "野村" in combined or "持ち株" in combined: return "持ち株会(野村證券)"
-            if "SBI" in combined or old_broker.strip(): return "SBI証券"
-            return "SBI証券"
+        # ── マイグレーション: 旧形式に対応 ──
+        # パターン1: 「口座」のみ（旧v1形式: SBI, 楽天 等）→ 口座+口座区分に分離
+        # パターン2: 「口座区分」のみ（前回の統合形式: SBI証券, NISA(成長投資枠)等）→ 口座+口座区分に分離
+        # パターン3: 「口座」+「口座区分」両方あり → そのまま正規化
         
-        df["口座区分"] = df.apply(_normalize_account, axis=1)
-        if "口座" in df.columns:
-            df = df.drop(columns=["口座"])
+        has_broker = "口座" in df.columns
+        has_tax = "口座区分" in df.columns
+        
+        if has_tax and not has_broker:
+            # パターン2: 統合形式からの分離
+            def _split_unified(val):
+                val = str(val)
+                if "NISA" in val:
+                    tax = "NISA(積立投資枠)" if "積立" in val else "NISA(成長投資枠)"
+                    return "SBI証券", tax
+                if "楽天" in val: return "楽天証券", "特定口座"
+                if "野村" in val or "持ち株" in val: return "持ち株会(野村證券)", "特定口座"
+                if "SBI" in val: return "SBI証券", "特定口座"
+                return "SBI証券", "特定口座"
+            split = df["口座区分"].apply(_split_unified)
+            df["口座"] = split.apply(lambda x: x[0])
+            df["口座区分"] = split.apply(lambda x: x[1])
+        
+        elif has_broker and not has_tax:
+            # パターン1: 旧形式（口座のみ）
+            def _normalize_broker(val):
+                val = str(val)
+                if "楽天" in val: return "楽天証券"
+                if "野村" in val or "持ち株" in val: return "持ち株会(野村證券)"
+                return "SBI証券"
+            df["口座"] = df["口座"].apply(_normalize_broker)
+            df["口座区分"] = "特定口座"
+        
+        elif has_broker and has_tax:
+            # パターン3: 両方ある → 正規化のみ
+            def _norm_broker(val):
+                val = str(val)
+                if "楽天" in val: return "楽天証券"
+                if "野村" in val or "持ち株" in val: return "持ち株会(野村證券)"
+                if "SBI" in val: return "SBI証券"
+                return val if val.strip() else "SBI証券"
+            def _norm_tax(val):
+                val = str(val)
+                if "NISA" in val:
+                    if "積立" in val: return "NISA(積立投資枠)"
+                    return "NISA(成長投資枠)"
+                return "特定口座"
+            df["口座"] = df["口座"].apply(_norm_broker)
+            df["口座区分"] = df["口座区分"].apply(_norm_tax)
         
         # 不足列を補完
         for col in expected_cols:
             if col not in df.columns:
-                if col == "口座区分": df[col] = "SBI証券"
+                if col == "口座": df[col] = "SBI証券"
+                elif col == "口座区分": df[col] = "特定口座"
                 elif col == "手動配当利回り(%)": df[col] = 0.0
                 elif col == "配当月": df[col] = ""
                 else: df[col] = "-"
         
-        # 型変換
         df["銘柄コード"] = df["銘柄コード"].astype(str)
         df["銘柄名"] = df["銘柄名"].astype(str)
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
@@ -377,7 +408,7 @@ if not df.empty:
         for _, row in df.iterrows():
             ticker_code, market_type = str(row["銘柄コード"]), row["市場"]
             shares, buy_price_raw = float(row["保有株数"]), float(row["取得単価"])
-            tax_category = str(row.get("口座区分", "SBI証券"))
+            tax_category = str(row.get("口座区分", "特定口座"))
             manual_yield = float(row.get("手動配当利回り(%)", 0.0))
             div_month_str = str(row.get("配当月", ""))
 
@@ -521,11 +552,12 @@ with tab_pf:
         name = get_ticker_name(code, market)
         manual_name = st.text_input("銘柄名", value=name if market in ["日本株", "米国株"] else "", key="form_name")
 
-    r2a, r2b, r2c, r2d = st.columns([1, 1, 1, 1.5])
+    r2a, r2b, r2c, r2d, r2e = st.columns([1, 1, 1, 1, 1])
     with r2a: shares = st.number_input("保有数", min_value=0.0001, value=100.0, key="form_shares")
     with r2b: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0, key="form_price")
     with r2c: manual_div = st.number_input("手動利回り(%)", min_value=0.0, value=0.0, step=0.1, help="0=自動取得", key="form_div")
-    with r2d: account_type = st.selectbox("口座区分", ["SBI証券", "楽天証券", "持ち株会(野村證券)", "NISA(成長投資枠)", "NISA(積立投資枠)"], key="form_account")
+    with r2d: broker_type = st.selectbox("口座", ["SBI証券", "楽天証券", "持ち株会(野村證券)"], key="form_broker")
+    with r2e: tax_type = st.selectbox("口座区分", ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"], key="form_tax")
 
     r3a, r3b = st.columns([1.5, 3.5])
     with r3a: div_months = st.text_input("配当月 (例: 3,9)", placeholder="3,6,9,12", help="カンマ区切りで入力", key="form_divmonth")
@@ -535,7 +567,7 @@ with tab_pf:
         final_name = manual_name if manual_name else name
         new_data = pd.DataFrame({
             "銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
-            "保有株数": [shares], "取得単価": [avg_price], "口座区分": [account_type],
+            "保有株数": [shares], "取得単価": [avg_price], "口座": [broker_type], "口座区分": [tax_type],
             "手動配当利回り(%)": [manual_div], "配当月": [div_months],
             "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]
         })
@@ -552,28 +584,25 @@ with tab_pf:
         acct_map = {
             "SBI証券": "acct-sbi", "楽天証券": "acct-rakuten",
             "持ち株会(野村證券)": "acct-nomura",
-            "NISA(成長投資枠)": "acct-nisa-growth", "NISA(積立投資枠)": "acct-nisa-tsumitate",
         }
-        acct_groups = display_df.groupby("口座区分").agg({"評価額(円)": "sum", "税引後損益(円)": "sum", "予想配当(円)": "sum", "銘柄コード": "count"}).reset_index()
+        acct_groups = display_df.groupby("口座").agg({"評価額(円)": "sum", "税引後損益(円)": "sum", "予想配当(円)": "sum", "銘柄コード": "count"}).reset_index()
         n_accts = len(acct_groups)
-        acct_cols = st.columns(min(n_accts, 5)) if n_accts > 0 else []
+        acct_cols = st.columns(min(n_accts, 3)) if n_accts > 0 else []
         for i, (_, ag) in enumerate(acct_groups.iterrows()):
             with acct_cols[i % len(acct_cols)]:
-                badge_cls = acct_map.get(ag["口座区分"], "acct-other")
+                badge_cls = acct_map.get(ag["口座"], "acct-other")
                 pnl_color = "#00E676" if ag["税引後損益(円)"] >= 0 else "#FF5252"
                 pnl_sign = "+" if ag["税引後損益(円)"] >= 0 else ""
-                # 短縮表示名
-                short_name = ag["口座区分"].replace("証券", "").replace("(野村證券)", "")
                 st.markdown(f"""
                 <div class='status-card' style='padding:0.8rem'>
-                    <h4><span class='acct-badge {badge_cls}'>{short_name}</span> {int(ag['銘柄コード'])}銘柄</h4>
+                    <h4><span class='acct-badge {badge_cls}'>{ag['口座']}</span> {int(ag['銘柄コード'])}銘柄</h4>
                     <p class='mv' style='font-size:1.2rem'>{ag['評価額(円)']:,.0f}<span>円</span></p>
                     <p class='sv' style='color:{pnl_color}'>{pnl_sign}{ag['税引後損益(円)']:,.0f}円 · 配当 {ag['予想配当(円)']:,.0f}円</p>
                 </div>""", unsafe_allow_html=True)
 
-        # NISA合計 / 課税口座合計
+        # NISA / 特定口座の内訳
         nisa_df = display_df[display_df["口座区分"].str.contains("NISA", na=False)]
-        taxable_df = display_df[~display_df["口座区分"].str.contains("NISA", na=False)]
+        tokutei_df = display_df[~display_df["口座区分"].str.contains("NISA", na=False)]
         nc1, nc2 = st.columns(2)
         with nc1:
             nisa_val = nisa_df["評価額(円)"].sum() if not nisa_df.empty else 0
@@ -585,11 +614,11 @@ with tab_pf:
                 <p class='sv'>成長枠 {nisa_growth:,.0f}円 · 積立枠 {nisa_tsumitate:,.0f}円 · {len(nisa_df)}銘柄</p>
             </div>""", unsafe_allow_html=True)
         with nc2:
-            tok_val = taxable_df["評価額(円)"].sum() if not taxable_df.empty else 0
+            tok_val = tokutei_df["評価額(円)"].sum() if not tokutei_df.empty else 0
             st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #FF8F00'>
-                <h4>課税口座合計</h4>
+                <h4>特定口座合計（課税）</h4>
                 <p class='mv' style='font-size:1.1rem'>{tok_val:,.0f}<span>円</span></p>
-                <p class='sv'>{len(taxable_df)}銘柄</p>
+                <p class='sv'>{len(tokutei_df)}銘柄</p>
             </div>""", unsafe_allow_html=True)
 
     # 保有一覧
@@ -599,7 +628,7 @@ with tab_pf:
         def cpf(v): return f"color: {'#00E676' if v >= 0 else '#FF5252'}"
         def cpc(v): return "" if pd.isna(v) else f"color: {'#00E676' if v > 0 else '#FF5252' if v < 0 else '#E0E0E0'}"
         def fp(v): return "-" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
-        sc = ["銘柄コード","銘柄名","市場","口座区分","保有株数","取得単価(円)","現在値(円)","前日比","評価額(円)","税引後損益(円)","予想配当(円)"]
+        sc = ["銘柄コード","銘柄名","市場","口座","口座区分","保有株数","取得単価(円)","現在値(円)","前日比","評価額(円)","税引後損益(円)","予想配当(円)"]
         ac = [c for c in sc if c in display_df.columns]
         fd = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
         sdf = display_df[ac].style
@@ -612,7 +641,8 @@ with tab_pf:
     if not df.empty:
         with st.expander("✏️ 銘柄の修正・削除", expanded=False):
             edf = df.copy(); edf["削除"] = False
-            account_options = ["SBI証券", "楽天証券", "持ち株会(野村證券)", "NISA(成長投資枠)", "NISA(積立投資枠)"]
+            broker_options = ["SBI証券", "楽天証券", "持ち株会(野村證券)"]
+            tax_options = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
             market_options = ["日本株", "米国株", "投資信託", "その他資産"]
             edited = st.data_editor(
                 edf,
@@ -620,9 +650,14 @@ with tab_pf:
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "口座": st.column_config.SelectboxColumn(
+                        "口座",
+                        options=broker_options,
+                        required=True,
+                    ),
                     "口座区分": st.column_config.SelectboxColumn(
                         "口座区分",
-                        options=account_options,
+                        options=tax_options,
                         required=True,
                     ),
                     "市場": st.column_config.SelectboxColumn(
