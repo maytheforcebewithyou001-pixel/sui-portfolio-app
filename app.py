@@ -576,13 +576,14 @@ with st.expander("🌍 世界の主要指標 ＆ トレンド", expanded=False):
     period_map_idx = {"1週間前": "5d", "1ヶ月前": "1mo", "3ヶ月前": "3mo", "1年前": "1y"}
     selected_period = period_map_idx[period_idx_label]
 
-   indices_dict = {
+    indices_dict = {
         "日経平均": "^N225", "日経先物": "NIY=F", "TOPIX": "1306.T", 
         "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC",
-        "ドル円": "JPY=X" # ★追加
+        "ドル円": "JPY=X"
     }
     
     with st.spinner("指標データを計算中..."):
+# （これ以降はそのまま...）
         indices_closes = get_cached_market_data(list(indices_dict.values()), period=selected_period)
         
         items = list(indices_dict.items())
