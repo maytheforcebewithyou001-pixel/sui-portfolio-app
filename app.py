@@ -383,27 +383,64 @@ if total_asset > 0:
             st.info("まだ履歴データがありません。右上の「本日の総資産額を記録」ボタンを押して最初のデータを記録してください。")
 
 # ==========================================
-# 📈 分析 ＆ ヒートマップ
+# 📊 ポートフォリオ分析 ＆ ヒートマップ
 # ==========================================
 if not df.empty and total_asset > 0:
     with st.expander("📊 ポートフォリオ分析 ＆ ヒートマップ", expanded=True):
         
-        pie_col1, pie_col2 = st.columns(2)
-        with pie_col1:
-            st.markdown("#### 🍩 銘柄別割合")
-            display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
+        display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
+        
+        # ------------------------------------------
+        # 1. 銘柄別割合 (左: 円グラフ / 右: リスト)
+        # ------------------------------------------
+        st.markdown("#### 🍩 銘柄別割合")
+        row1_col1, row1_col2 = st.columns([1.2, 1]) # 左のグラフを少し広めに設定
+        
+        with row1_col1:
             fig_pie1 = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
             fig_pie1.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False, margin=dict(t=10, b=10))
             st.plotly_chart(fig_pie1, use_container_width=True)
+            
+        with row1_col2:
+            # 右側に表示する美しいリストの生成
+            ticker_list_df = display_df[display_df["評価額(円)"] > 0].groupby("円グラフ表示名", as_index=False)["評価額(円)"].sum()
+            ticker_list_df = ticker_list_df.sort_values(by="評価額(円)", ascending=False)
+            ticker_list_df["割合"] = (ticker_list_df["評価額(円)"] / total_asset * 100).apply(lambda x: f"{x:.1f}%")
+            ticker_list_df["評価額(円)"] = ticker_list_df["評価額(円)"].apply(lambda x: f"{int(x):,}円")
+            ticker_list_df.rename(columns={"円グラフ表示名": "銘柄"}, inplace=True)
+            
+            st.write("\n\n") # 高さの微調整
+            st.dataframe(ticker_list_df, use_container_width=True, hide_index=True)
 
-        with pie_col2:
-            st.markdown("#### 🏢 セクター(業種)別割合")
+        st.markdown("<hr style='border-top: 1px dashed #1E232F; margin: 1rem 0;'>", unsafe_allow_html=True)
+        
+        # ------------------------------------------
+        # 2. セクター(業種)別割合 (左: 円グラフ / 右: リスト)
+        # ------------------------------------------
+        st.markdown("#### 🏢 セクター(業種)別割合")
+        row2_col1, row2_col2 = st.columns([1.2, 1])
+        
+        with row2_col1:
             fig_pie2 = px.pie(display_df, values="評価額(円)", names="セクター", hole=0.4)
             fig_pie2.update_traces(textposition='inside', textinfo='percent+label')
             fig_pie2.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False, margin=dict(t=10, b=10))
             st.plotly_chart(fig_pie2, use_container_width=True)
+            
+        with row2_col2:
+            # 右側に表示する美しいリストの生成
+            sector_list_df = display_df[display_df["評価額(円)"] > 0].groupby("セクター", as_index=False)["評価額(円)"].sum()
+            sector_list_df = sector_list_df.sort_values(by="評価額(円)", ascending=False)
+            sector_list_df["割合"] = (sector_list_df["評価額(円)"] / total_asset * 100).apply(lambda x: f"{x:.1f}%")
+            sector_list_df["評価額(円)"] = sector_list_df["評価額(円)"].apply(lambda x: f"{int(x):,}円")
+            
+            st.write("\n\n")
+            st.dataframe(sector_list_df, use_container_width=True, hide_index=True)
 
         st.markdown("---")
+        
+        # ------------------------------------------
+        # 3. マーケット・ヒートマップ
+        # ------------------------------------------
         st.markdown("#### 🗺️ マーケット・ヒートマップ (本日)")
         st.caption("※四角の大きさが「評価額」、色が「本日の値動き(緑=プラス、赤=マイナス)」を表しています。")
         st.caption("※手動入力資産（投資信託、その他資産）は除外しています。")
@@ -539,9 +576,10 @@ with st.expander("🌍 世界の主要指標 ＆ トレンド", expanded=False):
     period_map_idx = {"1週間前": "5d", "1ヶ月前": "1mo", "3ヶ月前": "3mo", "1年前": "1y"}
     selected_period = period_map_idx[period_idx_label]
 
-    indices_dict = {
+   indices_dict = {
         "日経平均": "^N225", "日経先物": "NIY=F", "TOPIX": "1306.T", 
-        "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC"
+        "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC",
+        "ドル円": "JPY=X" # ★追加
     }
     
     with st.spinner("指標データを計算中..."):
