@@ -45,6 +45,10 @@ def load_data():
             if col not in df.columns:
                 df[col] = "-"
         
+        # ★修正：文字の足し算でエラーが出ないよう、文字型（str）に強制変換
+        df["銘柄コード"] = df["銘柄コード"].astype(str)
+        df["銘柄名"] = df["銘柄名"].astype(str)
+        
         # 数値への変換
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
         df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
@@ -67,8 +71,6 @@ def save_data(df):
     except Exception as e:
         st.error(f"スプレッドシートへの保存に失敗しました。詳細: {e}")
 
-# --------------------------------------------------------
-# 以下のコードは前回と全く同じです（グラフやUIの処理）
 # --------------------------------------------------------
 
 def get_ticker_name(code, market_type):
@@ -150,7 +152,7 @@ if not df.empty:
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
         
         for index, row in df.iterrows():
-            ticker_code, market_type = row["銘柄コード"], row["市場"]
+            ticker_code, market_type = str(row["銘柄コード"]), row["市場"]
             shares, buy_price_raw = float(row["保有株数"]), float(row["取得単価"])
             fetch_success = False
             dod_pct = mom_pct = yoy_pct = None
@@ -202,7 +204,7 @@ if not df.empty:
             yoy_list.append(yoy_pct)
             
             if fetch_success: update_dates.append(now_str)
-            else: update_dates.append(row.get("最新更新日", "-"))
+            else: update_dates.append(str(row.get("最新更新日", "-")))
                 
         df["最新更新日"] = update_dates
         save_data(df)
@@ -267,7 +269,8 @@ if not df.empty:
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
         st.markdown("### 🍩 ポートフォリオ割合")
-        display_df["円グラフ表示名"] = display_df["銘柄コード"] + " " + display_df["銘柄名"]
+        # ★修正：文字列（str）に変換してから結合するように安全対策を追加
+        display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
         fig_pie = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
         fig_pie.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False)
         st.plotly_chart(fig_pie, use_container_width=True)
