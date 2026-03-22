@@ -67,12 +67,22 @@ def save_data(df):
     except Exception as e:
         st.error(f"スプレッドシートへの保存に失敗しました。詳細: {e}")
 
-# --- 未来の資産推移シミュレーション関数 ---
-def get_future_simulation(current_asset, annual_rate, years):
+# --- ★新規：積立金額を含めた未来の資産推移シミュレーション関数 ---
+def get_future_simulation(current_asset, annual_rate, years, monthly_addition):
     months = years * 12
+    monthly_rate = annual_rate / 12
     today = datetime.now()
-    dates = [today + pd.DateOffset(months=i) for i in range(months + 1)]
-    values = [current_asset * ((1 + annual_rate) ** (i / 12)) for i in range(months + 1)]
+    
+    dates = []
+    values = []
+    current_val = current_asset
+    
+    for i in range(months + 1):
+        dates.append(today + pd.DateOffset(months=i))
+        values.append(current_val)
+        # 次の月の計算（現在の額に月利を掛け、毎月の積立額を足す）
+        current_val = current_val * (1 + monthly_rate) + monthly_addition
+        
     return pd.DataFrame({"日時": dates, "予測評価額(円)": values})
 
 # --------------------------------------------------------
@@ -142,13 +152,17 @@ with header_col3:
 
 st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 0 0 1rem 0;'>", unsafe_allow_html=True)
 
-slider_col1, slider_col2, _ = st.columns([1, 1, 1])
+# --- ★設定エリアに「毎月の積立額」を追加 ---
+slider_col1, slider_col2, slider_col3 = st.columns([1, 1, 1])
 with slider_col1:
     goal_oku = st.slider("🎯 目標金額を設定 (億円)", min_value=0.5, max_value=10.0, value=1.5, step=0.1)
     goal_amount = goal_oku * 1e8
 with slider_col2:
     interest_rate_pct = st.slider("📈 想定年利 (%)", min_value=1.0, max_value=20.0, value=5.0, step=0.5)
     interest_rate = interest_rate_pct / 100.0
+with slider_col3:
+    monthly_add_man = st.number_input("💰 毎月の積立額 (万円)", min_value=0, value=10, step=1)
+    monthly_add = monthly_add_man * 10000
 
 if not df.empty:
     with st.spinner('各銘柄の最新データを取得・計算中...'):
@@ -244,11 +258,10 @@ with card_col4: st.markdown(f"<div class='status-card card-count'><h4>銘柄数<
 if total_asset > 0:
     st.markdown("---")
     st.markdown("### 📈 未来の資産推移シミュレーション")
-    st.caption("※今日を起点とし、現在の評価額が上の「想定年利」で運用できた場合の未来予測（複利計算）です。")
+    st.caption("※現在の評価額に「想定年利（複利）」と「毎月の積立額」を加味した未来予測です。")
     
-    # ここを改行してエラーが起きにくくしました
     period_label_future = st.select_slider(
-        "シミュレーション期間", 
+        "シミュレーション期間を選択してください", 
         options=["1年後", "3年後", "5年後", "10年後", "20年後", "30年後"], 
         value="10年後"
     )
@@ -256,7 +269,8 @@ if total_asset > 0:
     years_map = {"1年後": 1, "3年後": 3, "5年後": 5, "10年後": 10, "20年後": 20, "30年後": 30}
     years = years_map[period_label_future]
 
-    sim_df_line = get_future_simulation(total_asset, interest_rate, years)
+    # ★積立額を含めてシミュレーション実行
+    sim_df_line = get_future_simulation(total_asset, interest_rate, years, monthly_add)
 
     fig_future = go.Figure()
     
@@ -380,8 +394,7 @@ if not df.empty:
         .format(format_dict)
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-
-# --- 世界の主要指標 段落分け＆1ヶ月線グラフ ---
+# --- ★世界の主要指標 本格チャート（グリッド線・金額・日付追加） ---
 st.markdown("---")
 st.markdown("### 🌍 世界の主要指標 (直近1ヶ月の推移)")
 st.caption("※各パネルのグラフは過去1ヶ月間の値動きを表しています。左側に最新値が表示されます。")
@@ -424,7 +437,7 @@ with st.spinner("主要指標の最新データを取得中..."):
                             
                             with text_col:
                                 st.markdown(f"""
-                                    <div style='display:flex; flex-direction:column; justify-content:center; height:100px;'>
+                                    <div style='display:flex; flex-direction:column; justify-content:center; height:150px;'>
                                         <p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p>
                                         <p style='color:#FFFFFF; margin:5px 0 0 0; font-size:1.4rem; font-weight:bold;'>{latest_close:,.2f}</p>
                                         <p style='color:{color}; margin:0 0 5px 0; font-size:13px; font-weight:bold;'>{sign}{diff:,.2f}<br>({sign}{pct_change:.2f}%)</p>
@@ -443,11 +456,19 @@ with st.spinner("主要指標の最新データを取得中..."):
                                 y_max, y_min = hist['Close'].max(), hist['Close'].min()
                                 y_margin = (y_max - y_min) * 0.1 if y_max != y_min else latest_close * 0.1
                                 
+                                # ★画像のような本格的な軸とグリッド線の設定
                                 fig_mini.update_layout(
                                     plot_bgcolor='#12161E', paper_bgcolor='#12161E', 
-                                    margin=dict(l=0, r=0, t=10, b=10), height=100,
-                                    xaxis=dict(showgrid=False, visible=False),
-                                    yaxis=dict(showgrid=False, zeroline=False, range=[y_min - y_margin, y_max + y_margin], visible=False),
+                                    margin=dict(l=45, r=10, t=10, b=30), height=180, # 高さと余白を調整
+                                    xaxis=dict(
+                                        showgrid=True, gridcolor='#2B3240', griddash='dot', 
+                                        visible=True, tickformat='%m/%d', tickfont=dict(color='#9E9E9E', size=10)
+                                    ),
+                                    yaxis=dict(
+                                        showgrid=True, gridcolor='#2B3240', griddash='dot', 
+                                        visible=True, side='left', tickformat=',', tickfont=dict(color='#9E9E9E', size=10),
+                                        range=[y_min - y_margin, y_max + y_margin]
+                                    ),
                                     showlegend=False
                                 )
                                 st.plotly_chart(fig_mini, use_container_width=True, config={'displayModeBar': False})
