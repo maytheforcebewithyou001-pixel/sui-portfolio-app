@@ -746,11 +746,11 @@ with tab_an:
 with tab_div:
     if not df.empty and total_asset > 0 and not display_df.empty:
         st.markdown("#### 💰 月別配当カレンダー")
-        st.caption("各銘柄の「配当月」に基づいて月別の予想配当を表示します。銘柄追加時に配当月を入力してください。")
+        st.caption("各月をクリックすると銘柄ごとの配当額が確認できます。")
 
-        # 月別配当集計
+        # 月別配当集計（銘柄ごとの金額も保持）
         monthly_dividends = {m: 0 for m in range(1, 13)}
-        monthly_stocks = {m: [] for m in range(1, 13)}
+        monthly_detail = {m: [] for m in range(1, 13)}  # [(銘柄名, 金額), ...]
 
         for _, row in display_df.iterrows():
             div_amount = row.get("予想配当(円)", 0)
@@ -762,35 +762,80 @@ with tab_div:
                     for m in months_list:
                         if 1 <= m <= 12:
                             monthly_dividends[m] += per_payment
-                            monthly_stocks[m].append(str(row["銘柄名"]))
+                            monthly_detail[m].append({
+                                "銘柄": f"{row['銘柄コード']} {row['銘柄名']}",
+                                "配当額": per_payment,
+                            })
                 except:
                     pass
 
-        # カレンダー表示（3列×4行）
+        # カレンダー表示（4列×3行）
         total_calendar_div = sum(monthly_dividends.values())
-        month_names = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
+        month_names = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"]
+        
         for row_start in range(0, 12, 4):
             cols = st.columns(4)
             for i in range(4):
                 m = row_start + i + 1
                 with cols[i]:
                     amt = monthly_dividends[m]
-                    cls = "div-month-active" if amt > 0 else "div-month-empty"
-                    stocks_str = ", ".join(monthly_stocks[m][:3])
-                    if len(monthly_stocks[m]) > 3:
-                        stocks_str += f" 他{len(monthly_stocks[m])-3}"
-                    st.markdown(f"""
-                    <div class='div-month {cls}'>
-                        <span class='month-label'>{month_names[m-1]}</span>
-                        <span class='month-amount'>{"¥{:,.0f}".format(amt) if amt > 0 else "—"}</span>
-                        <div style='font-size:0.65rem;color:#7A8A9A;margin-top:2px'>{stocks_str if amt > 0 else ""}</div>
-                    </div>""", unsafe_allow_html=True)
+                    details = monthly_detail[m]
+                    
+                    if amt > 0:
+                        # ★ クリックで明細が開くポップオーバー
+                        with st.popover(f"📅 {month_names[m-1]}", use_container_width=True):
+                            st.markdown(f"**{month_names[m-1]}の配当明細**")
+                            st.markdown(f"**合計: ¥{amt:,.0f}**")
+                            st.markdown("---")
+                            # 銘柄ごとの明細テーブル
+                            for d in sorted(details, key=lambda x: x["配当額"], reverse=True):
+                                pct_of_month = (d["配当額"] / amt * 100) if amt > 0 else 0
+                                st.markdown(f"""
+                                <div style='display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1E232F;font-size:0.85rem'>
+                                    <span style='color:#B0B8C0'>{d['銘柄']}</span>
+                                    <span style='color:#FFD54F;font-weight:bold'>¥{d['配当額']:,.0f}</span>
+                                </div>""", unsafe_allow_html=True)
+                        
+                        # ポップオーバーの下に金額サマリー表示
+                        st.markdown(f"""
+                        <div style='text-align:center;margin-top:-8px;margin-bottom:8px'>
+                            <span style='color:#FFD54F;font-weight:bold;font-size:0.9rem'>¥{amt:,.0f}</span>
+                            <span style='color:#7A8A9A;font-size:0.65rem;display:block'>{len(details)}銘柄</span>
+                        </div>""", unsafe_allow_html=True)
+                    else:
+                        # 配当なしの月
+                        st.markdown(f"""
+                        <div class='div-month div-month-empty'>
+                            <span class='month-label'>{month_names[m-1]}</span>
+                            <span class='month-amount'>—</span>
+                        </div>""", unsafe_allow_html=True)
 
         st.markdown("---")
+        
+        # 年間サマリー
         if total_calendar_div > 0:
-            st.markdown(f"**カレンダー配当合計: ¥{total_calendar_div:,.0f}** （配当月が未入力の銘柄は含まれません）")
+            sum_c1, sum_c2, sum_c3 = st.columns(3)
+            with sum_c1:
+                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #FFD54F'>
+                    <h4>年間配当合計</h4>
+                    <p class='mv' style='font-size:1.2rem'>¥{total_calendar_div:,.0f}</p>
+                </div>""", unsafe_allow_html=True)
+            with sum_c2:
+                monthly_avg = total_calendar_div / 12
+                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #00D2FF'>
+                    <h4>月平均</h4>
+                    <p class='mv' style='font-size:1.2rem'>¥{monthly_avg:,.0f}</p>
+                </div>""", unsafe_allow_html=True)
+            with sum_c3:
+                active_months = sum(1 for v in monthly_dividends.values() if v > 0)
+                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #69F0AE'>
+                    <h4>配当発生月</h4>
+                    <p class='mv' style='font-size:1.2rem'>{active_months}<span>/12ヶ月</span></p>
+                </div>""", unsafe_allow_html=True)
+            
+            st.caption("※ カレンダーの金額は配当月が入力されている銘柄のみ。未入力の銘柄は含まれません。")
         else:
-            st.info("配当月が入力されている銘柄がありません。銘柄追加時に「配当月」欄に 3,9 のように入力してください。")
+            st.info("配当月が入力されている銘柄がありません。「✏️ 銘柄の修正・削除」から配当月（例: 3,9）を入力してください。")
 
         # 配当ランキング
         st.markdown("---")
