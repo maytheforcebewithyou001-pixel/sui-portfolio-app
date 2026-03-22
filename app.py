@@ -41,8 +41,6 @@ def get_cached_market_data(tickers, period="1y"):
     except:
         return pd.DataFrame()
 
-# ★修正：配当金の計算を「利回り」から「1株あたりの現金(Rate)」に変更して正確に！
-# さらに、異常な利回りを無視するガードを追加。
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_cached_ticker_info(tickers):
     info_dict = {}
@@ -56,14 +54,9 @@ def get_cached_ticker_info(tickers):
         if t == "JPY=X": continue
         try:
             info = yf.Ticker(t).info
-            # 1株あたりの配当額（現金）を最優先で取得
             div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0.0
-            
-            # 利回りを取得。Yahoo Financeのデータ誤りに備えガード。
             div_yield = info.get("trailingAnnualDividendYield") or info.get("dividendYield") or 0.0
-            # 異常な利回り（例えば20%以上）は信頼しない
-            if div_yield > 0.2: div_yield = 0.0
-            
+            if div_yield > 0.2: div_yield = 0.0 # 異常な利回りを除外
             sec = info.get("sector") or "ETF/その他"
             info_dict[t] = {
                 "sector": sector_map.get(sec, sec), 
@@ -75,22 +68,26 @@ def get_cached_ticker_info(tickers):
     return info_dict
 
 # ==========================================
-# データ読み書き ＆ ヘルパー関数
+# 📊 データ読み書き ＆ ヘルパー関数
 # ==========================================
 def load_data():
     gc = init_gspread()
-    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "最新更新日"]
+    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "最新更新日"]
     if gc is None: return pd.DataFrame(columns=expected_cols)
     try:
         sh = gc.open("PortfolioData") 
         data = sh.sheet1.get_all_records()
         df = pd.DataFrame(data) if data else pd.DataFrame(columns=expected_cols)
         for col in expected_cols:
-            if col not in df.columns: df[col] = "特定口座" if col == "口座区分" else "-"
+            if col not in df.columns: 
+                if col == "口座区分": df[col] = "特定口座"
+                elif col == "手動配当利回り(%)": df[col] = 0.0
+                else: df[col] = "-"
         df["銘柄コード"] = df["銘柄コード"].astype(str)
         df["銘柄名"] = df["銘柄名"].astype(str)
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
         df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
+        df["手動配当利回り(%)"] = pd.to_numeric(df["手動配当利回り(%)"], errors='coerce').fillna(0.0)
         return df
     except:
         return pd.DataFrame(columns=expected_cols)
@@ -103,6 +100,31 @@ def save_data(df):
         sh.sheet1.clear()
         save_df = df.fillna("")
         sh.sheet1.update([save_df.columns.values.tolist()] + save_df.values.tolist())
+    except:
+        pass
+
+def load_history():
+    gc = init_gspread()
+    if gc is None: return pd.DataFrame(columns=["日付", "総資産額(円)"])
+    try:
+        sh = gc.open("PortfolioData")
+        try:
+            worksheet = sh.worksheet("HistoryData")
+        except:
+            worksheet = sh.add_worksheet(title="HistoryData", rows="1000", cols="2")
+            worksheet.append_row(["日付", "総資産額(円)"])
+        data = worksheet.get_all_records()
+        return pd.DataFrame(data) if data else pd.DataFrame(columns=["日付", "総資産額(円)"])
+    except:
+        return pd.DataFrame(columns=["日付", "総資産額(円)"])
+
+def save_history(date_str, total_asset):
+    gc = init_gspread()
+    if gc is None: return
+    try:
+        sh = gc.open("PortfolioData")
+        worksheet = sh.worksheet("HistoryData")
+        worksheet.append_row([date_str, total_asset])
     except:
         pass
 
@@ -180,7 +202,7 @@ st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 0 0 1rem 0;'>", u
 # ==========================================
 # ⚙️ 目標・シミュレーション設定
 # ==========================================
-with st.expander("⚙️ 目標・シミュレーション設定", expanded=True):
+with st.expander("⚙️ 目標・シミュレーション設定", expanded=False):
     slider_col1, slider_col2, slider_col3 = st.columns([1, 1, 1])
     with slider_col1:
         goal_oku = st.slider("🎯 目標金額を設定 (億円)", min_value=0.5, max_value=10.0, value=1.2, step=0.1)
@@ -193,7 +215,7 @@ with st.expander("⚙️ 目標・シミュレーション設定", expanded=True
         yearly_add = yearly_add_man * 10000
 
 # ==========================================
-# 📊 データ一括処理 ＆ 計算（配当・税金含む）
+# 📊 データ一括処理 ＆ 計算
 # ==========================================
 df = load_data()
 
@@ -216,13 +238,14 @@ if not df.empty:
             jpy_usd_rate = 150.0
 
         current_prices_jpy, total_values, profits, net_profits, dividends, buy_prices_jpy, update_dates = [], [], [], [], [], [], []
-        dod_list, mom_list, yoy_list, sector_list = [], [], [], []
+        dod_list, mom_list, yoy_list, sector_list, manual_yield_list = [], [], [], [], []
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
         
         for index, row in df.iterrows():
             ticker_code, market_type = str(row["銘柄コード"]), row["市場"]
             shares, buy_price_raw = float(row["保有株数"]), float(row["取得単価"])
             tax_category = str(row.get("口座区分", "特定口座"))
+            manual_yield = float(row.get("手動配当利回り(%)", 0.0))
             
             fetch_success = False
             dod_pct = mom_pct = yoy_pct = None
@@ -230,7 +253,6 @@ if not df.empty:
             
             t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
             
-            # 業種と配当情報を取り出す
             sector = info_dict.get(t, {}).get("sector", "手動入力/その他")
             div_rate = info_dict.get(t, {}).get("div_rate", 0.0)
             div_yield = info_dict.get(t, {}).get("div_yield", 0.0)
@@ -262,8 +284,9 @@ if not df.empty:
             buy_total = buy_jpy * shares
             profit = value - buy_total
             
-            # ★修正：配当金の超・正確な計算（1株配当 × 株数）
-            if div_rate > 0:
+            if manual_yield > 0:
+                dividend = value * (manual_yield / 100.0)
+            elif div_rate > 0:
                 if market_type == "日本株":
                     dividend = div_rate * shares
                 elif market_type == "米国株":
@@ -271,7 +294,6 @@ if not df.empty:
                 else:
                     dividend = value * div_yield
             else:
-                # 取得できなかった場合のみ、評価額×利回りで代替計算
                 dividend = value * div_yield
             
             tax_rate = 0.0 if "NISA" in tax_category else 0.20315
@@ -288,6 +310,7 @@ if not df.empty:
             mom_list.append(mom_pct)
             yoy_list.append(yoy_pct)
             sector_list.append(sector)
+            manual_yield_list.append(manual_yield)
             update_dates.append(now_str if fetch_success else str(row.get("最新更新日", "-")))
                 
         df["最新更新日"] = update_dates
@@ -303,6 +326,7 @@ if not df.empty:
         display_df["含み損益(円)"] = profits
         display_df["税引後損益(円)"] = net_profits
         display_df["予想配当(円)"] = dividends
+        display_df["手動配当利回り(%)"] = manual_yield_list
         
         total_asset = sum(total_values)
         total_net_profit = sum(net_profits)
@@ -329,13 +353,41 @@ with card_col4:
     st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 📈 分析 ＆ ヒートマップ (修正版)
+# 📈 過去の資産推移グラフ (履歴保存)
+# ==========================================
+if total_asset > 0:
+    with st.expander("📈 過去の資産推移", expanded=True):
+        hist_col1, hist_col2 = st.columns([4, 1])
+        with hist_col1:
+            st.markdown("#### 📅 資産額の推移")
+        with hist_col2:
+            st.write("\n")
+            if st.button("💾 本日の総資産額を記録", use_container_width=True):
+                today_str = datetime.now().strftime("%Y/%m/%d")
+                save_history(today_str, total_asset)
+                st.success(f"{today_str} の資産額を記録しました！")
+                st.rerun()
+        
+        history_df = load_history()
+        if not history_df.empty and len(history_df) > 0:
+            fig_hist = px.line(history_df, x="日付", y="総資産額(円)", markers=True)
+            fig_hist.update_traces(line_color="#00E676", marker=dict(size=8, color="#FFFFFF"))
+            fig_hist.update_layout(
+                plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', 
+                margin=dict(t=10, b=10, l=10, r=10), height=350,
+                xaxis=dict(showgrid=True, gridcolor='#1E232F'), 
+                yaxis=dict(showgrid=True, gridcolor='#1E232F', tickformat=",")
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
+        else:
+            st.info("まだ履歴データがありません。右上の「本日の総資産額を記録」ボタンを押して最初のデータを記録してください。")
+
+# ==========================================
+# 📈 分析 ＆ ヒートマップ
 # ==========================================
 if not df.empty and total_asset > 0:
-    with st.expander("📈 ポートフォリオ分析 ＆ ヒートマップ", expanded=True):
+    with st.expander("📊 ポートフォリオ分析 ＆ ヒートマップ", expanded=True):
         
-        # (円グラフ部分は変更なし)
-        # ...
         pie_col1, pie_col2 = st.columns(2)
         with pie_col1:
             st.markdown("#### 🍩 銘柄別割合")
@@ -353,24 +405,18 @@ if not df.empty and total_asset > 0:
 
         st.markdown("---")
         st.markdown("#### 🗺️ マーケット・ヒートマップ (本日)")
-        st.caption("※四角の大きさが「評価額」、色が「本日の値動き(緑=プラス、赤=マイナス)」を表しています。クリックで拡大できます。")
-        # ★修正：手動入力資産（投資信託、その他資産）は前日比データがないため除外する説明を追加
+        st.caption("※四角の大きさが「評価額」、色が「本日の値動き(緑=プラス、赤=マイナス)」を表しています。")
         st.caption("※手動入力資産（投資信託、その他資産）は除外しています。")
         
-        # ★修正：ヒートマップ表示のバグ防止（評価額0円と手動入力資産を除外し、確実な階層を作成）
-        # ヒートマップは市場（日本株、米国株）のみを対象とする
         tree_df = display_df[(display_df["市場"].isin(["日本株", "米国株"])) & (display_df["評価額(円)"] > 0)].copy()
         
         if not tree_df.empty:
-            # 階層構造：市場 -> セクター -> 銘柄
-            # エラー原因だった"全体"を削除
             tree_df["前日比(数値)"] = tree_df["前日比"].apply(lambda x: x if pd.notna(x) else 0.0)
             tree_df["Treemap Label"] = tree_df["銘柄名"].astype(str) + "<br>" + tree_df["前日比(数値)"].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
             
-            # ★修正：文字色を黒にしてコントラストを確保（黄色背景対策）
             fig_tree = px.treemap(
                 tree_df,
-                path=["市場", "セクター", "Treemap Label"], # 階層を適切に
+                path=["市場", "セクター", "Treemap Label"],
                 values="評価額(円)",
                 color="前日比(数値)",
                 color_continuous_scale="RdYlGn",
@@ -378,7 +424,6 @@ if not df.empty and total_asset > 0:
                 hover_data=["含み損益(円)", "予想配当(円)"]
             )
             fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10), height=500, paper_bgcolor='#0A0E13')
-            # 文字色を黒に設定
             fig_tree.data[0].textfont.color = "black"
             st.plotly_chart(fig_tree, use_container_width=True)
         else:
@@ -388,7 +433,7 @@ if not df.empty and total_asset > 0:
 # 🚀 未来シミュレーション
 # ==========================================
 if not df.empty and total_asset > 0:
-    with st.expander("🚀 ゴール逆算 ＆ 未来シミュレーション", expanded=True):
+    with st.expander("🚀 ゴール逆算 ＆ 未来シミュレーション", expanded=False):
         st.markdown(f"#### 🎯 {goal_oku}億円ゴール 年間必要積立額 (年利{interest_rate_pct}%)")
         years_list, pmts = [10, 15, 20, 25, 30], []
         for y in years_list:
@@ -421,11 +466,9 @@ if not df.empty and total_asset > 0:
 # ==========================================
 # 📌 銘柄の追加・修正・一覧
 # ==========================================
-with st.expander("📌 銘柄データの登録・修正・一覧", expanded=False): # ここも最初は閉じておきます
+with st.expander("📌 銘柄データの登録・修正・一覧", expanded=False):
     st.markdown("#### ➕ 新規追加")
     
-    # ▼ スマホでも崩れないように、入力を2段に分割 ▼
-    # 【1段目】銘柄の基本情報
     row1_c1, row1_c2, row1_c3 = st.columns([1, 1, 2])
     with row1_c1: market = st.selectbox("市場", ["日本株", "米国株", "投資信託", "その他資産"])
     with row1_c2: code = st.text_input("証券コード", placeholder="例: 7203")
@@ -433,16 +476,14 @@ with st.expander("📌 銘柄データの登録・修正・一覧", expanded=Fal
         name = get_ticker_name(code, market)
         manual_name = st.text_input("銘柄名", value=name if market in ["日本株", "米国株"] else "")
 
-    # 【2段目】保有状況
-    row2_c1, row2_c2, row2_c3, row2_c4 = st.columns([1, 1, 1, 1.5])
+    row2_c1, row2_c2, row2_c3, row2_c4, row2_c5 = st.columns([1, 1, 1, 1.2, 1.2])
     with row2_c1: shares = st.number_input("保有数", min_value=0.0001, value=100.0)
     with row2_c2: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0)
-    with row2_c3: account_type = st.selectbox("証券会社", ["SBI", "楽天", "マネックス", "その他"])
-    with row2_c4: tax_type = st.selectbox("口座区分", ["特定口座(課税)", "NISA口座(非課税)"])
+    with row2_c3: manual_div = st.number_input("手動利回り(%)", min_value=0.0, value=0.0, step=0.1, help="0なら自動取得")
+    with row2_c4: account_type = st.selectbox("証券会社", ["SBI", "楽天", "マネックス", "その他"])
+    with row2_c5: tax_type = st.selectbox("口座区分", ["特定口座(課税)", "NISA口座(非課税)"])
 
     st.write("\n")
-    
-    # ボタンの配置（モバイルでも押しやすいように少し幅広に）
     btn_col1, btn_col2 = st.columns([1, 4])
     with btn_col1:
         if st.button("＋ 追加", use_container_width=True) and code:
@@ -450,7 +491,9 @@ with st.expander("📌 銘柄データの登録・修正・一覧", expanded=Fal
             now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
             new_data = pd.DataFrame({
                 "銘柄コード": [code], "銘柄名": [final_name], "市場": [market], 
-                "保有株数": [shares], "取得単価": [avg_price], "口座": [account_type], "口座区分": [tax_type], "最新更新日": [now_str]
+                "保有株数": [shares], "取得単価": [avg_price], "口座": [account_type], "口座区分": [tax_type], 
+                "手動配当利回り(%)": [manual_div],
+                "最新更新日": [now_str]
             })
             df = pd.concat([df, new_data], ignore_index=True)
             save_data(df)
@@ -460,12 +503,38 @@ with st.expander("📌 銘柄データの登録・修正・一覧", expanded=Fal
 
     if not df.empty:
         st.markdown("---")
-        # ... 以降の「✏️ 修正・削除」ブロックは変更なし ...
+        st.markdown("#### ✏️ 修正・削除")
+        
+        edit_df = df.copy()
+        edit_df["削除"] = False 
+        
+        edit_col1, edit_col2 = st.columns([6, 1])
+        with edit_col1:
+            edited_df = st.data_editor(edit_df, num_rows="dynamic", use_container_width=True, hide_index=True)
+        with edit_col2:
+            st.write("\n\n")
+            if st.button("💾 変更・削除を保存"):
+                df_to_save = edited_df[edited_df["削除"] == False].drop(columns=["削除"])
+                save_data(df_to_save)
+                st.cache_data.clear()
+                st.success("更新しました！")
+                st.rerun()
+
+        st.markdown("#### 📊 ポートフォリオ詳細一覧")
+        def color_profit(val): return f"color: {'#00E676' if val >= 0 else '#FF1744'}"
+        def color_pct(val): return "" if pd.isna(val) else f"color: {'#00E676' if val > 0 else '#FF1744' if val < 0 else '#E0E0E0'}"
+        def format_pct(val): return "-" if pd.isna(val) else (f"+{val:.1f}%" if val > 0 else f"{val:.1f}%")
+        
+        show_cols = ["銘柄コード", "銘柄名", "市場", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "前日比", "評価額(円)", "税引後損益(円)", "手動配当利回り(%)", "予想配当(円)"]
+        format_dict = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": format_pct, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
+        
+        styled_df = display_df[show_cols].style.applymap(color_profit, subset=['税引後損益(円)']).applymap(color_pct, subset=['前日比']).format(format_dict)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # ==========================================
-# 🌍 世界の主要指標 (一括キャッシュ取得)
+# 🌍 世界の主要指標 
 # ==========================================
-with st.expander("🌍 世界の主要指標 ＆ トレンド", expanded=True):
+with st.expander("🌍 世界の主要指標 ＆ トレンド", expanded=False):
     period_idx_label = st.selectbox("チャートの期間を選択", ["1週間前", "1ヶ月前", "3ヶ月前", "1年前"], index=1)
     period_map_idx = {"1週間前": "5d", "1ヶ月前": "1mo", "3ヶ月前": "3mo", "1年前": "1y"}
     selected_period = period_map_idx[period_idx_label]
