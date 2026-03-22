@@ -84,14 +84,24 @@ def get_cached_ticker_info(tickers_tuple):
 # ==========================================
 # 📊 データ読み書き ＆ ヘルパー関数
 # ==========================================
-def load_data():
+@st.cache_resource
+def get_spreadsheet():
+    """スプレッドシートオブジェクトをキャッシュ（API呼び出し1回だけ）"""
     gc = init_gspread()
+    if gc is None: return None
+    try:
+        return gc.open("PortfolioData")
+    except Exception as e:
+        st.error(f"スプレッドシートを開けません: {e}")
+        return None
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_data():
+    sh = get_spreadsheet()
     expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座区分", "手動配当利回り(%)", "配当月", "最新更新日"]
     ACCOUNT_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)", "NISA(成長投資枠)", "NISA(積立投資枠)"]
-    if gc is None: return pd.DataFrame(columns=expected_cols)
+    if sh is None: return pd.DataFrame(columns=expected_cols)
     try:
-        sh = gc.open("PortfolioData")
-        
         # ★ get_all_records()は空ヘッダーでクラッシュするので get_all_values() を使う
         all_values = sh.sheet1.get_all_values()
         if not all_values or len(all_values) < 2:
@@ -160,35 +170,40 @@ def load_data():
         return pd.DataFrame(columns=expected_cols)
 
 def save_data(df):
-    gc = init_gspread()
-    if gc is None: return
+    sh = get_spreadsheet()
+    if sh is None: return
     try:
-        sh = gc.open("PortfolioData")
         sh.sheet1.clear()
         save_df = df.fillna("")
         sh.sheet1.update([save_df.columns.values.tolist()] + save_df.values.tolist())
     except:
         pass
 
+@st.cache_data(ttl=120, show_spinner=False)
 def load_history():
-    gc = init_gspread()
-    if gc is None: return pd.DataFrame(columns=["日付", "総資産額(円)"])
+    sh = get_spreadsheet()
+    if sh is None: return pd.DataFrame(columns=["日付", "総資産額(円)"])
     try:
-        sh = gc.open("PortfolioData")
         try: worksheet = sh.worksheet("HistoryData")
         except:
             worksheet = sh.add_worksheet(title="HistoryData", rows="1000", cols="2")
             worksheet.append_row(["日付", "総資産額(円)"])
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data) if data else pd.DataFrame(columns=["日付", "総資産額(円)"])
+        all_values = worksheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return pd.DataFrame(columns=["日付", "総資産額(円)"])
+        headers = all_values[0]
+        rows = [r for r in all_values[1:] if any(c.strip() for c in r)]
+        if not rows: return pd.DataFrame(columns=["日付", "総資産額(円)"])
+        df = pd.DataFrame(rows, columns=headers)
+        df["総資産額(円)"] = pd.to_numeric(df["総資産額(円)"], errors='coerce').fillna(0)
+        return df
     except:
         return pd.DataFrame(columns=["日付", "総資産額(円)"])
 
 def save_history(date_str, total_asset):
-    gc = init_gspread()
-    if gc is None: return
+    sh = get_spreadsheet()
+    if sh is None: return
     try:
-        sh = gc.open("PortfolioData")
         worksheet = sh.worksheet("HistoryData")
         worksheet.append_row([date_str, total_asset])
     except:
