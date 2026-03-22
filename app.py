@@ -6,10 +6,70 @@ import plotly.graph_objects as go
 import os
 import math
 from datetime import datetime
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="PORTFOLIO資産管理", layout="wide", initial_sidebar_state="collapsed")
 
-DATA_FILE = "portfolio.csv"
+# --- 🚀スプレッドシート接続の初期化 ---
+@st.cache_resource
+def init_gspread():
+    try:
+        creds_json = json.loads(st.secrets["gcp_credentials"])
+        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        credentials = Credentials.from_service_account_info(creds_json, scopes=scopes)
+        gc = gspread.authorize(credentials)
+        return gc
+    except Exception as e:
+        st.error(f"認証エラー: Secretsの設定を確認してください。詳細: {e}")
+        return None
+
+def load_data():
+    gc = init_gspread()
+    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "最新更新日"]
+    if gc is None:
+        return pd.DataFrame(columns=expected_cols)
+        
+    try:
+        sh = gc.open("PortfolioData") # スプレッドシートの名前
+        worksheet = sh.sheet1
+        data = worksheet.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+        else:
+            df = pd.DataFrame(columns=expected_cols)
+            
+        # 必要な列の補完
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = "-"
+        
+        # 数値への変換
+        df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
+        df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
+        return df
+        
+    except Exception as e:
+        st.error("スプレッドシートの読み込みに失敗しました。「PortfolioData」という名前か、共有設定ができているか確認してください。")
+        return pd.DataFrame(columns=expected_cols)
+
+def save_data(df):
+    gc = init_gspread()
+    if gc is None: return
+    try:
+        sh = gc.open("PortfolioData")
+        worksheet = sh.sheet1
+        worksheet.clear()
+        # 空白(NaN)があるとエラーになるため、空文字に変換して保存
+        save_df = df.fillna("")
+        worksheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
+    except Exception as e:
+        st.error(f"スプレッドシートへの保存に失敗しました。詳細: {e}")
+
+# --------------------------------------------------------
+# 以下のコードは前回と全く同じです（グラフやUIの処理）
+# --------------------------------------------------------
 
 def get_ticker_name(code, market_type):
     if not code: return "入力で損益計算"
@@ -20,21 +80,6 @@ def get_ticker_name(code, market_type):
         return ticker.info.get('longName', ticker.info.get('shortName', '名称不明'))
     except:
         return "取得失敗"
-
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        df = pd.DataFrame(columns=["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "最新更新日"])
-        df.to_csv(DATA_FILE, index=False)
-    
-    df = pd.read_csv(DATA_FILE)
-    if "取得単価" not in df.columns: df["取得単価"] = 0.0
-    if "口座" not in df.columns: df["口座"] = "SBI"
-    if "銘柄名" not in df.columns: df["銘柄名"] = "名称不明"
-    if "最新更新日" not in df.columns: df["最新更新日"] = "-"
-    return df
-
-def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
 
 def get_exchange_rate():
     try:
@@ -47,14 +92,11 @@ def round_up_3(val):
     try:
         val = float(val)
         rounded = math.ceil(val * 1000) / 1000
-        if rounded.is_integer():
-            return f"{int(rounded):,}"
-        else:
-            return f"{rounded:,.3f}".rstrip('0').rstrip('.')
+        if rounded.is_integer(): return f"{int(rounded):,}"
+        else: return f"{rounded:,.3f}".rstrip('0').rstrip('.')
     except:
         return val
 
-# --- データ読み込みと最新為替の取得 ---
 df = load_data()
 
 with st.spinner('最新の為替レートを取得中...'):
@@ -85,7 +127,6 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# --- ヘッダー ---
 header_col1, header_col2, header_col3 = st.columns([3, 1, 1.5])
 with header_col1: st.markdown("<div class='logo-text'>P<span>ORTFOLIO</span></div>", unsafe_allow_html=True)
 with header_col2: st.write(f"\n資産管理 ・ {datetime.now().strftime('%Y/%m/%d')}")
@@ -94,7 +135,6 @@ with header_col3:
 
 st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 0 0 1rem 0;'>", unsafe_allow_html=True)
 
-# --- 目標金額と年利のスライダー ---
 slider_col1, slider_col2, _ = st.columns([1, 1, 1])
 with slider_col1:
     goal_oku = st.slider("🎯 目標金額を設定 (億円)", min_value=0.5, max_value=10.0, value=1.5, step=0.1)
@@ -103,12 +143,10 @@ with slider_col2:
     interest_rate_pct = st.slider("📈 想定年利 (%)", min_value=1.0, max_value=20.0, value=5.0, step=0.5)
     interest_rate = interest_rate_pct / 100.0
 
-# --- データ計算 ---
 if not df.empty:
     with st.spinner('過去1年分のデータを含め取得・計算中...'):
         current_prices_jpy, total_values, profits, buy_prices_jpy, update_dates = [], [], [], [], []
         dod_list, mom_list, yoy_list = [], [], []
-        
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
         
         for index, row in df.iterrows():
@@ -126,7 +164,6 @@ if not df.empty:
                         price_jpy = closes.iloc[-1]
                         buy_jpy = buy_price_raw
                         fetch_success = True
-                        
                         if len(closes) >= 2: dod_pct = (price_jpy / closes.iloc[-2] - 1) * 100
                         if len(closes) >= 21: mom_pct = (price_jpy / closes.iloc[-22] - 1) * 100
                         if len(closes) >= 250: yoy_pct = (price_jpy / closes.iloc[0] - 1) * 100
@@ -140,7 +177,6 @@ if not df.empty:
                         price_jpy = price_usd * jpy_usd_rate 
                         buy_jpy = buy_price_raw * jpy_usd_rate
                         fetch_success = True
-                        
                         if len(closes) >= 2: dod_pct = (price_usd / closes.iloc[-2] - 1) * 100
                         if len(closes) >= 21: mom_pct = (price_usd / closes.iloc[-22] - 1) * 100
                         if len(closes) >= 250: yoy_pct = (price_usd / closes.iloc[0] - 1) * 100
@@ -165,10 +201,8 @@ if not df.empty:
             mom_list.append(mom_pct)
             yoy_list.append(yoy_pct)
             
-            if fetch_success:
-                update_dates.append(now_str)
-            else:
-                update_dates.append(row.get("最新更新日", "-"))
+            if fetch_success: update_dates.append(now_str)
+            else: update_dates.append(row.get("最新更新日", "-"))
                 
         df["最新更新日"] = update_dates
         save_data(df)
@@ -189,7 +223,6 @@ else:
     total_asset = total_profit = stock_count = 0
     display_df = pd.DataFrame()
 
-# --- ステータスカード ---
 card_col1, card_col2, card_col3, card_col4 = st.columns(4)
 with card_col1: st.markdown(f"<div class='status-card card-total'><h4>評価額合計</h4><p class='main-value'>{total_asset:,.0f}円</p><p class='sub-value'>{stock_count}銘柄</p></div>", unsafe_allow_html=True)
 with card_col2:
@@ -200,7 +233,6 @@ with card_col3:
     st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
 with card_col4: st.markdown(f"<div class='status-card card-count'><h4>銘柄数</h4><p class='main-value'>{stock_count}</p><p class='sub-value'>投資信託含む</p></div>", unsafe_allow_html=True)
 
-# --- 銘柄追加フォーム ---
 st.markdown("### 📌 証券コードと保有数を入力")
 st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 1rem 0;'>", unsafe_allow_html=True)
 
@@ -231,7 +263,6 @@ with col_btn1:
 
 st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 1rem 0 2rem 0;'>", unsafe_allow_html=True)
 
-# --- メインコンテンツ（グラフと表） ---
 if not df.empty:
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
@@ -298,20 +329,11 @@ if not df.empty:
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 
-# --- ★世界の主要指標 週間ミニチャート ---
 st.markdown("---")
 st.markdown("### 🌍 世界の主要指標 (直近5日間の推移)")
-st.caption("※各パネルのグラフは、過去5営業日における「前日比(%)」の値動きを表しています。")
 
 with st.spinner("主要指標の最新データを取得中..."):
-    indices_dict = {
-        "日経平均": "^N225",
-        "TOPIX": "1306.T", 
-        "NYダウ": "^DJI",
-        "S&P 500": "^GSPC",
-        "NASDAQ": "^IXIC"
-    }
-    
+    indices_dict = {"日経平均": "^N225", "TOPIX": "1306.T", "NYダウ": "^DJI", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
     cols = st.columns(len(indices_dict))
     
     for i, (name, ticker) in enumerate(indices_dict.items()):
@@ -341,12 +363,8 @@ with st.spinner("主要指標の最新データを取得中..."):
                     
                     fig_mini = go.Figure(data=[
                         go.Bar(
-                            x=dates_str, 
-                            y=daily_pct,
-                            marker_color=bar_colors,
-                            text=daily_pct.apply(lambda x: f"{x:.1f}%"),
-                            textposition='outside',
-                            textfont=dict(color='#E0E0E0', size=11)
+                            x=dates_str, y=daily_pct, marker_color=bar_colors,
+                            text=daily_pct.apply(lambda x: f"{x:.1f}%"), textposition='outside', textfont=dict(color='#E0E0E0', size=11)
                         )
                     ])
                     
@@ -354,22 +372,12 @@ with st.spinner("主要指標の最新データを取得中..."):
                     y_margin = max(abs(y_max), abs(y_min)) * 0.4 + 0.1
                     
                     fig_mini.update_layout(
-                        plot_bgcolor='#0A0E13',
-                        paper_bgcolor='#0A0E13',
-                        margin=dict(l=0, r=0, t=20, b=0),
-                        height=150,
+                        plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', margin=dict(l=0, r=0, t=20, b=0), height=150,
                         xaxis=dict(showgrid=False, tickfont=dict(color='#9E9E9E', size=10)),
-                        yaxis=dict(showgrid=False, zeroline=True, zerolinecolor='#E0E0E0', 
-                                   range=[y_min - y_margin, y_max + y_margin], visible=False),
+                        yaxis=dict(showgrid=False, zeroline=True, zerolinecolor='#E0E0E0', range=[y_min - y_margin, y_max + y_margin], visible=False),
                         showlegend=False
                     )
-                    
                     st.plotly_chart(fig_mini, use_container_width=True, config={'displayModeBar': False})
                     
             except Exception as e:
-                st.markdown(f"""
-                    <div style='text-align:center; padding-bottom:50px;'>
-                        <p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p>
-                        <p style='color:#FF1744; margin:10px 0; font-size:14px;'>取得失敗</p>
-                    </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center;'><p>{name}</p><p style='color:#FF1744;'>取得失敗</p></div>", unsafe_allow_html=True)
