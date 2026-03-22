@@ -42,6 +42,7 @@ def get_cached_market_data(tickers, period="1y"):
         return pd.DataFrame()
 
 # ★修正：配当金の計算を「利回り」から「1株あたりの現金(Rate)」に変更して正確に！
+# さらに、異常な利回りを無視するガードを追加。
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_cached_ticker_info(tickers):
     info_dict = {}
@@ -57,7 +58,12 @@ def get_cached_ticker_info(tickers):
             info = yf.Ticker(t).info
             # 1株あたりの配当額（現金）を最優先で取得
             div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0.0
-            div_yield = info.get("dividendYield") or info.get("trailingAnnualDividendYield") or 0.0
+            
+            # 利回りを取得。Yahoo Financeのデータ誤りに備えガード。
+            div_yield = info.get("trailingAnnualDividendYield") or info.get("dividendYield") or 0.0
+            # 異常な利回り（例えば20%以上）は信頼しない
+            if div_yield > 0.2: div_yield = 0.0
+            
             sec = info.get("sector") or "ETF/その他"
             info_dict[t] = {
                 "sector": sector_map.get(sec, sec), 
@@ -323,11 +329,13 @@ with card_col4:
     st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 📈 分析 ＆ ヒートマップ
+# 📈 分析 ＆ ヒートマップ (修正版)
 # ==========================================
 if not df.empty and total_asset > 0:
     with st.expander("📈 ポートフォリオ分析 ＆ ヒートマップ", expanded=True):
         
+        # (円グラフ部分は変更なし)
+        # ...
         pie_col1, pie_col2 = st.columns(2)
         with pie_col1:
             st.markdown("#### 🍩 銘柄別割合")
@@ -346,17 +354,23 @@ if not df.empty and total_asset > 0:
         st.markdown("---")
         st.markdown("#### 🗺️ マーケット・ヒートマップ (本日)")
         st.caption("※四角の大きさが「評価額」、色が「本日の値動き(緑=プラス、赤=マイナス)」を表しています。クリックで拡大できます。")
+        # ★修正：手動入力資産（投資信託、その他資産）は前日比データがないため除外する説明を追加
+        st.caption("※手動入力資産（投資信託、その他資産）は除外しています。")
         
-        # ★修正：ヒートマップ表示のバグ防止（評価額0円を除外し、確実な階層を作成）
-        tree_df = display_df[display_df["評価額(円)"] > 0].copy()
+        # ★修正：ヒートマップ表示のバグ防止（評価額0円と手動入力資産を除外し、確実な階層を作成）
+        # ヒートマップは市場（日本株、米国株）のみを対象とする
+        tree_df = display_df[(display_df["市場"].isin(["日本株", "米国株"])) & (display_df["評価額(円)"] > 0)].copy()
+        
         if not tree_df.empty:
-            tree_df["全体"] = "ポートフォリオ" # エラー原因だったpx.Constantを回避
+            # 階層構造：市場 -> セクター -> 銘柄
+            # エラー原因だった"全体"を削除
             tree_df["前日比(数値)"] = tree_df["前日比"].apply(lambda x: x if pd.notna(x) else 0.0)
             tree_df["Treemap Label"] = tree_df["銘柄名"].astype(str) + "<br>" + tree_df["前日比(数値)"].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
             
+            # ★修正：文字色を黒にしてコントラストを確保（黄色背景対策）
             fig_tree = px.treemap(
                 tree_df,
-                path=["全体", "市場", "セクター", "Treemap Label"],
+                path=["市場", "セクター", "Treemap Label"], # 階層を適切に
                 values="評価額(円)",
                 color="前日比(数値)",
                 color_continuous_scale="RdYlGn",
@@ -364,10 +378,11 @@ if not df.empty and total_asset > 0:
                 hover_data=["含み損益(円)", "予想配当(円)"]
             )
             fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10), height=500, paper_bgcolor='#0A0E13')
-            fig_tree.data[0].textfont.color = "white"
+            # 文字色を黒に設定
+            fig_tree.data[0].textfont.color = "black"
             st.plotly_chart(fig_tree, use_container_width=True)
         else:
-            st.info("ヒートマップを表示するためのデータがありません。")
+            st.info("ヒートマップを表示するためのデータ（日本株・米国株）がありません。")
 
 # ==========================================
 # 🚀 未来シミュレーション
