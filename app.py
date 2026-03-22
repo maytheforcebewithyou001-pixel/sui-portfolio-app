@@ -56,13 +56,9 @@ def get_cached_ticker_info(tickers):
             info = yf.Ticker(t).info
             div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0.0
             div_yield = info.get("trailingAnnualDividendYield") or info.get("dividendYield") or 0.0
-            if div_yield > 0.2: div_yield = 0.0 # 異常な利回りを除外
+            if div_yield > 0.2: div_yield = 0.0
             sec = info.get("sector") or "ETF/その他"
-            info_dict[t] = {
-                "sector": sector_map.get(sec, sec), 
-                "div_rate": float(div_rate),
-                "div_yield": float(div_yield)
-            }
+            info_dict[t] = {"sector": sector_map.get(sec, sec), "div_rate": float(div_rate), "div_yield": float(div_yield)}
         except:
             info_dict[t] = {"sector": "不明", "div_rate": 0.0, "div_yield": 0.0}
     return info_dict
@@ -162,60 +158,60 @@ def round_up_3(val):
 # ==========================================
 # 🎨 UIとCSS設定
 # ==========================================
-st.markdown(
-    """
-    <style>
-    html, body, .stApp { overflow-y: auto !important; }
-    .stApp { background-color: #0A0E13; color: #E0E0E0; font-family: sans-serif; }
-    .logo-text { color: #00D2FF; font-weight: bold; font-size: 2.5rem; letter-spacing: 0.1rem; }
-    .logo-text span { color: #E0E0E0; }
-    .status-card { background-color: #12161E; border: 1px solid #1E232F; border-radius: 10px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 1rem; position: relative; }
-    .status-card h4 { color: #BDBDBD; font-size: 1rem; margin: 0 0 0.5rem 0; }
-    .status-card p.main-value { color: #FFFFFF; font-size: 1.8rem; font-weight: bold; margin: 0; }
-    .status-card p.main-value span { color: #00D2FF; font-size: 1.2rem; margin-left: 0.2rem; }
-    .status-card p.sub-value { color: #9E9E9E; font-size: 0.9rem; margin: 0.2rem 0 0 0; }
-    .status-card p.no-value { color: #00E676; font-size: 1.2rem; margin: 0; }
-    .status-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 10px 10px 0 0; }
-    .card-total::before { background: linear-gradient(90deg, #00D2FF 0%, #3A7BD5 100%); }
-    .card-profit::before { background: linear-gradient(90deg, #00E676 0%, #C0CA33 100%); }
-    .card-dividend::before { background: linear-gradient(90deg, #FFD54F 0%, #FF8F00 100%); }
-    .card-goal::before { background: linear-gradient(90deg, #9C27B0 0%, #D81B60 100%); }
-    .stButton > button { background-color: #12161E; color: #BDBDBD; border: 1px solid #1E232F; border-radius: 20px; padding: 0.5rem 1.2rem; font-size: 0.9rem; }
-    .stButton > button:hover { background-color: #1E232F; color: #FFFFFF; border: 1px solid #00D2FF; }
-    .indicator-card { background-color: #12161E; border: 1px solid #1E232F; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-    .streamlit-expanderHeader { background-color: #12161E; border-radius: 10px; color: #FFFFFF; font-weight: bold; font-size: 1.1rem; border: 1px solid #1E232F; }
-    th { background-color: #1E232F !important; color: #FFFFFF !important; }
-    </style>
-    """, unsafe_allow_html=True
-)
+st.markdown("""<style>
+html, body, .stApp { overflow-y: auto !important; }
+.stApp { background-color: #0A0E13; color: #E0E0E0; font-family: sans-serif; }
+.logo-text { color: #00D2FF; font-weight: bold; font-size: 2.2rem; letter-spacing: 0.1rem; }
+.logo-text span { color: #E0E0E0; }
+.status-card { background-color: #12161E; border: 1px solid #1E232F; border-radius: 10px; padding: 1.2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 0.8rem; position: relative; }
+.status-card h4 { color: #BDBDBD; font-size: 0.85rem; margin: 0 0 0.4rem 0; }
+.status-card p.main-value { color: #FFFFFF; font-size: 1.6rem; font-weight: bold; margin: 0; }
+.status-card p.main-value span { color: #00D2FF; font-size: 1.1rem; margin-left: 0.2rem; }
+.status-card p.sub-value { color: #9E9E9E; font-size: 0.8rem; margin: 0.2rem 0 0 0; }
+.status-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 10px 10px 0 0; }
+.card-total::before { background: linear-gradient(90deg, #00D2FF, #3A7BD5); }
+.card-profit::before { background: linear-gradient(90deg, #00E676, #C0CA33); }
+.card-dividend::before { background: linear-gradient(90deg, #FFD54F, #FF8F00); }
+.card-goal::before { background: linear-gradient(90deg, #9C27B0, #D81B60); }
+.stButton > button { background-color: #12161E; color: #BDBDBD; border: 1px solid #1E232F; border-radius: 20px; padding: 0.5rem 1.2rem; font-size: 0.9rem; }
+.stButton > button:hover { background-color: #1E232F; color: #FFFFFF; border: 1px solid #00D2FF; }
+.indicator-card { background-color: #12161E; border: 1px solid #1E232F; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.streamlit-expanderHeader { background-color: #12161E; border-radius: 10px; color: #FFFFFF; font-weight: bold; font-size: 1.1rem; border: 1px solid #1E232F; }
+th { background-color: #1E232F !important; color: #FFFFFF !important; }
+.goal-bar-bg { background: #1E232F; border-radius: 6px; height: 10px; width: 100%; overflow: hidden; margin: 0.3rem 0; }
+.goal-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #00D2FF, #00E676); transition: width 0.8s ease; }
+.goal-bar-labels { display: flex; justify-content: space-between; font-size: 0.7rem; color: #9E9E9E; }
+.stTabs [data-baseweb="tab-list"] { gap: 0px; }
+.stTabs [data-baseweb="tab"] { background-color: #12161E; border: 1px solid #1E232F; border-radius: 8px 8px 0 0; padding: 0.6rem 1.2rem; color: #BDBDBD; font-weight: bold; }
+.stTabs [aria-selected="true"] { background-color: #1E232F; color: #00D2FF; border-bottom: 2px solid #00D2FF; }
+@media (max-width: 768px) {
+    .status-card p.main-value { font-size: 1.2rem; }
+    .status-card h4 { font-size: 0.75rem; }
+    .logo-text { font-size: 1.6rem; }
+}
+</style>""", unsafe_allow_html=True)
 
-header_col1, header_col2, header_col3 = st.columns([3, 1, 1.5])
+# ==========================================
+# 🔝 ヘッダー
+# ==========================================
+header_col1, header_col2, header_col3 = st.columns([3, 1.5, 1.5])
 with header_col1: st.markdown("<div class='logo-text'>P<span>ORTFOLIO</span></div>", unsafe_allow_html=True)
 with header_col2: st.write(f"\n資産管理 ・ {datetime.now().strftime('%Y/%m/%d')}")
 with header_col3:
-    if st.button("🔄 全データ 最新化 (キャッシュクリア)"):
-        st.cache_data.clear() 
-        st.rerun()
-
-st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 0 0 1rem 0;'>", unsafe_allow_html=True)
+    if st.button("🔄 全データ最新化", use_container_width=True):
+        st.cache_data.clear(); st.rerun()
 
 # ==========================================
-# ⚙️ 目標・シミュレーション設定
+# ⚙️ 目標設定
 # ==========================================
 with st.expander("⚙️ 目標・シミュレーション設定", expanded=False):
-    slider_col1, slider_col2, slider_col3 = st.columns([1, 1, 1])
-    with slider_col1:
-        goal_oku = st.slider("🎯 目標金額を設定 (億円)", min_value=0.5, max_value=10.0, value=1.2, step=0.1)
-        goal_amount = goal_oku * 1e8
-    with slider_col2:
-        interest_rate_pct = st.slider("📈 想定年利 (%)", min_value=1.0, max_value=20.0, value=6.0, step=0.5)
-        interest_rate = interest_rate_pct / 100.0
-    with slider_col3:
-        yearly_add_man = st.number_input("💰 年間の積立額 (万円)", min_value=0, value=120, step=10)
-        yearly_add = yearly_add_man * 10000
+    s1, s2, s3 = st.columns(3)
+    with s1: goal_oku = st.slider("🎯 目標金額 (億円)", 0.5, 10.0, 1.2, 0.1); goal_amount = goal_oku * 1e8
+    with s2: interest_rate_pct = st.slider("📈 想定年利 (%)", 1.0, 20.0, 6.0, 0.5); interest_rate = interest_rate_pct / 100.0
+    with s3: yearly_add_man = st.number_input("💰 年間積立額 (万円)", 0, value=120, step=10); yearly_add = yearly_add_man * 10000
 
 # ==========================================
-# 📊 データ一括処理 ＆ 計算
+# 📊 データ一括処理
 # ==========================================
 df = load_data()
 
@@ -223,415 +219,271 @@ if not df.empty:
     with st.spinner('市場データと配当・業種情報を取得中...'):
         tickers_to_fetch = ["JPY=X"]
         for _, row in df.iterrows():
-            code = str(row["銘柄コード"])
-            market = row["市場"]
-            if market == "日本株": tickers_to_fetch.append(f"{code}.T")
-            elif market == "米国株": tickers_to_fetch.append(code)
-        
+            code, mkt = str(row["銘柄コード"]), row["市場"]
+            if mkt == "日本株": tickers_to_fetch.append(f"{code}.T")
+            elif mkt == "米国株": tickers_to_fetch.append(code)
         closes_df = get_cached_market_data(list(set(tickers_to_fetch)), period="1y")
         info_dict = get_cached_ticker_info(list(set(tickers_to_fetch)))
-        
-        if "JPY=X" in closes_df.columns:
-            jpy_usd_series = closes_df["JPY=X"].dropna()
-            jpy_usd_rate = jpy_usd_series.iloc[-1] if not jpy_usd_series.empty else 150.0
-        else:
-            jpy_usd_rate = 150.0
+        jpy_usd_rate = closes_df["JPY=X"].dropna().iloc[-1] if "JPY=X" in closes_df.columns and not closes_df["JPY=X"].dropna().empty else 150.0
 
         current_prices_jpy, total_values, profits, net_profits, dividends, buy_prices_jpy, update_dates = [], [], [], [], [], [], []
         dod_list, mom_list, yoy_list, sector_list, manual_yield_list = [], [], [], [], []
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
         
-        for index, row in df.iterrows():
-            ticker_code, market_type = str(row["銘柄コード"]), row["市場"]
-            shares, buy_price_raw = float(row["保有株数"]), float(row["取得単価"])
-            tax_category = str(row.get("口座区分", "特定口座"))
-            manual_yield = float(row.get("手動配当利回り(%)", 0.0))
+        for _, row in df.iterrows():
+            tc, mt = str(row["銘柄コード"]), row["市場"]
+            sh_n, bp = float(row["保有株数"]), float(row["取得単価"])
+            tc_cat = str(row.get("口座区分", "特定口座"))
+            my = float(row.get("手動配当利回り(%)", 0.0))
+            fetch_ok = False; dod_pct = mom_pct = yoy_pct = None
+            pj = val = bt = bj = div = np_ = 0
+            t = f"{tc}.T" if mt == "日本株" else tc
+            sec = info_dict.get(t, {}).get("sector", "手動入力/その他")
+            dr = info_dict.get(t, {}).get("div_rate", 0.0)
+            dy = info_dict.get(t, {}).get("div_yield", 0.0)
             
-            fetch_success = False
-            dod_pct = mom_pct = yoy_pct = None
-            price_jpy = value = buy_total = buy_jpy = dividend = net_profit = 0
-            
-            t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
-            
-            sector = info_dict.get(t, {}).get("sector", "手動入力/その他")
-            div_rate = info_dict.get(t, {}).get("div_rate", 0.0)
-            div_yield = info_dict.get(t, {}).get("div_yield", 0.0)
-            
-            if market_type in ["日本株", "米国株"] and t in closes_df.columns:
-                series = closes_df[t].dropna()
-                if not series.empty:
-                    latest_price = series.iloc[-1]
-                    fetch_success = True
-                    
-                    if market_type == "日本株":
-                        price_jpy = latest_price
-                        buy_jpy = buy_price_raw
-                        if len(series) >= 2: dod_pct = (price_jpy / series.iloc[-2] - 1) * 100
-                        if len(series) >= 22: mom_pct = (price_jpy / series.iloc[-22] - 1) * 100
-                        if len(series) >= 250: yoy_pct = (price_jpy / series.iloc[0] - 1) * 100
+            if mt in ["日本株", "米国株"] and t in closes_df.columns:
+                ser = closes_df[t].dropna()
+                if not ser.empty:
+                    lp = ser.iloc[-1]; fetch_ok = True
+                    if mt == "日本株":
+                        pj, bj = lp, bp
+                        if len(ser) >= 2: dod_pct = (pj / ser.iloc[-2] - 1) * 100
+                        if len(ser) >= 22: mom_pct = (pj / ser.iloc[-22] - 1) * 100
+                        if len(ser) >= 250: yoy_pct = (pj / ser.iloc[0] - 1) * 100
                     else:
-                        price_jpy = latest_price * jpy_usd_rate
-                        buy_jpy = buy_price_raw * jpy_usd_rate
-                        if len(series) >= 2: dod_pct = (latest_price / series.iloc[-2] - 1) * 100
-                        if len(series) >= 22: mom_pct = (latest_price / series.iloc[-22] - 1) * 100
-                        if len(series) >= 250: yoy_pct = (latest_price / series.iloc[0] - 1) * 100
+                        pj, bj = lp * jpy_usd_rate, bp * jpy_usd_rate
+                        if len(ser) >= 2: dod_pct = (lp / ser.iloc[-2] - 1) * 100
+                        if len(ser) >= 22: mom_pct = (lp / ser.iloc[-22] - 1) * 100
+                        if len(ser) >= 250: yoy_pct = (lp / ser.iloc[0] - 1) * 100
             else:
-                price_jpy = buy_price_raw
-                buy_jpy = buy_price_raw
-                fetch_success = True
+                pj = bj = bp; fetch_ok = True
 
-            value = price_jpy * shares
-            buy_total = buy_jpy * shares
-            profit = value - buy_total
+            val = pj * sh_n; bt = bj * sh_n; profit = val - bt
+            if my > 0: div = val * (my / 100.0)
+            elif dr > 0:
+                if mt == "日本株": div = dr * sh_n
+                elif mt == "米国株": div = dr * sh_n * jpy_usd_rate
+                else: div = val * dy
+            else: div = val * dy
+            tr = 0.0 if "NISA" in tc_cat else 0.20315
+            ta = profit * tr if profit > 0 else 0.0; np_ = profit - ta
             
-            if manual_yield > 0:
-                dividend = value * (manual_yield / 100.0)
-            elif div_rate > 0:
-                if market_type == "日本株":
-                    dividend = div_rate * shares
-                elif market_type == "米国株":
-                    dividend = div_rate * shares * jpy_usd_rate
-                else:
-                    dividend = value * div_yield
-            else:
-                dividend = value * div_yield
-            
-            tax_rate = 0.0 if "NISA" in tax_category else 0.20315
-            tax_amount = profit * tax_rate if profit > 0 else 0.0
-            net_profit = profit - tax_amount
-            
-            current_prices_jpy.append(price_jpy)
-            buy_prices_jpy.append(buy_jpy)
-            total_values.append(value)
-            profits.append(profit)
-            net_profits.append(net_profit)
-            dividends.append(dividend)
-            dod_list.append(dod_pct)
-            mom_list.append(mom_pct)
-            yoy_list.append(yoy_pct)
-            sector_list.append(sector)
-            manual_yield_list.append(manual_yield)
-            update_dates.append(now_str if fetch_success else str(row.get("最新更新日", "-")))
+            current_prices_jpy.append(pj); buy_prices_jpy.append(bj)
+            total_values.append(val); profits.append(profit); net_profits.append(np_); dividends.append(div)
+            dod_list.append(dod_pct); mom_list.append(mom_pct); yoy_list.append(yoy_pct)
+            sector_list.append(sec); manual_yield_list.append(my)
+            update_dates.append(now_str if fetch_ok else str(row.get("最新更新日", "-")))
                 
         df["最新更新日"] = update_dates
-            
         display_df = df.copy()
-        display_df["セクター"] = sector_list
-        display_df["取得単価(円)"] = buy_prices_jpy
-        display_df["現在値(円)"] = current_prices_jpy
-        display_df["前日比"] = dod_list
-        display_df["前月比"] = mom_list
-        display_df["前年比"] = yoy_list
-        display_df["評価額(円)"] = total_values
-        display_df["含み損益(円)"] = profits
-        display_df["税引後損益(円)"] = net_profits
-        display_df["予想配当(円)"] = dividends
+        display_df["セクター"] = sector_list; display_df["取得単価(円)"] = buy_prices_jpy
+        display_df["現在値(円)"] = current_prices_jpy; display_df["前日比"] = dod_list
+        display_df["前月比"] = mom_list; display_df["前年比"] = yoy_list
+        display_df["評価額(円)"] = total_values; display_df["含み損益(円)"] = profits
+        display_df["税引後損益(円)"] = net_profits; display_df["予想配当(円)"] = dividends
         display_df["手動配当利回り(%)"] = manual_yield_list
-        
-        total_asset = sum(total_values)
-        total_net_profit = sum(net_profits)
-        total_dividend = sum(dividends)
-        avg_dividend_yield = (total_dividend / total_asset * 100) if total_asset > 0 else 0.0
+        total_asset = sum(total_values); total_net_profit = sum(net_profits)
+        total_dividend = sum(dividends); avg_dividend_yield = (total_dividend / total_asset * 100) if total_asset > 0 else 0.0
         stock_count = len(df)
 else:
     total_asset = total_net_profit = total_dividend = avg_dividend_yield = stock_count = 0
-    jpy_usd_rate = 150.0
-    display_df = pd.DataFrame()
+    jpy_usd_rate = 150.0; display_df = pd.DataFrame()
 
 # ==========================================
-# 💳 ステータスカード 
+# 💳 ステータスカード（常時表示・最上部）
 # ==========================================
-card_col1, card_col2, card_col3, card_col4 = st.columns(4)
-with card_col1: st.markdown(f"<div class='status-card card-total'><h4>評価額合計</h4><p class='main-value'>{total_asset:,.0f}円</p><p class='sub-value'>{stock_count}銘柄</p></div>", unsafe_allow_html=True)
-with card_col2:
-    profit_color = "#00E676" if total_net_profit >= 0 else "#FF1744"
-    st.markdown(f"<div class='status-card card-profit'><h4>税引後 含み損益</h4><p class='main-value' style='color:{profit_color}'>{total_net_profit:,.0f}円</p><p class='sub-value'>1ドル {jpy_usd_rate:.2f}円</p></div>", unsafe_allow_html=True)
-with card_col3:
-    st.markdown(f"<div class='status-card card-dividend'><h4>年間予想配当金 (税引前)</h4><p class='main-value'>{total_dividend:,.0f}円</p><p class='sub-value'>平均利回り {avg_dividend_yield:.2f}%</p></div>", unsafe_allow_html=True)
-with card_col4:
-    progress = min(total_asset / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
-    st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
+c1, c2, c3, c4 = st.columns(4)
+with c1: st.markdown(f"<div class='status-card card-total'><h4>評価額合計</h4><p class='main-value'>{total_asset:,.0f}円</p><p class='sub-value'>{stock_count}銘柄</p></div>", unsafe_allow_html=True)
+with c2:
+    pc = "#00E676" if total_net_profit >= 0 else "#FF1744"
+    st.markdown(f"<div class='status-card card-profit'><h4>税引後 含み損益</h4><p class='main-value' style='color:{pc}'>{total_net_profit:,.0f}円</p><p class='sub-value'>1ドル {jpy_usd_rate:.2f}円</p></div>", unsafe_allow_html=True)
+with c3: st.markdown(f"<div class='status-card card-dividend'><h4>年間予想配当 (税引前)</h4><p class='main-value'>{total_dividend:,.0f}円</p><p class='sub-value'>平均利回り {avg_dividend_yield:.2f}%</p></div>", unsafe_allow_html=True)
+with c4:
+    prog = min(total_asset / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
+    st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{prog:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
+
+# ゴール進捗バー
+pv = min(total_asset / goal_amount * 100, 100.0) if goal_amount > 0 else 0
+st.markdown(f"<div class='goal-bar-bg'><div class='goal-bar-fill' style='width:{pv}%'></div></div><div class='goal-bar-labels'><span>¥0</span><span style='color:#00D2FF'>{pv:.1f}% 達成</span><span>{goal_oku}億円</span></div>", unsafe_allow_html=True)
+st.write("")
 
 # ==========================================
-# 📈 過去の資産推移グラフ (履歴保存)
+# 📑 メインタブ
 # ==========================================
-if total_asset > 0:
-    with st.expander("📈 過去の資産推移", expanded=True):
-        hist_col1, hist_col2 = st.columns([4, 1])
-        with hist_col1:
-            st.markdown("#### 📅 資産額の推移")
-        with hist_col2:
-            st.write("\n")
-            if st.button("💾 本日の総資産額を記録", use_container_width=True):
-                today_str = datetime.now().strftime("%Y/%m/%d")
-                save_history(today_str, total_asset)
-                st.success(f"{today_str} の資産額を記録しました！")
-                st.rerun()
-        
-        history_df = load_history()
-        if not history_df.empty and len(history_df) > 0:
-            fig_hist = px.line(history_df, x="日付", y="総資産額(円)", markers=True)
-            fig_hist.update_traces(line_color="#00E676", marker=dict(size=8, color="#FFFFFF"))
-            fig_hist.update_layout(
-                plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', 
-                margin=dict(t=10, b=10, l=10, r=10), height=350,
-                xaxis=dict(showgrid=True, gridcolor='#1E232F'), 
-                yaxis=dict(showgrid=True, gridcolor='#1E232F', tickformat=",")
-            )
-            st.plotly_chart(fig_hist, use_container_width=True)
+tab_pf, tab_an, tab_sim, tab_mkt = st.tabs(["📋 ポートフォリオ", "📊 分析", "🚀 シミュレーション", "🌍 世界指標"])
+
+# ── TAB 1: ポートフォリオ ──
+with tab_pf:
+    st.markdown("#### ➕ 新規銘柄を追加")
+    r1c1, r1c2, r1c3 = st.columns([1, 1, 2])
+    with r1c1: market = st.selectbox("市場", ["日本株", "米国株", "投資信託", "その他資産"])
+    with r1c2: code = st.text_input("証券コード", placeholder="例: 7203")
+    with r1c3:
+        nm = get_ticker_name(code, market)
+        manual_name = st.text_input("銘柄名", value=nm if market in ["日本株", "米国株"] else "")
+    r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns([1, 1, 1, 1.2, 1.2])
+    with r2c1: shares = st.number_input("保有数", min_value=0.0001, value=100.0)
+    with r2c2: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0)
+    with r2c3: manual_div = st.number_input("手動利回り(%)", min_value=0.0, value=0.0, step=0.1, help="0なら自動取得")
+    with r2c4: account_type = st.selectbox("証券会社", ["SBI", "楽天", "マネックス", "その他"])
+    with r2c5: tax_type = st.selectbox("口座区分", ["特定口座(課税)", "NISA口座(非課税)"])
+    st.write("")
+    bc1, bc2 = st.columns([1, 4])
+    with bc1:
+        if st.button("＋ 追加", use_container_width=True, key="add_stock") and code:
+            fn = manual_name if manual_name else nm
+            new_data = pd.DataFrame({"銘柄コード": [code], "銘柄名": [fn], "市場": [market], "保有株数": [shares], "取得単価": [avg_price], "口座": [account_type], "口座区分": [tax_type], "手動配当利回り(%)": [manual_div], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
+            df = pd.concat([df, new_data], ignore_index=True); save_data(df); st.cache_data.clear(); st.success("追加しました！"); st.rerun()
+    st.markdown("---")
+
+    if total_asset > 0:
+        hc1, hc2 = st.columns([4, 1])
+        with hc1: st.markdown("#### 📈 資産額の推移")
+        with hc2:
+            st.write("")
+            if st.button("💾 本日の資産を記録", use_container_width=True, key="sv_hist"):
+                save_history(datetime.now().strftime("%Y/%m/%d"), total_asset); st.success("記録しました！"); st.rerun()
+        hdf = load_history()
+        if not hdf.empty and len(hdf) > 0:
+            fh = px.line(hdf, x="日付", y="総資産額(円)", markers=True)
+            fh.update_traces(line_color="#00E676", marker=dict(size=8, color="#FFFFFF"))
+            fh.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', margin=dict(t=10,b=10,l=10,r=10), height=300, xaxis=dict(showgrid=True, gridcolor='#1E232F'), yaxis=dict(showgrid=True, gridcolor='#1E232F', tickformat=","))
+            st.plotly_chart(fh, use_container_width=True)
         else:
-            st.info("まだ履歴データがありません。右上の「本日の総資産額を記録」ボタンを押して最初のデータを記録してください。")
-
-# ==========================================
-# 📊 ポートフォリオ分析 ＆ ヒートマップ
-# ==========================================
-if not df.empty and total_asset > 0:
-    with st.expander("📊 ポートフォリオ分析 ＆ ヒートマップ", expanded=True):
-        
-        display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
-        
-        # ------------------------------------------
-        # 1. 銘柄別割合 (左: 円グラフ / 右: リスト)
-        # ------------------------------------------
-        st.markdown("#### 🍩 銘柄別割合")
-        row1_col1, row1_col2 = st.columns([1.2, 1]) # 左のグラフを少し広めに設定
-        
-        with row1_col1:
-            fig_pie1 = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
-            fig_pie1.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False, margin=dict(t=10, b=10))
-            st.plotly_chart(fig_pie1, use_container_width=True)
-            
-        with row1_col2:
-            # 右側に表示する美しいリストの生成
-            ticker_list_df = display_df[display_df["評価額(円)"] > 0].groupby("円グラフ表示名", as_index=False)["評価額(円)"].sum()
-            ticker_list_df = ticker_list_df.sort_values(by="評価額(円)", ascending=False)
-            ticker_list_df["割合"] = (ticker_list_df["評価額(円)"] / total_asset * 100).apply(lambda x: f"{x:.1f}%")
-            ticker_list_df["評価額(円)"] = ticker_list_df["評価額(円)"].apply(lambda x: f"{int(x):,}円")
-            ticker_list_df.rename(columns={"円グラフ表示名": "銘柄"}, inplace=True)
-            
-            st.write("\n\n") # 高さの微調整
-            st.dataframe(ticker_list_df, use_container_width=True, hide_index=True)
-
-        st.markdown("<hr style='border-top: 1px dashed #1E232F; margin: 1rem 0;'>", unsafe_allow_html=True)
-        
-        # ------------------------------------------
-        # 2. セクター(業種)別割合 (左: 円グラフ / 右: リスト)
-        # ------------------------------------------
-        st.markdown("#### 🏢 セクター(業種)別割合")
-        row2_col1, row2_col2 = st.columns([1.2, 1])
-        
-        with row2_col1:
-            fig_pie2 = px.pie(display_df, values="評価額(円)", names="セクター", hole=0.4)
-            fig_pie2.update_traces(textposition='inside', textinfo='percent+label')
-            fig_pie2.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False, margin=dict(t=10, b=10))
-            st.plotly_chart(fig_pie2, use_container_width=True)
-            
-        with row2_col2:
-            # 右側に表示する美しいリストの生成
-            sector_list_df = display_df[display_df["評価額(円)"] > 0].groupby("セクター", as_index=False)["評価額(円)"].sum()
-            sector_list_df = sector_list_df.sort_values(by="評価額(円)", ascending=False)
-            sector_list_df["割合"] = (sector_list_df["評価額(円)"] / total_asset * 100).apply(lambda x: f"{x:.1f}%")
-            sector_list_df["評価額(円)"] = sector_list_df["評価額(円)"].apply(lambda x: f"{int(x):,}円")
-            
-            st.write("\n\n")
-            st.dataframe(sector_list_df, use_container_width=True, hide_index=True)
-
-        st.markdown("---")
-        
-        # ------------------------------------------
-        # 3. マーケット・ヒートマップ
-        # ------------------------------------------
-        st.markdown("#### 🗺️ マーケット・ヒートマップ (本日)")
-        st.caption("※四角の大きさが「評価額」、色が「本日の値動き(緑=プラス、赤=マイナス)」を表しています。")
-        st.caption("※手動入力資産（投資信託、その他資産）は除外しています。")
-        
-        tree_df = display_df[(display_df["市場"].isin(["日本株", "米国株"])) & (display_df["評価額(円)"] > 0)].copy()
-        
-        if not tree_df.empty:
-            tree_df["前日比(数値)"] = tree_df["前日比"].apply(lambda x: x if pd.notna(x) else 0.0)
-            tree_df["Treemap Label"] = tree_df["銘柄名"].astype(str) + "<br>" + tree_df["前日比(数値)"].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
-            
-            fig_tree = px.treemap(
-                tree_df,
-                path=["市場", "セクター", "Treemap Label"],
-                values="評価額(円)",
-                color="前日比(数値)",
-                color_continuous_scale="RdYlGn",
-                color_continuous_midpoint=0,
-                hover_data=["含み損益(円)", "予想配当(円)"]
-            )
-            fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10), height=500, paper_bgcolor='#0A0E13')
-            fig_tree.data[0].textfont.color = "black"
-            st.plotly_chart(fig_tree, use_container_width=True)
-        else:
-            st.info("ヒートマップを表示するためのデータ（日本株・米国株）がありません。")
-
-# ==========================================
-# 🚀 未来シミュレーション
-# ==========================================
-if not df.empty and total_asset > 0:
-    with st.expander("🚀 ゴール逆算 ＆ 未来シミュレーション", expanded=False):
-        st.markdown(f"#### 🎯 {goal_oku}億円ゴール 年間必要積立額 (年利{interest_rate_pct}%)")
-        years_list, pmts = [10, 15, 20, 25, 30], []
-        for y in years_list:
-            shortfall = goal_amount - (total_asset * ((1 + interest_rate) ** y))
-            pmts.append(shortfall / (((1 + interest_rate) ** y - 1) / interest_rate) if shortfall > 0 else 0)
-        
-        sim_df_bar = pd.DataFrame({"達成年数": [f"{y}年後" for y in years_list], "年間積立額": pmts})
-        sim_df_bar["表示用金額"] = sim_df_bar["年間積立額"].apply(lambda x: f"{int(x):,}円" if x > 0 else "達成確実！")
-        
-        fig_bar = px.bar(sim_df_bar, x="年間積立額", y="達成年数", orientation='h', text="表示用金額")
-        fig_bar.update_traces(textposition='auto', marker_color='#00D2FF')
-        fig_bar.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', margin=dict(t=10, b=10), xaxis=dict(tickformat=",", ticksuffix="円"))
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("#### 🚀 未来の資産推移シミュレーション")
-        period_label_future = st.select_slider("シミュレーション期間", options=["1年後", "3年後", "5年後", "10年後", "20年後", "30年後"], value="10年後")
-        years_map = {"1年後": 1, "3年後": 3, "5年後": 5, "10年後": 10, "20年後": 20, "30年後": 30}
-        
-        sim_df_line = get_future_simulation(total_asset, interest_rate, years_map[period_label_future], yearly_add)
-
-        fig_future = go.Figure()
-        fig_future.add_trace(go.Scatter(x=sim_df_line["日時"], y=sim_df_line["予測評価額(円)"], mode='lines', line=dict(color="#00D2FF", width=3), fill='tozeroy', fillcolor="rgba(0, 210, 255, 0.15)", name="予測評価額"))
-        if goal_amount > 0:
-            fig_future.add_trace(go.Scatter(x=[sim_df_line["日時"].iloc[0], sim_df_line["日時"].iloc[-1]], y=[goal_amount, goal_amount], mode='lines', line=dict(color="#FF1744", width=2, dash='dash'), name=f"目標 ({goal_oku}億円)"))
-
-        fig_future.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', margin=dict(l=0, r=0, t=20, b=10), height=350, xaxis=dict(showgrid=True, gridcolor='#1E232F'), yaxis=dict(showgrid=True, gridcolor='#1E232F', tickformat=","), legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
-        st.plotly_chart(fig_future, use_container_width=True)
-
-# ==========================================
-# 📌 銘柄の追加・修正・一覧
-# ==========================================
-with st.expander("📌 銘柄データの登録・修正・一覧", expanded=False):
-    st.markdown("#### ➕ 新規追加")
-    
-    row1_c1, row1_c2, row1_c3 = st.columns([1, 1, 2])
-    with row1_c1: market = st.selectbox("市場", ["日本株", "米国株", "投資信託", "その他資産"])
-    with row1_c2: code = st.text_input("証券コード", placeholder="例: 7203")
-    with row1_c3:
-        name = get_ticker_name(code, market)
-        manual_name = st.text_input("銘柄名", value=name if market in ["日本株", "米国株"] else "")
-
-    row2_c1, row2_c2, row2_c3, row2_c4, row2_c5 = st.columns([1, 1, 1, 1.2, 1.2])
-    with row2_c1: shares = st.number_input("保有数", min_value=0.0001, value=100.0)
-    with row2_c2: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0)
-    with row2_c3: manual_div = st.number_input("手動利回り(%)", min_value=0.0, value=0.0, step=0.1, help="0なら自動取得")
-    with row2_c4: account_type = st.selectbox("証券会社", ["SBI", "楽天", "マネックス", "その他"])
-    with row2_c5: tax_type = st.selectbox("口座区分", ["特定口座(課税)", "NISA口座(非課税)"])
-
-    st.write("\n")
-    btn_col1, btn_col2 = st.columns([1, 4])
-    with btn_col1:
-        if st.button("＋ 追加", use_container_width=True) and code:
-            final_name = manual_name if manual_name else name
-            now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
-            new_data = pd.DataFrame({
-                "銘柄コード": [code], "銘柄名": [final_name], "市場": [market], 
-                "保有株数": [shares], "取得単価": [avg_price], "口座": [account_type], "口座区分": [tax_type], 
-                "手動配当利回り(%)": [manual_div],
-                "最新更新日": [now_str]
-            })
-            df = pd.concat([df, new_data], ignore_index=True)
-            save_data(df)
-            st.cache_data.clear()
-            st.success("追加しました！")
-            st.rerun()
+            st.info("まだ履歴データがありません。「本日の資産を記録」ボタンで最初のデータを記録してください。")
+    st.markdown("---")
 
     if not df.empty:
-        st.markdown("---")
-        st.markdown("#### ✏️ 修正・削除")
-        
-        edit_df = df.copy()
-        edit_df["削除"] = False 
-        
-        edit_col1, edit_col2 = st.columns([6, 1])
-        with edit_col1:
-            edited_df = st.data_editor(edit_df, num_rows="dynamic", use_container_width=True, hide_index=True)
-        with edit_col2:
-            st.write("\n\n")
-            if st.button("💾 変更・削除を保存"):
-                df_to_save = edited_df[edited_df["削除"] == False].drop(columns=["削除"])
-                save_data(df_to_save)
-                st.cache_data.clear()
-                st.success("更新しました！")
-                st.rerun()
+        with st.expander("✏️ 銘柄の修正・削除", expanded=False):
+            edf = df.copy(); edf["削除"] = False
+            edited = st.data_editor(edf, num_rows="dynamic", use_container_width=True, hide_index=True)
+            if st.button("💾 変更・削除を保存", key="sv_edit"):
+                save_data(edited[edited["削除"]==False].drop(columns=["削除"])); st.cache_data.clear(); st.success("更新しました！"); st.rerun()
 
+    if not df.empty and not display_df.empty:
         st.markdown("#### 📊 ポートフォリオ詳細一覧")
-        def color_profit(val): return f"color: {'#00E676' if val >= 0 else '#FF1744'}"
-        def color_pct(val): return "" if pd.isna(val) else f"color: {'#00E676' if val > 0 else '#FF1744' if val < 0 else '#E0E0E0'}"
-        def format_pct(val): return "-" if pd.isna(val) else (f"+{val:.1f}%" if val > 0 else f"{val:.1f}%")
-        
-        show_cols = ["銘柄コード", "銘柄名", "市場", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "前日比", "評価額(円)", "税引後損益(円)", "手動配当利回り(%)", "予想配当(円)"]
-        format_dict = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": format_pct, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
-        
-        styled_df = display_df[show_cols].style.applymap(color_profit, subset=['税引後損益(円)']).applymap(color_pct, subset=['前日比']).format(format_dict)
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        def cpf(v): return f"color: {'#00E676' if v >= 0 else '#FF1744'}"
+        def cpc(v): return "" if pd.isna(v) else f"color: {'#00E676' if v > 0 else '#FF1744' if v < 0 else '#E0E0E0'}"
+        def fp(v): return "-" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
+        sc = ["銘柄コード","銘柄名","市場","口座区分","保有株数","取得単価(円)","現在値(円)","前日比","評価額(円)","税引後損益(円)","手動配当利回り(%)","予想配当(円)"]
+        ac = [c for c in sc if c in display_df.columns]
+        fd = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
+        afd = {k:v for k,v in fd.items() if k in ac}
+        sdf = display_df[ac].style
+        if '税引後損益(円)' in ac: sdf = sdf.applymap(cpf, subset=['税引後損益(円)'])
+        if '前日比' in ac: sdf = sdf.applymap(cpc, subset=['前日比'])
+        sdf = sdf.format(afd)
+        st.dataframe(sdf, use_container_width=True, hide_index=True)
 
-# ==========================================
-# 🌍 世界の主要指標 
-# ==========================================
-with st.expander("🌍 世界の主要指標 ＆ トレンド", expanded=False):
-    period_idx_label = st.selectbox("チャートの期間を選択", ["1週間前", "1ヶ月前", "3ヶ月前", "1年前"], index=1)
-    period_map_idx = {"1週間前": "5d", "1ヶ月前": "1mo", "3ヶ月前": "3mo", "1年前": "1y"}
-    selected_period = period_map_idx[period_idx_label]
-
-    indices_dict = {
-        "日経平均": "^N225", "日経先物": "NIY=F", "TOPIX": "1306.T", 
-        "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC",
-        "ドル円": "JPY=X"
-    }
-    
-    with st.spinner("指標データを計算中..."):
-# （これ以降はそのまま...）
-        indices_closes = get_cached_market_data(list(indices_dict.values()), period=selected_period)
+# ── TAB 2: 分析 ──
+with tab_an:
+    if not df.empty and total_asset > 0:
+        display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
+        st.markdown("#### 🍩 銘柄別割合")
+        ac1, ac2 = st.columns([1.2, 1])
+        with ac1:
+            fp1 = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
+            fp1.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False, margin=dict(t=10,b=10))
+            st.plotly_chart(fp1, use_container_width=True)
+        with ac2:
+            tld = display_df[display_df["評価額(円)"]>0].groupby("円グラフ表示名",as_index=False)["評価額(円)"].sum().sort_values("評価額(円)",ascending=False)
+            tld["割合"] = (tld["評価額(円)"]/total_asset*100).apply(lambda x: f"{x:.1f}%")
+            tld["評価額(円)"] = tld["評価額(円)"].apply(lambda x: f"{int(x):,}円")
+            tld.rename(columns={"円グラフ表示名":"銘柄"}, inplace=True)
+            st.write(""); st.dataframe(tld, use_container_width=True, hide_index=True)
+        st.markdown("<hr style='border-top:1px dashed #1E232F;margin:1rem 0'>", unsafe_allow_html=True)
         
-        items = list(indices_dict.items())
+        st.markdown("#### 🏢 セクター別割合")
+        sc1, sc2 = st.columns([1.2, 1])
+        with sc1:
+            fp2 = px.pie(display_df, values="評価額(円)", names="セクター", hole=0.4)
+            fp2.update_traces(textposition='inside', textinfo='percent+label')
+            fp2.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False, margin=dict(t=10,b=10))
+            st.plotly_chart(fp2, use_container_width=True)
+        with sc2:
+            sld = display_df[display_df["評価額(円)"]>0].groupby("セクター",as_index=False)["評価額(円)"].sum().sort_values("評価額(円)",ascending=False)
+            sld["割合"] = (sld["評価額(円)"]/total_asset*100).apply(lambda x: f"{x:.1f}%")
+            sld["評価額(円)"] = sld["評価額(円)"].apply(lambda x: f"{int(x):,}円")
+            st.write(""); st.dataframe(sld, use_container_width=True, hide_index=True)
+        st.markdown("---")
+        
+        st.markdown("#### 🗺️ マーケット・ヒートマップ")
+        st.caption("四角の大きさ＝評価額、色＝本日の値動き。手動入力資産は除外。")
+        tdf = display_df[(display_df["市場"].isin(["日本株","米国株"])) & (display_df["評価額(円)"]>0)].copy()
+        if not tdf.empty:
+            tdf["前日比(数値)"] = tdf["前日比"].apply(lambda x: x if pd.notna(x) else 0.0)
+            tdf["Treemap Label"] = tdf["銘柄名"].astype(str)+"<br>"+tdf["前日比(数値)"].apply(lambda x: f"+{x:.2f}%" if x>0 else f"{x:.2f}%")
+            ft = px.treemap(tdf, path=["市場","セクター","Treemap Label"], values="評価額(円)", color="前日比(数値)", color_continuous_scale="RdYlGn", color_continuous_midpoint=0, hover_data=["含み損益(円)","予想配当(円)"])
+            ft.update_layout(margin=dict(t=10,l=10,r=10,b=10), height=500, paper_bgcolor='#0A0E13')
+            ft.data[0].textfont.color = "black"
+            st.plotly_chart(ft, use_container_width=True)
+        else:
+            st.info("ヒートマップ用のデータがありません。")
+    else:
+        st.info("銘柄を追加すると分析が表示されます。")
+
+# ── TAB 3: シミュレーション ──
+with tab_sim:
+    if not df.empty and total_asset > 0:
+        st.markdown(f"#### 🎯 {goal_oku}億円ゴール 年間必要積立額 (年利{interest_rate_pct}%)")
+        yl, pm = [10,15,20,25,30], []
+        for y in yl:
+            sf = goal_amount - (total_asset * ((1+interest_rate)**y))
+            pm.append(sf / (((1+interest_rate)**y - 1) / interest_rate) if sf > 0 else 0)
+        sdb = pd.DataFrame({"達成年数": [f"{y}年後" for y in yl], "年間積立額": pm})
+        sdb["表示用金額"] = sdb["年間積立額"].apply(lambda x: f"{int(x):,}円" if x > 0 else "達成確実！")
+        fb = px.bar(sdb, x="年間積立額", y="達成年数", orientation='h', text="表示用金額")
+        fb.update_traces(textposition='auto', marker_color='#00D2FF')
+        fb.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', margin=dict(t=10,b=10), xaxis=dict(tickformat=",",ticksuffix="円"))
+        st.plotly_chart(fb, use_container_width=True)
+        st.markdown("---")
+        st.markdown("#### 🚀 未来の資産推移シミュレーション")
+        plf = st.select_slider("シミュレーション期間", options=["1年後","3年後","5年後","10年後","20年後","30年後"], value="10年後")
+        ym = {"1年後":1,"3年後":3,"5年後":5,"10年後":10,"20年後":20,"30年後":30}
+        sdl = get_future_simulation(total_asset, interest_rate, ym[plf], yearly_add)
+        ff = go.Figure()
+        ff.add_trace(go.Scatter(x=sdl["日時"], y=sdl["予測評価額(円)"], mode='lines', line=dict(color="#00D2FF",width=3), fill='tozeroy', fillcolor="rgba(0,210,255,0.15)", name="予測評価額"))
+        if goal_amount > 0:
+            ff.add_trace(go.Scatter(x=[sdl["日時"].iloc[0],sdl["日時"].iloc[-1]], y=[goal_amount,goal_amount], mode='lines', line=dict(color="#FF1744",width=2,dash='dash'), name=f"目標 ({goal_oku}億円)"))
+        ff.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', margin=dict(l=0,r=0,t=20,b=10), height=350, xaxis=dict(showgrid=True,gridcolor='#1E232F'), yaxis=dict(showgrid=True,gridcolor='#1E232F',tickformat=","), legend=dict(yanchor="top",y=0.99,xanchor="left",x=0.01))
+        st.plotly_chart(ff, use_container_width=True)
+    else:
+        st.info("銘柄を追加するとシミュレーションが表示されます。")
+
+# ── TAB 4: 世界指標 ──
+with tab_mkt:
+    pil = st.selectbox("チャートの期間", ["1週間前","1ヶ月前","3ヶ月前","1年前"], index=1, key="idx_period")
+    pmi = {"1週間前":"5d","1ヶ月前":"1mo","3ヶ月前":"3mo","1年前":"1y"}
+    sp = pmi[pil]
+    idd = {"日経平均":"^N225","日経先物":"NIY=F","TOPIX":"1306.T","NYダウ":"^DJI","S&P 500":"^GSPC","S&P先物":"ES=F","NASDAQ":"^IXIC","ドル円":"JPY=X"}
+    with st.spinner("指標データを取得中..."):
+        ic = get_cached_market_data(list(idd.values()), period=sp)
+        items = list(idd.items())
         for i in range(0, len(items), 2):
-            row_cols = st.columns(2)
+            rc = st.columns(2)
             for j in range(2):
-                if i + j < len(items):
-                    name, ticker = items[i + j]
-                    with row_cols[j]:
+                if i+j < len(items):
+                    iname, tk = items[i+j]
+                    with rc[j]:
                         st.markdown("<div class='indicator-card'>", unsafe_allow_html=True)
-                        text_col, chart_col = st.columns([1, 1.5])
-                        
-                        if ticker in indices_closes.columns:
-                            series = indices_closes[ticker].dropna()
-                            if len(series) >= 2:
-                                latest_close = series.iloc[-1]
-                                prev_close = series.iloc[-2]
-                                pct_change = (latest_close / prev_close - 1) * 100
-                                diff = latest_close - prev_close
-                                
-                                color = "#00E676" if pct_change >= 0 else "#FF1744"
-                                fill_color = "rgba(0, 230, 118, 0.15)" if pct_change >= 0 else "rgba(255, 23, 68, 0.15)"
-                                sign = "+" if pct_change >= 0 else ""
-                                
-                                with text_col:
-                                    st.markdown(f"""
-                                        <div style='display:flex; flex-direction:column; justify-content:center; height:150px;'>
-                                            <p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p>
-                                            <p style='color:#FFFFFF; margin:5px 0 0 0; font-size:1.4rem; font-weight:bold;'>{latest_close:,.2f}</p>
-                                            <p style='color:{color}; margin:0 0 5px 0; font-size:13px; font-weight:bold;'>{sign}{diff:,.2f}<br>({sign}{pct_change:.2f}%)</p>
-                                        </div>
-                                    """, unsafe_allow_html=True)
-                                
-                                with chart_col:
-                                    fig_mini = go.Figure(data=[go.Scatter(x=series.index, y=series.values, mode='lines', line=dict(color=color, width=2), fill='tozeroy', fillcolor=fill_color)])
-                                    y_max, y_min = series.max(), series.min()
-                                    y_margin = (y_max - y_min) * 0.1 if y_max != y_min else latest_close * 0.1
-                                    x_tickformat = '%Y/%m' if selected_period == "1y" else '%m/%d'
-                                    
-                                    fig_mini.update_layout(
-                                        plot_bgcolor='#12161E', paper_bgcolor='#12161E', margin=dict(l=45, r=10, t=10, b=30), height=180, 
-                                        xaxis=dict(showgrid=True, gridcolor='#2B3240', griddash='dot', visible=True, tickformat=x_tickformat, tickfont=dict(color='#9E9E9E', size=10)),
-                                        yaxis=dict(showgrid=True, gridcolor='#2B3240', griddash='dot', visible=True, side='left', tickformat=',', tickfont=dict(color='#9E9E9E', size=10), range=[y_min - y_margin, y_max + y_margin]),
-                                        showlegend=False
-                                    )
-                                    st.plotly_chart(fig_mini, use_container_width=True, config={'displayModeBar': False})
+                        tc_, cc_ = st.columns([1, 1.5])
+                        if tk in ic.columns:
+                            ser = ic[tk].dropna()
+                            if len(ser) >= 2:
+                                lc = ser.iloc[-1]; prc = ser.iloc[-2]; pch = (lc/prc-1)*100; dif = lc-prc
+                                col = "#00E676" if pch>=0 else "#FF1744"
+                                fc = "rgba(0,230,118,0.15)" if pch>=0 else "rgba(255,23,68,0.15)"
+                                sgn = "+" if pch>=0 else ""
+                                with tc_: st.markdown(f"<div style='display:flex;flex-direction:column;justify-content:center;height:150px'><p style='color:#BDBDBD;margin:0;font-size:14px;font-weight:bold'>{iname}</p><p style='color:#FFF;margin:5px 0 0;font-size:1.4rem;font-weight:bold'>{lc:,.2f}</p><p style='color:{col};margin:0 0 5px;font-size:13px;font-weight:bold'>{sgn}{dif:,.2f}<br>({sgn}{pch:.2f}%)</p></div>", unsafe_allow_html=True)
+                                with cc_:
+                                    fm = go.Figure(data=[go.Scatter(x=ser.index, y=ser.values, mode='lines', line=dict(color=col,width=2), fill='tozeroy', fillcolor=fc)])
+                                    ymx, ymn = ser.max(), ser.min(); ymg = (ymx-ymn)*0.1 if ymx!=ymn else lc*0.1
+                                    xtf = '%Y/%m' if sp=="1y" else '%m/%d'
+                                    fm.update_layout(plot_bgcolor='#12161E', paper_bgcolor='#12161E', margin=dict(l=45,r=10,t=10,b=30), height=180, xaxis=dict(showgrid=True,gridcolor='#2B3240',griddash='dot',tickformat=xtf,tickfont=dict(color='#9E9E9E',size=10)), yaxis=dict(showgrid=True,gridcolor='#2B3240',griddash='dot',side='left',tickformat=',',tickfont=dict(color='#9E9E9E',size=10),range=[ymn-ymg,ymx+ymg]), showlegend=False)
+                                    st.plotly_chart(fm, use_container_width=True, config={'displayModeBar':False})
                             else:
-                                with text_col: st.markdown(f"<p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p><p style='color:#FF1744;'>データ不足</p>", unsafe_allow_html=True)
+                                with tc_: st.markdown(f"<p style='color:#BDBDBD;font-weight:bold'>{iname}</p><p style='color:#FF1744'>データ不足</p>", unsafe_allow_html=True)
                         else:
-                            with text_col: st.markdown(f"<p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p><p style='color:#FF1744;'>取得失敗</p>", unsafe_allow_html=True)
+                            with tc_: st.markdown(f"<p style='color:#BDBDBD;font-weight:bold'>{iname}</p><p style='color:#FF1744'>取得失敗</p>", unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
