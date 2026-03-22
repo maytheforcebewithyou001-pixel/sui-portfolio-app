@@ -32,7 +32,7 @@ def load_data():
         return pd.DataFrame(columns=expected_cols)
         
     try:
-        sh = gc.open("PortfolioData") # スプレッドシートの名前
+        sh = gc.open("PortfolioData") 
         worksheet = sh.sheet1
         data = worksheet.get_all_records()
         if data:
@@ -40,16 +40,13 @@ def load_data():
         else:
             df = pd.DataFrame(columns=expected_cols)
             
-        # 必要な列の補完
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = "-"
         
-        # ★修正：文字の足し算でエラーが出ないよう、文字型（str）に強制変換
         df["銘柄コード"] = df["銘柄コード"].astype(str)
         df["銘柄名"] = df["銘柄名"].astype(str)
         
-        # 数値への変換
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
         df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
         return df
@@ -65,11 +62,82 @@ def save_data(df):
         sh = gc.open("PortfolioData")
         worksheet = sh.sheet1
         worksheet.clear()
-        # 空白(NaN)があるとエラーになるため、空文字に変換して保存
         save_df = df.fillna("")
         worksheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
     except Exception as e:
         st.error(f"スプレッドシートへの保存に失敗しました。詳細: {e}")
+
+# --- 過去の資産推移を計算する関数（バックテスト） ---
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_portfolio_history(df, period_label, jpy_usd_rate):
+    if df.empty: return pd.DataFrame()
+
+    period_map = {
+        "1日": ("1d", "5m"), "1週間": ("5d", "1h"), "1ヶ月": ("1mo", "1d"),
+        "3ヶ月": ("3mo", "1d"), "6ヶ月": ("6mo", "1d"), "1年": ("1y", "1d"),
+        "3年": ("5y", "1d"), "5年": ("5y", "1d"), "10年": ("10y", "1d"), "全期間": ("max", "1d")
+    }
+    p, interval = period_map[period_label]
+
+    tickers = []
+    for _, row in df.iterrows():
+        code = str(row["銘柄コード"])
+        market = row["市場"]
+        if market == "日本株": tickers.append(f"{code}.T")
+        elif market == "米国株": tickers.append(code)
+
+    tickers_to_download = list(set(tickers))
+    if "JPY=X" not in tickers_to_download:
+        tickers_to_download.append("JPY=X")
+
+    try:
+        data = yf.download(tickers_to_download, period=p, interval=interval, progress=False)
+        if 'Close' in data:
+            closes = data['Close']
+        else:
+            closes = data
+    except:
+        return pd.DataFrame()
+
+    if isinstance(closes, pd.Series):
+        closes = closes.to_frame(name=tickers_to_download[0])
+
+    closes = closes.ffill().bfill()
+
+    if "JPY=X" not in closes.columns:
+        jpy_usd_series = pd.Series(jpy_usd_rate, index=closes.index)
+    else:
+        jpy_usd_series = closes["JPY=X"]
+
+    total_series = pd.Series(0.0, index=closes.index)
+
+    for _, row in df.iterrows():
+        code = str(row["銘柄コード"])
+        market = row["市場"]
+        shares = float(row["保有株数"])
+        buy_price = float(row["取得単価"])
+
+        if market == "日本株":
+            t = f"{code}.T"
+            if t in closes.columns: total_series += closes[t] * shares
+            else: total_series += buy_price * shares
+        elif market == "米国株":
+            t = code
+            if t in closes.columns: total_series += closes[t] * jpy_usd_series * shares
+            else: total_series += buy_price * jpy_usd_rate * shares
+        else:
+            total_series += buy_price * shares
+
+    hist_df = total_series.to_frame(name="評価額(円)").reset_index()
+    hist_df.rename(columns={hist_df.columns[0]: "日時"}, inplace=True)
+
+    # 3年の場合は5年のデータから直近3年分を切り取る
+    if period_label == "3年":
+        if not hist_df.empty:
+            cutoff = hist_df["日時"].max() - pd.DateOffset(years=3)
+            hist_df = hist_df[hist_df["日時"] >= cutoff]
+
+    return hist_df
 
 # --------------------------------------------------------
 
@@ -146,7 +214,7 @@ with slider_col2:
     interest_rate = interest_rate_pct / 100.0
 
 if not df.empty:
-    with st.spinner('過去1年分のデータを含め取得・計算中...'):
+    with st.spinner('各銘柄の最新データを取得・計算中...'):
         current_prices_jpy, total_values, profits, buy_prices_jpy, update_dates = [], [], [], [], []
         dod_list, mom_list, yoy_list = [], [], []
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
@@ -235,6 +303,37 @@ with card_col3:
     st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
 with card_col4: st.markdown(f"<div class='status-card card-count'><h4>銘柄数</h4><p class='main-value'>{stock_count}</p><p class='sub-value'>投資信託含む</p></div>", unsafe_allow_html=True)
 
+# --- ★新規追加：資産推移チャート（バックテスト） ---
+if not display_df.empty:
+    st.markdown("---")
+    st.markdown("### 📈 資産推移 (現在保有銘柄のバックテスト)")
+    st.caption("※現在の保有銘柄と株数を過去からずっと保有していた場合のシミュレーション推移です。")
+    period_label = st.select_slider("期間を選択", options=["1日", "1週間", "1ヶ月", "3ヶ月", "6ヶ月", "1年", "3年", "5年", "10年", "全期間"], value="1ヶ月")
+
+    with st.spinner('過去のチャートを描画中...'):
+        hist_df = get_portfolio_history(display_df, period_label, jpy_usd_rate)
+        if not hist_df.empty and len(hist_df) > 1:
+            start_val = hist_df["評価額(円)"].iloc[0]
+            end_val = hist_df["評価額(円)"].iloc[-1]
+            line_color = "#00E676" if end_val >= start_val else "#FF1744"
+            fill_color = "rgba(0, 230, 118, 0.15)" if end_val >= start_val else "rgba(255, 23, 68, 0.15)"
+
+            fig_hist = go.Figure(go.Scatter(
+                x=hist_df["日時"], y=hist_df["評価額(円)"],
+                mode='lines', line=dict(color=line_color, width=2),
+                fill='tozeroy', fillcolor=fill_color
+            ))
+            fig_hist.update_layout(
+                plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0',
+                margin=dict(l=0, r=0, t=10, b=10), height=350,
+                xaxis=dict(showgrid=True, gridcolor='#1E232F'),
+                yaxis=dict(showgrid=True, gridcolor='#1E232F')
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
+        else:
+            st.info("チャートを描画するための過去データが取得できませんでした。（※投資信託のみの場合などは表示されません）")
+
+# --- 銘柄追加フォーム ---
 st.markdown("### 📌 証券コードと保有数を入力")
 st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 1rem 0;'>", unsafe_allow_html=True)
 
@@ -269,7 +368,6 @@ if not df.empty:
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
         st.markdown("### 🍩 ポートフォリオ割合")
-        # ★修正：文字列（str）に変換してから結合するように安全対策を追加
         display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
         fig_pie = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
         fig_pie.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False)
@@ -331,18 +429,28 @@ if not df.empty:
         .format(format_dict)
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-
+# --- ★世界の主要指標 1ヶ月分線グラフ（日米先物追加） ---
 st.markdown("---")
-st.markdown("### 🌍 世界の主要指標 (直近5日間の推移)")
+st.markdown("### 🌍 世界の主要指標 (直近1ヶ月の推移)")
 
 with st.spinner("主要指標の最新データを取得中..."):
-    indices_dict = {"日経平均": "^N225", "TOPIX": "1306.T", "NYダウ": "^DJI", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
+    # 日米の先物を追加（NIY=F:日経先物, ES=F:S&P500先物）
+    indices_dict = {
+        "日経平均": "^N225", 
+        "日経先物": "NIY=F",
+        "TOPIX": "1306.T", 
+        "NYダウ": "^DJI", 
+        "S&P 500": "^GSPC", 
+        "S&P先物": "ES=F",
+        "NASDAQ": "^IXIC"
+    }
     cols = st.columns(len(indices_dict))
     
     for i, (name, ticker) in enumerate(indices_dict.items()):
         with cols[i]:
             try:
-                hist = yf.Ticker(ticker).history(period="6d")
+                # 1ヶ月分（1mo）に変更
+                hist = yf.Ticker(ticker).history(period="1mo")
                 if len(hist) >= 2:
                     latest_close = hist['Close'].iloc[-1]
                     prev_close = hist['Close'].iloc[-2]
@@ -350,6 +458,7 @@ with st.spinner("主要指標の最新データを取得中..."):
                     diff = latest_close - prev_close
                     
                     color = "#00E676" if pct_change >= 0 else "#FF1744"
+                    fill_color = "rgba(0, 230, 118, 0.15)" if pct_change >= 0 else "rgba(255, 23, 68, 0.15)"
                     sign = "+" if pct_change >= 0 else ""
                     
                     st.markdown(f"""
@@ -360,24 +469,22 @@ with st.spinner("主要指標の最新データを取得中..."):
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    daily_pct = hist['Close'].pct_change().dropna() * 100
-                    dates_str = daily_pct.index.strftime('%m/%d')
-                    bar_colors = ["#00E676" if p >= 0 else "#FF1744" for p in daily_pct]
-                    
+                    # 線グラフ（面付き）に変更
                     fig_mini = go.Figure(data=[
-                        go.Bar(
-                            x=dates_str, y=daily_pct, marker_color=bar_colors,
-                            text=daily_pct.apply(lambda x: f"{x:.1f}%"), textposition='outside', textfont=dict(color='#E0E0E0', size=11)
+                        go.Scatter(
+                            x=hist.index, y=hist['Close'], 
+                            mode='lines', line=dict(color=color, width=2),
+                            fill='tozeroy', fillcolor=fill_color
                         )
                     ])
                     
-                    y_max, y_min = daily_pct.max(), daily_pct.min()
-                    y_margin = max(abs(y_max), abs(y_min)) * 0.4 + 0.1
+                    y_max, y_min = hist['Close'].max(), hist['Close'].min()
+                    y_margin = (y_max - y_min) * 0.1 if y_max != y_min else latest_close * 0.1
                     
                     fig_mini.update_layout(
-                        plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', margin=dict(l=0, r=0, t=20, b=0), height=150,
-                        xaxis=dict(showgrid=False, tickfont=dict(color='#9E9E9E', size=10)),
-                        yaxis=dict(showgrid=False, zeroline=True, zerolinecolor='#E0E0E0', range=[y_min - y_margin, y_max + y_margin], visible=False),
+                        plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', margin=dict(l=0, r=0, t=10, b=0), height=100,
+                        xaxis=dict(showgrid=False, visible=False),
+                        yaxis=dict(showgrid=False, zeroline=False, range=[y_min - y_margin, y_max + y_margin], visible=False),
                         showlegend=False
                     )
                     st.plotly_chart(fig_mini, use_container_width=True, config={'displayModeBar': False})
