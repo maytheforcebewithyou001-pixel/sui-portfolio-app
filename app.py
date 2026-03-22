@@ -581,6 +581,13 @@ with tab_pf:
     if not df.empty and not display_df.empty:
         st.markdown("---")
         st.markdown("#### 🏦 口座別サマリー")
+        
+        # 口座列がない場合のフォールバック
+        if "口座" not in display_df.columns:
+            display_df["口座"] = "SBI証券"
+        if "口座区分" not in display_df.columns:
+            display_df["口座区分"] = "特定口座"
+        
         acct_map = {
             "SBI証券": "acct-sbi", "楽天証券": "acct-rakuten",
             "持ち株会(野村證券)": "acct-nomura",
