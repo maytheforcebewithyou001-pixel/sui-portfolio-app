@@ -1,0 +1,375 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import os
+import math
+from datetime import datetime
+
+st.set_page_config(page_title="PORTFOLIO資産管理", layout="wide", initial_sidebar_state="collapsed")
+
+DATA_FILE = "portfolio.csv"
+
+def get_ticker_name(code, market_type):
+    if not code: return "入力で損益計算"
+    if market_type in ["投資信託", "その他資産"]: return "手動入力"
+    try:
+        full_code = f"{code}.T" if market_type == "日本株" else code
+        ticker = yf.Ticker(full_code)
+        return ticker.info.get('longName', ticker.info.get('shortName', '名称不明'))
+    except:
+        return "取得失敗"
+
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        df = pd.DataFrame(columns=["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "最新更新日"])
+        df.to_csv(DATA_FILE, index=False)
+    
+    df = pd.read_csv(DATA_FILE)
+    if "取得単価" not in df.columns: df["取得単価"] = 0.0
+    if "口座" not in df.columns: df["口座"] = "SBI"
+    if "銘柄名" not in df.columns: df["銘柄名"] = "名称不明"
+    if "最新更新日" not in df.columns: df["最新更新日"] = "-"
+    return df
+
+def save_data(df):
+    df.to_csv(DATA_FILE, index=False)
+
+def get_exchange_rate():
+    try:
+        ticker = yf.Ticker("JPY=X")
+        return ticker.history(period="5d")['Close'].iloc[-1]
+    except:
+        return 150.0
+
+def round_up_3(val):
+    try:
+        val = float(val)
+        rounded = math.ceil(val * 1000) / 1000
+        if rounded.is_integer():
+            return f"{int(rounded):,}"
+        else:
+            return f"{rounded:,.3f}".rstrip('0').rstrip('.')
+    except:
+        return val
+
+# --- データ読み込みと最新為替の取得 ---
+df = load_data()
+
+with st.spinner('最新の為替レートを取得中...'):
+    jpy_usd_rate = get_exchange_rate() if not df.empty else 150.0
+
+# --- カスタムCSS ---
+st.markdown(
+    """
+    <style>
+    html, body, .stApp { overflow-y: auto !important; }
+    .stApp { background-color: #0A0E13; color: #E0E0E0; font-family: sans-serif; }
+    .logo-text { color: #00D2FF; font-weight: bold; font-size: 2.5rem; letter-spacing: 0.1rem; }
+    .logo-text span { color: #E0E0E0; }
+    .status-card { background-color: #12161E; border: 1px solid #1E232F; border-radius: 10px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 1rem; position: relative; }
+    .status-card h4 { color: #BDBDBD; font-size: 1rem; margin: 0 0 0.5rem 0; }
+    .status-card p.main-value { color: #FFFFFF; font-size: 1.8rem; font-weight: bold; margin: 0; }
+    .status-card p.main-value span { color: #00D2FF; font-size: 1.2rem; margin-left: 0.2rem; }
+    .status-card p.sub-value { color: #9E9E9E; font-size: 0.9rem; margin: 0.2rem 0 0 0; }
+    .status-card p.no-value { color: #00E676; font-size: 1.2rem; margin: 0; }
+    .status-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 10px 10px 0 0; }
+    .card-total::before { background: linear-gradient(90deg, #00D2FF 0%, #3A7BD5 100%); }
+    .card-profit::before { background: linear-gradient(90deg, #00E676 0%, #C0CA33 100%); }
+    .card-goal::before { background: linear-gradient(90deg, #00D2FF 0%, #9C27B0 100%); }
+    .card-count::before { background: linear-gradient(90deg, #9C27B0 0%, #D81B60 100%); }
+    .stButton > button { background-color: #12161E; color: #BDBDBD; border: 1px solid #1E232F; border-radius: 20px; padding: 0.5rem 1.2rem; font-size: 0.9rem; }
+    .stButton > button:hover { background-color: #1E232F; color: #FFFFFF; border: 1px solid #00D2FF; }
+    </style>
+    """, unsafe_allow_html=True
+)
+
+# --- ヘッダー ---
+header_col1, header_col2, header_col3 = st.columns([3, 1, 1.5])
+with header_col1: st.markdown("<div class='logo-text'>P<span>ORTFOLIO</span></div>", unsafe_allow_html=True)
+with header_col2: st.write(f"\n資産管理 ・ {datetime.now().strftime('%Y/%m/%d')}")
+with header_col3:
+    if st.button("🔄 全データ 最新化"): st.rerun()
+
+st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 0 0 1rem 0;'>", unsafe_allow_html=True)
+
+# --- 目標金額と年利のスライダー ---
+slider_col1, slider_col2, _ = st.columns([1, 1, 1])
+with slider_col1:
+    goal_oku = st.slider("🎯 目標金額を設定 (億円)", min_value=0.5, max_value=10.0, value=1.5, step=0.1)
+    goal_amount = goal_oku * 1e8
+with slider_col2:
+    interest_rate_pct = st.slider("📈 想定年利 (%)", min_value=1.0, max_value=20.0, value=5.0, step=0.5)
+    interest_rate = interest_rate_pct / 100.0
+
+# --- データ計算 ---
+if not df.empty:
+    with st.spinner('過去1年分のデータを含め取得・計算中...'):
+        current_prices_jpy, total_values, profits, buy_prices_jpy, update_dates = [], [], [], [], []
+        dod_list, mom_list, yoy_list = [], [], []
+        
+        now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+        
+        for index, row in df.iterrows():
+            ticker_code, market_type = row["銘柄コード"], row["市場"]
+            shares, buy_price_raw = float(row["保有株数"]), float(row["取得単価"])
+            fetch_success = False
+            dod_pct = mom_pct = yoy_pct = None
+            
+            try:
+                if market_type == "日本株":
+                    ticker = yf.Ticker(f"{ticker_code}.T")
+                    hist = ticker.history(period="1y")
+                    if not hist.empty:
+                        closes = hist['Close']
+                        price_jpy = closes.iloc[-1]
+                        buy_jpy = buy_price_raw
+                        fetch_success = True
+                        
+                        if len(closes) >= 2: dod_pct = (price_jpy / closes.iloc[-2] - 1) * 100
+                        if len(closes) >= 21: mom_pct = (price_jpy / closes.iloc[-22] - 1) * 100
+                        if len(closes) >= 250: yoy_pct = (price_jpy / closes.iloc[0] - 1) * 100
+
+                elif market_type == "米国株":
+                    ticker = yf.Ticker(ticker_code)
+                    hist = ticker.history(period="1y")
+                    if not hist.empty:
+                        closes = hist['Close']
+                        price_usd = closes.iloc[-1]
+                        price_jpy = price_usd * jpy_usd_rate 
+                        buy_jpy = buy_price_raw * jpy_usd_rate
+                        fetch_success = True
+                        
+                        if len(closes) >= 2: dod_pct = (price_usd / closes.iloc[-2] - 1) * 100
+                        if len(closes) >= 21: mom_pct = (price_usd / closes.iloc[-22] - 1) * 100
+                        if len(closes) >= 250: yoy_pct = (price_usd / closes.iloc[0] - 1) * 100
+                else:
+                    price_jpy = buy_price_raw
+                    buy_jpy = buy_price_raw
+                    fetch_success = True
+                
+                value = price_jpy * shares
+                buy_total = buy_jpy * shares
+                
+            except Exception as e:
+                price_jpy = value = buy_total = buy_jpy = 0
+            
+            profit = value - buy_total
+            current_prices_jpy.append(price_jpy)
+            buy_prices_jpy.append(buy_jpy)
+            total_values.append(value)
+            profits.append(profit)
+            
+            dod_list.append(dod_pct)
+            mom_list.append(mom_pct)
+            yoy_list.append(yoy_pct)
+            
+            if fetch_success:
+                update_dates.append(now_str)
+            else:
+                update_dates.append(row.get("最新更新日", "-"))
+                
+        df["最新更新日"] = update_dates
+        save_data(df)
+            
+        display_df = df.copy()
+        display_df["取得単価(円)"] = buy_prices_jpy
+        display_df["現在値(円)"] = current_prices_jpy
+        display_df["前日比"] = dod_list
+        display_df["前月比"] = mom_list
+        display_df["前年比"] = yoy_list
+        display_df["評価額(円)"] = total_values
+        display_df["含み損益(円)"] = profits
+        
+        total_asset = sum(total_values)
+        total_profit = sum(profits)
+        stock_count = len(df)
+else:
+    total_asset = total_profit = stock_count = 0
+    display_df = pd.DataFrame()
+
+# --- ステータスカード ---
+card_col1, card_col2, card_col3, card_col4 = st.columns(4)
+with card_col1: st.markdown(f"<div class='status-card card-total'><h4>評価額合計</h4><p class='main-value'>{total_asset:,.0f}円</p><p class='sub-value'>{stock_count}銘柄</p></div>", unsafe_allow_html=True)
+with card_col2:
+    profit_color = "#00E676" if total_profit >= 0 else "#FF1744"
+    st.markdown(f"<div class='status-card card-profit'><h4>含み損益</h4><p class='main-value' style='color:{profit_color}'>{total_profit:,.0f}円</p><p class='sub-value'>1ドル {jpy_usd_rate:.2f}円 (最新)</p></div>", unsafe_allow_html=True)
+with card_col3:
+    progress = min(total_asset / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
+    st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
+with card_col4: st.markdown(f"<div class='status-card card-count'><h4>銘柄数</h4><p class='main-value'>{stock_count}</p><p class='sub-value'>投資信託含む</p></div>", unsafe_allow_html=True)
+
+# --- 銘柄追加フォーム ---
+st.markdown("### 📌 証券コードと保有数を入力")
+st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 1rem 0;'>", unsafe_allow_html=True)
+
+in_c1, in_c2, in_c3, in_c4, in_c5, in_c6 = st.columns([1, 1.5, 1.5, 1, 1.5, 1])
+with in_c1: market = st.selectbox("市場", ["日本株", "米国株", "投資信託", "その他資産"])
+with in_c2: code = st.text_input("証券コード", placeholder="例: 7203")
+with in_c3:
+    name = get_ticker_name(code, market)
+    manual_name = st.text_input("銘柄名", value=name if market in ["日本株", "米国株"] else "")
+with in_c4: shares = st.number_input("保有数 (株/万口)", min_value=0.0001, value=100.0)
+with in_c5: avg_price = st.number_input("取得単価 (円/ドル)", min_value=0.0, value=0.0)
+with in_c6: account_type = st.selectbox("口座", ["SBI", "楽天", "マネックス", "その他"])
+
+col_btn1, col_btn2 = st.columns([1, 6])
+with col_btn1:
+    st.write("\n")
+    if st.button("＋ 追加") and code:
+        final_name = manual_name if manual_name else name
+        now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+        new_data = pd.DataFrame({
+            "銘柄コード": [code], "銘柄名": [final_name], "市場": [market], 
+            "保有株数": [shares], "取得単価": [avg_price], "口座": [account_type], "最新更新日": [now_str]
+        })
+        df = pd.concat([df, new_data], ignore_index=True)
+        save_data(df)
+        st.success("追加しました！")
+        st.rerun()
+
+st.markdown("<hr style='border-top: 1px solid #1E232F; margin: 1rem 0 2rem 0;'>", unsafe_allow_html=True)
+
+# --- メインコンテンツ（グラフと表） ---
+if not df.empty:
+    col_chart1, col_chart2 = st.columns(2)
+    with col_chart1:
+        st.markdown("### 🍩 ポートフォリオ割合")
+        display_df["円グラフ表示名"] = display_df["銘柄コード"] + " " + display_df["銘柄名"]
+        fig_pie = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
+        fig_pie.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', showlegend=False)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_chart2:
+        st.markdown(f"### 🎯 {goal_oku}億円ゴール 年間必要積立額 (年利{interest_rate_pct}%)")
+        years, pmts = [10, 15, 20, 25, 30], []
+        for y in years:
+            shortfall = goal_amount - (total_asset * ((1 + interest_rate) ** y))
+            pmts.append(shortfall / (((1 + interest_rate) ** y - 1) / interest_rate) if shortfall > 0 else 0)
+        sim_df = pd.DataFrame({"達成年数": [f"{y}年後" for y in years], "年間積立額": pmts})
+        sim_df["表示用金額"] = sim_df["年間積立額"].apply(lambda x: f"{int(x / 10000):,}万円" if x > 0 else "達成確実！")
+        fig_bar = px.bar(sim_df, x="年間積立額", y="達成年数", orientation='h', text="表示用金額")
+        fig_bar.update_traces(textposition='auto', marker_color='#00D2FF')
+        fig_bar.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0')
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.markdown("---")
+    
+    st.markdown("### ✏️ 登録データの修正・削除")
+    st.write("不要な銘柄は右端の **「削除」** にチェックを入れて保存ボタンを押してください。")
+    
+    edit_df = df.copy()
+    edit_df["削除"] = False 
+    
+    edit_col1, edit_col2 = st.columns([5, 1])
+    with edit_col1:
+        edited_df = st.data_editor(edit_df, num_rows="dynamic", use_container_width=True, hide_index=True)
+    with edit_col2:
+        st.write("\n\n")
+        if st.button("💾 変更・削除を保存"):
+            df_to_save = edited_df[edited_df["削除"] == False].drop(columns=["削除"])
+            save_data(df_to_save)
+            st.success("更新しました！")
+            st.rerun()
+
+    st.markdown("### 📊 ポートフォリオ一覧 (円建て)")
+    st.caption("※米国株の各比率（前日比等）は、為替の影響を除外した「ドル建て」での純粋な株価変動率を表示しています。")
+    
+    def color_profit(val): return f"color: {'#00E676' if val >= 0 else '#FF1744'}"
+    def color_pct(val):
+        if pd.isna(val): return ""
+        return f"color: {'#00E676' if val > 0 else '#FF1744' if val < 0 else '#E0E0E0'}"
+    def format_pct(val):
+        if pd.isna(val): return "-"
+        return f"+{val:.1f}%" if val > 0 else f"{val:.1f}%"
+    
+    show_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価(円)", "現在値(円)", "前日比", "前月比", "前年比", "評価額(円)", "含み損益(円)", "最新更新日"]
+    format_dict = {
+        "保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3,
+        "前日比": format_pct, "前月比": format_pct, "前年比": format_pct,
+        "評価額(円)": "{:,.0f}", "含み損益(円)": "{:,.0f}"
+    }
+    
+    styled_df = display_df[show_cols].style\
+        .applymap(color_profit, subset=['含み損益(円)'])\
+        .applymap(color_pct, subset=['前日比', '前月比', '前年比'])\
+        .format(format_dict)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+
+# --- ★世界の主要指標 週間ミニチャート ---
+st.markdown("---")
+st.markdown("### 🌍 世界の主要指標 (直近5日間の推移)")
+st.caption("※各パネルのグラフは、過去5営業日における「前日比(%)」の値動きを表しています。")
+
+with st.spinner("主要指標の最新データを取得中..."):
+    indices_dict = {
+        "日経平均": "^N225",
+        "TOPIX": "1306.T", 
+        "NYダウ": "^DJI",
+        "S&P 500": "^GSPC",
+        "NASDAQ": "^IXIC"
+    }
+    
+    cols = st.columns(len(indices_dict))
+    
+    for i, (name, ticker) in enumerate(indices_dict.items()):
+        with cols[i]:
+            try:
+                hist = yf.Ticker(ticker).history(period="6d")
+                if len(hist) >= 2:
+                    latest_close = hist['Close'].iloc[-1]
+                    prev_close = hist['Close'].iloc[-2]
+                    pct_change = (latest_close / prev_close - 1) * 100
+                    diff = latest_close - prev_close
+                    
+                    color = "#00E676" if pct_change >= 0 else "#FF1744"
+                    sign = "+" if pct_change >= 0 else ""
+                    
+                    st.markdown(f"""
+                        <div style='text-align:center;'>
+                            <p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p>
+                            <p style='color:#FFFFFF; margin:5px 0 0 0; font-size:1.4rem; font-weight:bold;'>{latest_close:,.2f}</p>
+                            <p style='color:{color}; margin:0 0 5px 0; font-size:14px; font-weight:bold;'>{sign}{diff:,.2f} ({sign}{pct_change:.2f}%)</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    daily_pct = hist['Close'].pct_change().dropna() * 100
+                    dates_str = daily_pct.index.strftime('%m/%d')
+                    bar_colors = ["#00E676" if p >= 0 else "#FF1744" for p in daily_pct]
+                    
+                    fig_mini = go.Figure(data=[
+                        go.Bar(
+                            x=dates_str, 
+                            y=daily_pct,
+                            marker_color=bar_colors,
+                            text=daily_pct.apply(lambda x: f"{x:.1f}%"),
+                            textposition='outside',
+                            textfont=dict(color='#E0E0E0', size=11)
+                        )
+                    ])
+                    
+                    y_max, y_min = daily_pct.max(), daily_pct.min()
+                    y_margin = max(abs(y_max), abs(y_min)) * 0.4 + 0.1
+                    
+                    fig_mini.update_layout(
+                        plot_bgcolor='#0A0E13',
+                        paper_bgcolor='#0A0E13',
+                        margin=dict(l=0, r=0, t=20, b=0),
+                        height=150,
+                        xaxis=dict(showgrid=False, tickfont=dict(color='#9E9E9E', size=10)),
+                        yaxis=dict(showgrid=False, zeroline=True, zerolinecolor='#E0E0E0', 
+                                   range=[y_min - y_margin, y_max + y_margin], visible=False),
+                        showlegend=False
+                    )
+                    
+                    st.plotly_chart(fig_mini, use_container_width=True, config={'displayModeBar': False})
+                    
+            except Exception as e:
+                st.markdown(f"""
+                    <div style='text-align:center; padding-bottom:50px;'>
+                        <p style='color:#BDBDBD; margin:0; font-size:14px; font-weight:bold;'>{name}</p>
+                        <p style='color:#FF1744; margin:10px 0; font-size:14px;'>取得失敗</p>
+                    </div>
+                """, unsafe_allow_html=True)
