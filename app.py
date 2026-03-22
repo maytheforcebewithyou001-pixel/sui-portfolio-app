@@ -41,7 +41,7 @@ def get_cached_market_data(tickers, period="1y"):
     except:
         return pd.DataFrame()
 
-# ★新規：セクター（業種）と配当利回りを取得する関数（1日キャッシュ）
+# ★修正：配当金の計算を「利回り」から「1株あたりの現金(Rate)」に変更して正確に！
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_cached_ticker_info(tickers):
     info_dict = {}
@@ -55,11 +55,17 @@ def get_cached_ticker_info(tickers):
         if t == "JPY=X": continue
         try:
             info = yf.Ticker(t).info
-            dy = info.get("dividendYield") or info.get("trailingAnnualDividendYield") or 0.0
+            # 1株あたりの配当額（現金）を最優先で取得
+            div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0.0
+            div_yield = info.get("dividendYield") or info.get("trailingAnnualDividendYield") or 0.0
             sec = info.get("sector") or "ETF/その他"
-            info_dict[t] = {"sector": sector_map.get(sec, sec), "dividendYield": float(dy)}
+            info_dict[t] = {
+                "sector": sector_map.get(sec, sec), 
+                "div_rate": float(div_rate),
+                "div_yield": float(div_yield)
+            }
         except:
-            info_dict[t] = {"sector": "不明", "dividendYield": 0.0}
+            info_dict[t] = {"sector": "不明", "div_rate": 0.0, "div_yield": 0.0}
     return info_dict
 
 # ==========================================
@@ -67,7 +73,6 @@ def get_cached_ticker_info(tickers):
 # ==========================================
 def load_data():
     gc = init_gspread()
-    # ★新規：「口座区分」列を追加
     expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "最新更新日"]
     if gc is None: return pd.DataFrame(columns=expected_cols)
     try:
@@ -196,7 +201,7 @@ if not df.empty:
             elif market == "米国株": tickers_to_fetch.append(code)
         
         closes_df = get_cached_market_data(list(set(tickers_to_fetch)), period="1y")
-        info_dict = get_cached_ticker_info(list(set(tickers_to_fetch))) # 業種・配当利回り取得
+        info_dict = get_cached_ticker_info(list(set(tickers_to_fetch)))
         
         if "JPY=X" in closes_df.columns:
             jpy_usd_series = closes_df["JPY=X"].dropna()
@@ -219,9 +224,10 @@ if not df.empty:
             
             t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
             
-            # 配当とセクターの設定
-            dy = info_dict.get(t, {}).get("dividendYield", 0.0)
+            # 業種と配当情報を取り出す
             sector = info_dict.get(t, {}).get("sector", "手動入力/その他")
+            div_rate = info_dict.get(t, {}).get("div_rate", 0.0)
+            div_yield = info_dict.get(t, {}).get("div_yield", 0.0)
             
             if market_type in ["日本株", "米国株"] and t in closes_df.columns:
                 series = closes_df[t].dropna()
@@ -249,9 +255,19 @@ if not df.empty:
             value = price_jpy * shares
             buy_total = buy_jpy * shares
             profit = value - buy_total
-            dividend = value * dy # 年間予想配当金
             
-            # ★新規：NISA・特定口座の税引き後損益計算（20.315%）
+            # ★修正：配当金の超・正確な計算（1株配当 × 株数）
+            if div_rate > 0:
+                if market_type == "日本株":
+                    dividend = div_rate * shares
+                elif market_type == "米国株":
+                    dividend = div_rate * shares * jpy_usd_rate
+                else:
+                    dividend = value * div_yield
+            else:
+                # 取得できなかった場合のみ、評価額×利回りで代替計算
+                dividend = value * div_yield
+            
             tax_rate = 0.0 if "NISA" in tax_category else 0.20315
             tax_amount = profit * tax_rate if profit > 0 else 0.0
             net_profit = profit - tax_amount
@@ -293,7 +309,7 @@ else:
     display_df = pd.DataFrame()
 
 # ==========================================
-# 💳 ステータスカード (税引後・配当追加)
+# 💳 ステータスカード 
 # ==========================================
 card_col1, card_col2, card_col3, card_col4 = st.columns(4)
 with card_col1: st.markdown(f"<div class='status-card card-total'><h4>評価額合計</h4><p class='main-value'>{total_asset:,.0f}円</p><p class='sub-value'>{stock_count}銘柄</p></div>", unsafe_allow_html=True)
@@ -301,13 +317,13 @@ with card_col2:
     profit_color = "#00E676" if total_net_profit >= 0 else "#FF1744"
     st.markdown(f"<div class='status-card card-profit'><h4>税引後 含み損益</h4><p class='main-value' style='color:{profit_color}'>{total_net_profit:,.0f}円</p><p class='sub-value'>1ドル {jpy_usd_rate:.2f}円</p></div>", unsafe_allow_html=True)
 with card_col3:
-    st.markdown(f"<div class='status-card card-dividend'><h4>年間予想配当金 (税引前)</h4><p class='main-value'>{total_dividend:,.0f}円</p><p class='sub-value'>予想平均利回り {avg_dividend_yield:.2f}%</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='status-card card-dividend'><h4>年間予想配当金 (税引前)</h4><p class='main-value'>{total_dividend:,.0f}円</p><p class='sub-value'>平均利回り {avg_dividend_yield:.2f}%</p></div>", unsafe_allow_html=True)
 with card_col4:
     progress = min(total_asset / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
     st.markdown(f"<div class='status-card card-goal'><h4>{goal_oku}億円ゴール</h4><p class='main-value'>{progress:.1f}<span>%</span></p><p class='sub-value'>残り {max((goal_amount - total_asset)/1e8, 0):,.2f}億円</p></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 📈 分析 ＆ ヒートマップ (新規追加)
+# 📈 分析 ＆ ヒートマップ
 # ==========================================
 if not df.empty and total_asset > 0:
     with st.expander("📈 ポートフォリオ分析 ＆ ヒートマップ", expanded=True):
@@ -331,23 +347,27 @@ if not df.empty and total_asset > 0:
         st.markdown("#### 🗺️ マーケット・ヒートマップ (本日)")
         st.caption("※四角の大きさが「評価額」、色が「本日の値動き(緑=プラス、赤=マイナス)」を表しています。クリックで拡大できます。")
         
-        # ツリーマップ作成用のデータ整形（エラー防止）
-        display_df["前日比(数値)"] = [x if pd.notna(x) else 0.0 for x in display_df["前日比"]]
-        display_df["Treemap Label"] = display_df["銘柄名"].astype(str) + "<br>" + display_df["前日比(数値)"].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
-        
-        fig_tree = px.treemap(
-            display_df,
-            path=[px.Constant("全資産"), "市場", "セクター", "Treemap Label"],
-            values="評価額(円)",
-            color="前日比(数値)",
-            color_continuous_scale="RdYlGn",
-            color_continuous_midpoint=0,
-            hover_data=["含み損益(円)", "予想配当(円)"]
-        )
-        fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10), height=500, paper_bgcolor='#0A0E13')
-        # テキストの色を見やすくする
-        fig_tree.data[0].textfont.color = "white"
-        st.plotly_chart(fig_tree, use_container_width=True)
+        # ★修正：ヒートマップ表示のバグ防止（評価額0円を除外し、確実な階層を作成）
+        tree_df = display_df[display_df["評価額(円)"] > 0].copy()
+        if not tree_df.empty:
+            tree_df["全体"] = "ポートフォリオ" # エラー原因だったpx.Constantを回避
+            tree_df["前日比(数値)"] = tree_df["前日比"].apply(lambda x: x if pd.notna(x) else 0.0)
+            tree_df["Treemap Label"] = tree_df["銘柄名"].astype(str) + "<br>" + tree_df["前日比(数値)"].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
+            
+            fig_tree = px.treemap(
+                tree_df,
+                path=["全体", "市場", "セクター", "Treemap Label"],
+                values="評価額(円)",
+                color="前日比(数値)",
+                color_continuous_scale="RdYlGn",
+                color_continuous_midpoint=0,
+                hover_data=["含み損益(円)", "予想配当(円)"]
+            )
+            fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10), height=500, paper_bgcolor='#0A0E13')
+            fig_tree.data[0].textfont.color = "white"
+            st.plotly_chart(fig_tree, use_container_width=True)
+        else:
+            st.info("ヒートマップを表示するためのデータがありません。")
 
 # ==========================================
 # 🚀 未来シミュレーション
@@ -388,8 +408,6 @@ if not df.empty and total_asset > 0:
 # ==========================================
 with st.expander("📌 銘柄データの登録・修正・一覧", expanded=True):
     st.markdown("#### ➕ 新規追加")
-    
-    # ★新規：口座区分(NISA対応)の入力を追加
     in_c1, in_c2, in_c3, in_c4, in_c5, in_c6, in_c7 = st.columns([1, 1, 1.5, 1, 1.2, 1, 1.2])
     with in_c1: market = st.selectbox("市場", ["日本株", "米国株", "投資信託", "その他資産"])
     with in_c2: code = st.text_input("証券コード", placeholder="例: 7203")
