@@ -1243,20 +1243,22 @@ with tab_ai:
             
             portfolio_text = build_portfolio_summary()
             
-            # ★ Google Sheetsから前回の生成結果を読み込む（永続化）
-            def load_ai_review():
+            # ★ Google Sheetsに永続保存 + session_stateでキャッシュ
+            def _load_ai_review_from_sheets():
+                """Sheetsから読み込み（APIコール発生）"""
                 sh = get_spreadsheet()
                 if sh is None: return None, ""
                 try:
                     ws = sh.worksheet("AI総評")
                     vals = ws.get_all_values()
                     if len(vals) >= 2 and vals[1][0]:
-                        return vals[1][0], vals[1][1]  # (日時, 本文)
+                        return vals[1][0], vals[1][1]
                 except:
                     pass
                 return None, ""
             
-            def save_ai_review(dt_str, text):
+            def _save_ai_review_to_sheets(dt_str, text):
+                """Sheetsに保存"""
                 sh = get_spreadsheet()
                 if sh is None: return
                 try:
@@ -1271,11 +1273,28 @@ with tab_ai:
                 except Exception as e:
                     st.warning(f"保存エラー: {e}")
             
+            # session_stateに結果がなければSheetsから読み込む（初回のみAPI呼び出し）
+            if "ai_review_dt" not in st.session_state:
+                st.session_state.ai_review_dt = None
+            if "ai_review_text" not in st.session_state:
+                st.session_state.ai_review_text = ""
+            if "ai_review_loaded" not in st.session_state:
+                st.session_state.ai_review_loaded = False
             if "ai_confirm_regen" not in st.session_state:
                 st.session_state.ai_confirm_regen = False
             
-            # 前回の結果を読み込み
-            saved_dt_str, saved_text = load_ai_review()
+            # 初回だけSheetsから読み込む
+            if not st.session_state.ai_review_loaded:
+                try:
+                    dt_str, text = _load_ai_review_from_sheets()
+                    st.session_state.ai_review_dt = dt_str
+                    st.session_state.ai_review_text = text
+                except:
+                    pass
+                st.session_state.ai_review_loaded = True
+            
+            saved_dt_str = st.session_state.ai_review_dt
+            saved_text = st.session_state.ai_review_text
             
             # 前回の結果がある場合は表示
             if saved_text and saved_dt_str:
@@ -1359,9 +1378,11 @@ with tab_ai:
                                 data = response.json()
                                 ai_text = "".join([b["text"] for b in data["content"] if b["type"] == "text"])
                                 
-                                # Google Sheetsに永続保存
+                                # session_state + Google Sheetsに保存
                                 now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
-                                save_ai_review(now_str, ai_text)
+                                st.session_state.ai_review_dt = now_str
+                                st.session_state.ai_review_text = ai_text
+                                _save_ai_review_to_sheets(now_str, ai_text)
                                 st.rerun()
                             else:
                                 error_detail = response.json().get("error", {}).get("message", response.text)
