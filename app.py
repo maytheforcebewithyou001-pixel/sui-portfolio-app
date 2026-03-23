@@ -96,6 +96,30 @@ def get_spreadsheet():
         return None
 
 @st.cache_data(ttl=120, show_spinner=False)
+def load_fund_prices():
+    """「投信価格」シートから投信の基準価額を読み込む（GASが毎日更新）"""
+    sh = get_spreadsheet()
+    if sh is None:
+        return {}
+    try:
+        ws = sh.worksheet("投信価格")
+        all_values = ws.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return {}
+        # {銘柄コード: 基準価額} の辞書を返す
+        fund_prices = {}
+        for row in all_values[1:]:
+            if len(row) >= 3 and row[0].strip() and row[2].strip():
+                try:
+                    fund_prices[row[0].strip()] = float(str(row[2]).replace(",", ""))
+                except (ValueError, TypeError):
+                    pass
+        return fund_prices
+    except Exception:
+        # シートが存在しない場合は空辞書を返す
+        return {}
+
+@st.cache_data(ttl=120, show_spinner=False)
 def load_data():
     sh = get_spreadsheet()
     expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "配当月", "取得時為替", "最新更新日"]
@@ -382,6 +406,7 @@ with st.sidebar:
 # 📊 データ一括処理 ＆ 計算
 # ==========================================
 df = load_data()
+fund_prices = load_fund_prices()  # ★ GASが更新した投信基準価額を読み込み
 
 if not df.empty:
     with st.spinner('市場データを取得中...'):
@@ -467,7 +492,16 @@ if not df.empty:
                         prev = series.iloc[-2]
                         dod_pct = ((latest_price / prev) - 1) * 100 if prev != 0 else None
             else:
-                price_jpy = buy_price_raw; buy_jpy = buy_price_raw; fetch_success = True
+                # ★ 投資信託: GASが取得した基準価額を使用
+                if market_type == "投資信託" and ticker_code in fund_prices:
+                    price_jpy = fund_prices[ticker_code]
+                    buy_jpy = buy_price_raw
+                    fetch_success = True
+                else:
+                    # その他資産 or 投信価格が未取得の場合は取得単価をフォールバック
+                    price_jpy = buy_price_raw
+                    buy_jpy = buy_price_raw
+                    fetch_success = True
 
             value = price_jpy * shares
             buy_total = buy_jpy * shares
