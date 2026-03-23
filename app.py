@@ -98,7 +98,7 @@ def get_spreadsheet():
 @st.cache_data(ttl=120, show_spinner=False)
 def load_data():
     sh = get_spreadsheet()
-    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "配当月", "最新更新日"]
+    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "配当月", "取得時為替", "最新更新日"]
     BROKER_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)"]
     TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
     if sh is None: return pd.DataFrame(columns=expected_cols)
@@ -183,6 +183,7 @@ def load_data():
                 if col == "口座": df[col] = "SBI証券"
                 elif col == "口座区分": df[col] = "特定口座"
                 elif col == "手動配当利回り(%)": df[col] = 0.0
+                elif col == "取得時為替": df[col] = 0.0
                 elif col == "配当月": df[col] = ""
                 else: df[col] = "-"
         
@@ -191,6 +192,7 @@ def load_data():
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
         df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
         df["手動配当利回り(%)"] = pd.to_numeric(df["手動配当利回り(%)"], errors='coerce').fillna(0.0)
+        df["取得時為替"] = pd.to_numeric(df["取得時為替"], errors='coerce').fillna(0.0)
         
         ordered = [c for c in expected_cols if c in df.columns]
         extra = [c for c in df.columns if c not in expected_cols]
@@ -404,6 +406,8 @@ if not df.empty:
         buy_prices_jpy, update_dates = [], []
         dod_list, sector_list, manual_yield_list, div_month_list = [], [], [], []
         dividends_after_tax = []
+        fx_gain_list = []  # 為替損益
+        stock_gain_list = []  # 株価損益（為替除く）
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
 
         for _, row in df.iterrows():
@@ -412,10 +416,13 @@ if not df.empty:
             tax_category = str(row.get("口座区分", "特定口座"))
             manual_yield = float(row.get("手動配当利回り(%)", 0.0))
             div_month_str = str(row.get("配当月", ""))
+            buy_fx_rate = float(row.get("取得時為替", 0.0))
 
             fetch_success = False
             dod_pct = None
             price_jpy = value = buy_jpy = dividend = net_profit = 0
+            fx_gain = 0.0
+            stock_gain = 0.0
 
             t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
             sector = info_dict.get(t, {}).get("sector", "手動入力/その他")
@@ -430,7 +437,14 @@ if not df.empty:
                     if market_type == "日本株":
                         price_jpy = latest_price; buy_jpy = buy_price_raw
                     else:
-                        price_jpy = latest_price * jpy_usd_rate; buy_jpy = buy_price_raw * jpy_usd_rate
+                        price_jpy = latest_price * jpy_usd_rate
+                        buy_jpy = buy_price_raw * jpy_usd_rate
+                        # ★ 為替損益の分離（取得時為替が入力されている場合）
+                        if buy_fx_rate > 0:
+                            # 株価損益 = (現在USD価格 - 取得USD価格) × 株数 × 現在為替
+                            stock_gain = (latest_price - buy_price_raw) * shares * jpy_usd_rate
+                            # 為替損益 = 取得USD価格 × 株数 × (現在為替 - 取得時為替)
+                            fx_gain = buy_price_raw * shares * (jpy_usd_rate - buy_fx_rate)
                     if len(series) >= 2:
                         prev = series.iloc[-2]
                         dod_pct = ((latest_price / prev) - 1) * 100 if prev != 0 else None
@@ -463,6 +477,8 @@ if not df.empty:
             net_profits.append(net_profit)
             dividends.append(dividend)
             dividends_after_tax.append(dividend_after_tax)
+            fx_gain_list.append(fx_gain)
+            stock_gain_list.append(stock_gain)
             dod_list.append(dod_pct)
             sector_list.append(sector)
             manual_yield_list.append(manual_yield)
@@ -480,6 +496,8 @@ if not df.empty:
         display_df["税引後損益(円)"] = net_profits
         display_df["予想配当(円)"] = dividends
         display_df["税引後配当(円)"] = dividends_after_tax
+        display_df["株価損益(円)"] = stock_gain_list
+        display_df["為替損益(円)"] = fx_gain_list
         display_df["手動配当利回り(%)"] = manual_yield_list
         display_df["配当月"] = div_month_list
 
@@ -487,10 +505,13 @@ if not df.empty:
         total_net_profit = sum(net_profits)
         total_dividend = sum(dividends)
         total_dividend_after_tax = sum(dividends_after_tax)
+        total_fx_gain = sum(fx_gain_list)
+        total_stock_gain = sum(stock_gain_list)
         avg_dividend_yield = (total_dividend / total_asset * 100) if total_asset > 0 else 0.0
         stock_count = len(df)
 else:
     total_asset = total_net_profit = total_dividend = total_dividend_after_tax = avg_dividend_yield = stock_count = 0
+    total_fx_gain = total_stock_gain = 0
     jpy_usd_rate = 150.0
     display_df = pd.DataFrame()
 
@@ -561,6 +582,26 @@ st.markdown(f"""
   <div class='goal-bar-labels'><span>¥0</span><span style='color:#00D2FF'>{pv:.1f}% 達成</span><span>{goal_oku}億円</span></div>
 </div>""", unsafe_allow_html=True)
 
+# ★ 為替損益サマリー（米国株の取得時為替が入力されている場合のみ）
+if total_fx_gain != 0 or total_stock_gain != 0:
+    fx_c1, fx_c2 = st.columns(2)
+    with fx_c1:
+        sg_color = "#00E676" if total_stock_gain >= 0 else "#FF5252"
+        sg_sign = "+" if total_stock_gain >= 0 else ""
+        st.markdown(f"""<div class='status-card' style='padding:0.6rem;border-left:3px solid #00D2FF'>
+            <h4>米国株 株価損益</h4>
+            <p class='mv' style='font-size:1rem;color:{sg_color}'>{sg_sign}{total_stock_gain:,.0f}<span>円</span></p>
+            <p class='sv'>株価の値動きによる損益</p>
+        </div>""", unsafe_allow_html=True)
+    with fx_c2:
+        fg_color = "#00E676" if total_fx_gain >= 0 else "#FF5252"
+        fg_sign = "+" if total_fx_gain >= 0 else ""
+        st.markdown(f"""<div class='status-card' style='padding:0.6rem;border-left:3px solid #FFD54F'>
+            <h4>米国株 為替損益</h4>
+            <p class='mv' style='font-size:1rem;color:{fg_color}'>{fg_sign}{total_fx_gain:,.0f}<span>円</span></p>
+            <p class='sv'>為替変動（$1=¥{jpy_usd_rate:.1f}）による損益</p>
+        </div>""", unsafe_allow_html=True)
+
 # ★ 大幅変動アラート
 if not display_df.empty and '前日比' in display_df.columns:
     big_movers = display_df[display_df['前日比'].apply(lambda x: abs(x) >= 3.0 if pd.notna(x) else False)]
@@ -582,8 +623,19 @@ with tab_pf:
     with r1a: market = st.selectbox("市場", ["日本株", "米国株", "投資信託", "その他資産"], key="form_market")
     with r1b: code = st.text_input("証券コード", placeholder="例: 7203", key="form_code")
     with r1c:
-        name = get_ticker_name(code, market)
-        manual_name = st.text_input("銘柄名", value=name if market in ["日本株", "米国株"] else "", key="form_name")
+        # ★ 証券コードを入れたら自動で銘柄名を取得して表示
+        if code and market in ["日本株", "米国株"]:
+            with st.spinner("銘柄名を取得中..."):
+                auto_name = get_ticker_name(code, market)
+            if auto_name and auto_name not in ["取得失敗", "入力で損益計算", ""]:
+                st.markdown(f"<p style='color:#00D2FF;font-size:0.85rem;margin:0 0 4px'>🔍 {auto_name}</p>", unsafe_allow_html=True)
+                manual_name = st.text_input("銘柄名（変更可）", value=auto_name, key="form_name")
+            else:
+                st.markdown(f"<p style='color:#FF5252;font-size:0.85rem;margin:0 0 4px'>⚠ 銘柄名を取得できませんでした</p>", unsafe_allow_html=True)
+                manual_name = st.text_input("銘柄名（手動入力）", value="", key="form_name")
+        else:
+            auto_name = ""
+            manual_name = st.text_input("銘柄名", value="", key="form_name", placeholder="手動入力してください")
 
     r2a, r2b, r2c, r2d, r2e = st.columns([1, 1, 1, 1, 1])
     with r2a: shares = st.number_input("保有数", min_value=0.0001, value=100.0, key="form_shares")
@@ -592,16 +644,17 @@ with tab_pf:
     with r2d: broker_type = st.selectbox("口座", ["SBI証券", "楽天証券", "持ち株会(野村證券)"], key="form_broker")
     with r2e: tax_type = st.selectbox("口座区分", ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"], key="form_tax")
 
-    r3a, r3b = st.columns([1.5, 3.5])
+    r3a, r3b, r3c = st.columns([1.5, 1.5, 2])
     with r3a: div_months = st.text_input("配当月 (例: 3,9)", placeholder="3,6,9,12", help="カンマ区切りで入力", key="form_divmonth")
-    with r3b: st.write("")
+    with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, value=0.0, step=0.1, help="米国株のみ。購入時の$/¥レート", key="form_buyfx")
+    with r3c: st.write("")
 
     if st.button("＋ 追加", key="add_btn") and code:
-        final_name = manual_name if manual_name else name
+        final_name = manual_name if manual_name else (auto_name if auto_name else code)
         new_data = pd.DataFrame({
             "銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
             "保有株数": [shares], "取得単価": [avg_price], "口座": [broker_type], "口座区分": [tax_type],
-            "手動配当利回り(%)": [manual_div], "配当月": [div_months],
+            "手動配当利回り(%)": [manual_div], "配当月": [div_months], "取得時為替": [buy_fx],
             "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]
         })
         df = pd.concat([df, new_data], ignore_index=True)
@@ -667,7 +720,7 @@ with tab_pf:
         st.markdown("#### 📋 保有銘柄一覧")
         def cpf(v): return f"color: {'#00E676' if v >= 0 else '#FF5252'}"
         def cpc(v): return "" if pd.isna(v) else f"color: {'#00E676' if v > 0 else '#FF5252' if v < 0 else '#E0E0E0'}"
-        def fp(v): return "-" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
+        def fp(v): return "-" if pd.isna(v) else (f"前日比 +{v:.1f}%" if v > 0 else f"前日比 {v:.1f}%")
         sc = ["銘柄コード","銘柄名","市場","口座","口座区分","保有株数","取得単価(円)","現在値(円)","前日比","評価額(円)","税引後損益(円)","予想配当(円)"]
         ac = [c for c in sc if c in display_df.columns]
         fd = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
@@ -764,6 +817,7 @@ with tab_pf:
                     "保有株数": st.column_config.NumberColumn("保有株数", min_value=0, format="%.4f"),
                     "取得単価": st.column_config.NumberColumn("取得単価", min_value=0, format="%.2f"),
                     "手動配当利回り(%)": st.column_config.NumberColumn("手動利回り(%)", min_value=0, format="%.2f"),
+                    "取得時為替": st.column_config.NumberColumn("取得時為替($/¥)", min_value=0, format="%.1f", help="米国株のみ"),
                     "削除": st.column_config.CheckboxColumn("削除", default=False),
                 },
             )
@@ -828,6 +882,107 @@ with tab_an:
             st.plotly_chart(ft, use_container_width=True)
         else:
             st.info("ヒートマップ用データがありません。")
+
+        # ==========================================
+        # ⚖️ リバランス提案
+        # ==========================================
+        st.markdown("---")
+        st.markdown("#### ⚖️ リバランス提案")
+        st.caption("目標配分を設定すると、現在のポートフォリオとの乖離と調整案を表示します。")
+        
+        # 現在のセクター配分を取得
+        sector_current = display_df[display_df["評価額(円)"] > 0].groupby("セクター", as_index=False)["評価額(円)"].sum()
+        sector_current["現在(%)"] = (sector_current["評価額(円)"] / total_asset * 100)
+        all_sectors = sorted(sector_current["セクター"].tolist())
+        
+        if all_sectors:
+            # 目標配分の入力UI
+            with st.expander("🎯 目標配分を設定（%）", expanded=False):
+                st.caption("合計が100%になるように設定してください。0%のセクターは「売却候補」として表示されます。")
+                target_pcts = {}
+                # セクター数に応じて列を分ける
+                n_cols = min(len(all_sectors), 4)
+                target_cols = st.columns(n_cols)
+                for i, sec in enumerate(all_sectors):
+                    current_pct = sector_current[sector_current["セクター"] == sec]["現在(%)"].values
+                    current_val = current_pct[0] if len(current_pct) > 0 else 0
+                    with target_cols[i % n_cols]:
+                        target_pcts[sec] = st.number_input(
+                            f"{sec}", 
+                            min_value=0.0, max_value=100.0, 
+                            value=round(current_val, 1),  # デフォルトは現在配分
+                            step=1.0, key=f"target_{sec}"
+                        )
+                
+                total_target = sum(target_pcts.values())
+                if abs(total_target - 100.0) > 0.5:
+                    st.warning(f"⚠ 目標合計: {total_target:.1f}%（100%と{total_target - 100:.1f}%の差があります）")
+                else:
+                    st.success(f"✓ 目標合計: {total_target:.1f}%")
+            
+            # 乖離の計算と表示
+            rebal_data = []
+            for sec in all_sectors:
+                current_pct = sector_current[sector_current["セクター"] == sec]["現在(%)"].values
+                c_pct = current_pct[0] if len(current_pct) > 0 else 0
+                t_pct = target_pcts.get(sec, 0)
+                diff_pct = c_pct - t_pct
+                current_amt = sector_current[sector_current["セクター"] == sec]["評価額(円)"].values
+                c_amt = current_amt[0] if len(current_amt) > 0 else 0
+                t_amt = total_asset * (t_pct / 100)
+                diff_amt = c_amt - t_amt
+                rebal_data.append({
+                    "セクター": sec,
+                    "現在(%)": c_pct,
+                    "目標(%)": t_pct,
+                    "乖離(%)": diff_pct,
+                    "現在(円)": c_amt,
+                    "目標(円)": t_amt,
+                    "調整額(円)": diff_amt,
+                })
+            
+            rebal_df = pd.DataFrame(rebal_data).sort_values("乖離(%)", key=abs, ascending=False)
+            
+            # 乖離バーチャート
+            fig_rebal = go.Figure()
+            for _, r in rebal_df.iterrows():
+                color = "#FF5252" if r["乖離(%)"] > 1 else "#00E676" if r["乖離(%)"] < -1 else "#9E9E9E"
+                fig_rebal.add_trace(go.Bar(
+                    x=[r["乖離(%)"]], y=[r["セクター"]], orientation='h',
+                    marker_color=color, text=f"{r['乖離(%)']:+.1f}%", textposition='auto',
+                    showlegend=False
+                ))
+            fig_rebal.update_layout(
+                plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0',
+                margin=dict(t=10, b=10, l=10, r=10), height=max(len(all_sectors) * 40, 200),
+                xaxis=dict(title="乖離（%）", showgrid=True, gridcolor='#1E232F', zeroline=True, zerolinecolor='#4A5060'),
+                yaxis=dict(showgrid=False),
+            )
+            st.plotly_chart(fig_rebal, use_container_width=True)
+            st.caption("🔴 赤 = 比重オーバー（売却候補） / 🟢 緑 = 比重不足（買い増し候補） / 灰 = 適正範囲(±1%)")
+            
+            # 具体的な調整提案テーブル
+            has_action = rebal_df[abs(rebal_df["乖離(%)"]) > 1.0]
+            if not has_action.empty:
+                st.markdown("##### 📋 調整アクション")
+                for _, r in has_action.iterrows():
+                    adj = r["調整額(円)"]
+                    if adj > 0:
+                        # 比重オーバー → 売却
+                        st.markdown(f"""
+                        <div class='alert-bar alert-down'>
+                            📉 <b>{r['セクター']}</b>　現在 {r['現在(%)']:.1f}% → 目標 {r['目標(%)']:.1f}%　
+                            <span style='color:#FF5252;font-weight:bold'>約 ¥{abs(adj):,.0f} 売却</span>
+                        </div>""", unsafe_allow_html=True)
+                    else:
+                        # 比重不足 → 買い増し
+                        st.markdown(f"""
+                        <div class='alert-bar alert-up'>
+                            📈 <b>{r['セクター']}</b>　現在 {r['現在(%)']:.1f}% → 目標 {r['目標(%)']:.1f}%　
+                            <span style='color:#69F0AE;font-weight:bold'>約 ¥{abs(adj):,.0f} 買い増し</span>
+                        </div>""", unsafe_allow_html=True)
+            else:
+                st.success("✓ 全セクターが目標配分の±1%以内に収まっています。リバランス不要です。")
     else:
         st.info("銘柄を追加すると分析が表示されます。")
 
@@ -986,7 +1141,7 @@ with tab_mkt:
     pil = st.selectbox("チャート期間", ["1週間", "1ヶ月", "3ヶ月", "1年"], index=1, key="idx_period")
     pmi = {"1週間": "5d", "1ヶ月": "1mo", "3ヶ月": "3mo", "1年": "1y"}
     sp = pmi[pil]
-    idd = {"日経平均": "^N225", "日経先物": "NIY=F", "TOPIX": "1306.T", "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC", "ドル円": "JPY=X"}
+    idd = {"日経平均": "^N225", "日経先物": "NIY=F", "TOPIX": "1306.T", "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC", "ドル円": "JPY=X", "金(GOLD)": "GC=F", "銀(SILVER)": "SI=F", "銅(COPPER)": "HG=F"}
     with st.spinner("指標データを取得中..."):
         ic = get_cached_market_data(tuple(sorted(idd.values())), period=sp)
         items = list(idd.items())
