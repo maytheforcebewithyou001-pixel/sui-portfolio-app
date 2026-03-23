@@ -27,7 +27,7 @@ def init_gspread():
         st.error(f"認証エラー: {e}")
         return None
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_cached_market_data(tickers_tuple, period="1y"):
     tickers = list(tickers_tuple)
     if not tickers: return pd.DataFrame()
@@ -403,6 +403,7 @@ if not df.empty:
         current_prices_jpy, total_values, profits, net_profits, dividends = [], [], [], [], []
         buy_prices_jpy, update_dates = [], []
         dod_list, sector_list, manual_yield_list, div_month_list = [], [], [], []
+        dividends_after_tax = []
         now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
 
         for _, row in df.iterrows():
@@ -450,6 +451,10 @@ if not df.empty:
             tax_rate = 0.0 if "NISA" in tax_category else 0.20315
             tax_amount = profit * tax_rate if profit > 0 else 0.0
             net_profit = profit - tax_amount
+            
+            # 配当の税引後計算（NISA=非課税、特定口座=20.315%）
+            div_tax_rate = 0.0 if "NISA" in tax_category else 0.20315
+            dividend_after_tax = dividend * (1 - div_tax_rate)
 
             current_prices_jpy.append(price_jpy)
             buy_prices_jpy.append(buy_jpy)
@@ -457,6 +462,7 @@ if not df.empty:
             profits.append(profit)
             net_profits.append(net_profit)
             dividends.append(dividend)
+            dividends_after_tax.append(dividend_after_tax)
             dod_list.append(dod_pct)
             sector_list.append(sector)
             manual_yield_list.append(manual_yield)
@@ -473,16 +479,18 @@ if not df.empty:
         display_df["含み損益(円)"] = profits
         display_df["税引後損益(円)"] = net_profits
         display_df["予想配当(円)"] = dividends
+        display_df["税引後配当(円)"] = dividends_after_tax
         display_df["手動配当利回り(%)"] = manual_yield_list
         display_df["配当月"] = div_month_list
 
         total_asset = sum(total_values)
         total_net_profit = sum(net_profits)
         total_dividend = sum(dividends)
+        total_dividend_after_tax = sum(dividends_after_tax)
         avg_dividend_yield = (total_dividend / total_asset * 100) if total_asset > 0 else 0.0
         stock_count = len(df)
 else:
-    total_asset = total_net_profit = total_dividend = avg_dividend_yield = stock_count = 0
+    total_asset = total_net_profit = total_dividend = total_dividend_after_tax = avg_dividend_yield = stock_count = 0
     jpy_usd_rate = 150.0
     display_df = pd.DataFrame()
 
@@ -504,17 +512,42 @@ with h2:
 # ==========================================
 # 💳 ステータスカード（常時表示）
 # ==========================================
+# 前回記録との比較
+prev_asset = 0
+prev_diff = 0
+prev_diff_pct = 0
+prev_date_str = ""
+try:
+    _hdf = load_history()
+    if not _hdf.empty and len(_hdf) >= 1:
+        _hdf["総資産額(円)"] = pd.to_numeric(_hdf["総資産額(円)"], errors='coerce')
+        prev_asset = _hdf["総資産額(円)"].iloc[-1]
+        prev_date_str = str(_hdf["日付"].iloc[-1])
+        if prev_asset > 0 and total_asset > 0:
+            prev_diff = total_asset - prev_asset
+            prev_diff_pct = (prev_diff / prev_asset) * 100
+except:
+    pass
+
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    st.markdown(f"<div class='status-card card-total c1'><h4>評価額合計</h4><p class='mv'>{total_asset:,.0f}<span>円</span></p><p class='sv'>{stock_count}銘柄</p></div>", unsafe_allow_html=True)
+    # 評価額 + 前回比
+    prev_html = ""
+    if prev_asset > 0:
+        dc = "#00E676" if prev_diff >= 0 else "#FF5252"
+        ds = "+" if prev_diff >= 0 else ""
+        prev_html = f"<p class='sv' style='color:{dc}'>{ds}{prev_diff:,.0f}円 ({ds}{prev_diff_pct:.2f}%) <span style='color:#7A8A9A'>vs {prev_date_str}</span></p>"
+    else:
+        prev_html = f"<p class='sv'>{stock_count}銘柄</p>"
+    st.markdown(f"<div class='status-card card-total c1'><h4>評価額合計</h4><p class='mv'>{total_asset:,.0f}<span>円</span></p>{prev_html}</div>", unsafe_allow_html=True)
 with c2:
     pc = "#00E676" if total_net_profit >= 0 else "#FF5252"
     ps = "+" if total_net_profit >= 0 else ""
     pp = (total_net_profit / (total_asset - total_net_profit) * 100) if (total_asset - total_net_profit) > 0 else 0
     st.markdown(f"<div class='status-card card-profit c2'><h4>税引後 含み損益</h4><p class='mv' style='color:{pc}'>{ps}{total_net_profit:,.0f}<span>円</span></p><p class='sv'>{ps}{pp:.2f}%</p></div>", unsafe_allow_html=True)
 with c3:
-    monthly_div = total_dividend / 12 if total_dividend > 0 else 0
-    st.markdown(f"<div class='status-card card-dividend c3'><h4>年間予想配当</h4><p class='mv'>{total_dividend:,.0f}<span>円</span></p><p class='sv'>利回り {avg_dividend_yield:.2f}% · 月平均 {monthly_div:,.0f}円</p></div>", unsafe_allow_html=True)
+    monthly_div_at = total_dividend_after_tax / 12 if total_dividend_after_tax > 0 else 0
+    st.markdown(f"<div class='status-card card-dividend c3'><h4>年間予想配当</h4><p class='mv'>{total_dividend_after_tax:,.0f}<span>円</span></p><p class='sv'>税引後 · 利回り {avg_dividend_yield:.2f}% · 月平均 {monthly_div_at:,.0f}円</p></div>", unsafe_allow_html=True)
 with c4:
     progress = min(total_asset / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
     remaining = max(goal_amount - total_asset, 0)
@@ -643,6 +676,62 @@ with tab_pf:
         if '前日比' in ac: sdf = sdf.applymap(cpc, subset=['前日比'])
         sdf = sdf.format({k: v for k, v in fd.items() if k in ac})
         st.dataframe(sdf, use_container_width=True, hide_index=True)
+        
+        # ★ CSV出力ボタン
+        st.markdown("---")
+        st.markdown("#### 📥 データエクスポート")
+        csv_c1, csv_c2, csv_c3 = st.columns(3)
+        with csv_c1:
+            # 保有銘柄一覧CSV
+            csv_cols = ["銘柄コード","銘柄名","市場","口座","口座区分","保有株数","取得単価(円)","現在値(円)","評価額(円)","含み損益(円)","税引後損益(円)","予想配当(円)","税引後配当(円)","セクター"]
+            csv_ac = [c for c in csv_cols if c in display_df.columns]
+            csv_data = display_df[csv_ac].to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                "📋 保有銘柄一覧 CSV",
+                data=csv_data,
+                file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with csv_c2:
+            # 配当明細CSV
+            div_rows = []
+            for _, r in display_df.iterrows():
+                if r.get("予想配当(円)", 0) > 0:
+                    div_rows.append({
+                        "銘柄コード": r["銘柄コード"],
+                        "銘柄名": r["銘柄名"],
+                        "口座": r.get("口座", ""),
+                        "口座区分": r.get("口座区分", ""),
+                        "予想配当(税引前)": round(r["予想配当(円)"]),
+                        "税引後配当": round(r.get("税引後配当(円)", 0)),
+                        "配当月": r.get("配当月", ""),
+                    })
+            if div_rows:
+                div_csv = pd.DataFrame(div_rows).to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    "💰 配当明細 CSV",
+                    data=div_csv,
+                    file_name=f"dividends_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.button("💰 配当明細 CSV", disabled=True, use_container_width=True, help="配当データなし")
+        with csv_c3:
+            # 資産推移CSV
+            hist_csv_df = load_history()
+            if not hist_csv_df.empty:
+                hist_csv = hist_csv_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    "📈 資産推移 CSV",
+                    data=hist_csv,
+                    file_name=f"asset_history_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.button("📈 資産推移 CSV", disabled=True, use_container_width=True, help="履歴データなし")
 
     # 修正・削除
     if not df.empty:
@@ -750,27 +839,35 @@ with tab_div:
 
         # 月別配当集計（銘柄ごとの金額も保持）
         monthly_dividends = {m: 0 for m in range(1, 13)}
-        monthly_detail = {m: [] for m in range(1, 13)}  # [(銘柄名, 金額), ...]
+        monthly_dividends_at = {m: 0 for m in range(1, 13)}  # 税引後
+        monthly_detail = {m: [] for m in range(1, 13)}
 
         for _, row in display_df.iterrows():
             div_amount = row.get("予想配当(円)", 0)
+            div_amount_at = row.get("税引後配当(円)", 0)
             div_month_str = str(row.get("配当月", ""))
             if div_amount > 0 and div_month_str:
                 try:
                     months_list = [int(m.strip()) for m in div_month_str.split(",") if m.strip().isdigit()]
                     per_payment = div_amount / len(months_list) if months_list else 0
+                    per_payment_at = div_amount_at / len(months_list) if months_list else 0
+                    tax_label = "非課税" if "NISA" in str(row.get("口座区分", "")) else "課税"
                     for m in months_list:
                         if 1 <= m <= 12:
                             monthly_dividends[m] += per_payment
+                            monthly_dividends_at[m] += per_payment_at
                             monthly_detail[m].append({
                                 "銘柄": f"{row['銘柄コード']} {row['銘柄名']}",
-                                "配当額": per_payment,
+                                "税引前": per_payment,
+                                "税引後": per_payment_at,
+                                "税区分": tax_label,
                             })
                 except:
                     pass
 
         # カレンダー表示（4列×3行）
         total_calendar_div = sum(monthly_dividends.values())
+        total_calendar_div_at = sum(monthly_dividends_at.values())
         month_names = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"]
         
         for row_start in range(0, 12, 4):
@@ -779,31 +876,31 @@ with tab_div:
                 m = row_start + i + 1
                 with cols[i]:
                     amt = monthly_dividends[m]
+                    amt_at = monthly_dividends_at[m]
                     details = monthly_detail[m]
                     
                     if amt > 0:
-                        # ★ クリックで明細が開くポップオーバー
                         with st.popover(f"📅 {month_names[m-1]}", use_container_width=True):
                             st.markdown(f"**{month_names[m-1]}の配当明細**")
-                            st.markdown(f"**合計: ¥{amt:,.0f}**")
+                            st.markdown(f"税引前合計: **¥{amt:,.0f}** → 手取り: **¥{amt_at:,.0f}**")
                             st.markdown("---")
-                            # 銘柄ごとの明細テーブル
-                            for d in sorted(details, key=lambda x: x["配当額"], reverse=True):
-                                pct_of_month = (d["配当額"] / amt * 100) if amt > 0 else 0
+                            for d in sorted(details, key=lambda x: x["税引前"], reverse=True):
+                                tax_badge = "🟢" if d["税区分"] == "非課税" else "🟡"
                                 st.markdown(f"""
-                                <div style='display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1E232F;font-size:0.85rem'>
-                                    <span style='color:#B0B8C0'>{d['銘柄']}</span>
-                                    <span style='color:#FFD54F;font-weight:bold'>¥{d['配当額']:,.0f}</span>
+                                <div style='display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1E232F;font-size:0.85rem'>
+                                    <span style='color:#B0B8C0'>{tax_badge} {d['銘柄']}</span>
+                                    <span style='text-align:right'>
+                                        <span style='color:#FFD54F;font-weight:bold'>¥{d['税引後']:,.0f}</span>
+                                        <span style='color:#7A8A9A;font-size:0.7rem;margin-left:4px'>({d['税区分']})</span>
+                                    </span>
                                 </div>""", unsafe_allow_html=True)
                         
-                        # ポップオーバーの下に金額サマリー表示
                         st.markdown(f"""
                         <div style='text-align:center;margin-top:-8px;margin-bottom:8px'>
-                            <span style='color:#FFD54F;font-weight:bold;font-size:0.9rem'>¥{amt:,.0f}</span>
-                            <span style='color:#7A8A9A;font-size:0.65rem;display:block'>{len(details)}銘柄</span>
+                            <span style='color:#FFD54F;font-weight:bold;font-size:0.9rem'>¥{amt_at:,.0f}</span>
+                            <span style='color:#7A8A9A;font-size:0.6rem;display:block'>手取り · {len(details)}銘柄</span>
                         </div>""", unsafe_allow_html=True)
                     else:
-                        # 配当なしの月
                         st.markdown(f"""
                         <div class='div-month div-month-empty'>
                             <span class='month-label'>{month_names[m-1]}</span>
@@ -812,25 +909,30 @@ with tab_div:
 
         st.markdown("---")
         
-        # 年間サマリー
+        # 年間サマリー（税引前 / 税引後）
         if total_calendar_div > 0:
-            sum_c1, sum_c2, sum_c3 = st.columns(3)
+            sum_c1, sum_c2, sum_c3, sum_c4 = st.columns(4)
             with sum_c1:
                 st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #FFD54F'>
-                    <h4>年間配当合計</h4>
-                    <p class='mv' style='font-size:1.2rem'>¥{total_calendar_div:,.0f}</p>
+                    <h4>年間配当（税引前）</h4>
+                    <p class='mv' style='font-size:1.1rem'>¥{total_calendar_div:,.0f}</p>
                 </div>""", unsafe_allow_html=True)
             with sum_c2:
-                monthly_avg = total_calendar_div / 12
-                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #00D2FF'>
-                    <h4>月平均</h4>
-                    <p class='mv' style='font-size:1.2rem'>¥{monthly_avg:,.0f}</p>
+                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #69F0AE'>
+                    <h4>年間手取り（税引後）</h4>
+                    <p class='mv' style='font-size:1.1rem'>¥{total_calendar_div_at:,.0f}</p>
                 </div>""", unsafe_allow_html=True)
             with sum_c3:
+                monthly_avg_at = total_calendar_div_at / 12
+                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #00D2FF'>
+                    <h4>月平均手取り</h4>
+                    <p class='mv' style='font-size:1.1rem'>¥{monthly_avg_at:,.0f}</p>
+                </div>""", unsafe_allow_html=True)
+            with sum_c4:
                 active_months = sum(1 for v in monthly_dividends.values() if v > 0)
-                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #69F0AE'>
+                st.markdown(f"""<div class='status-card' style='padding:0.7rem;border-left:3px solid #BD93F9'>
                     <h4>配当発生月</h4>
-                    <p class='mv' style='font-size:1.2rem'>{active_months}<span>/12ヶ月</span></p>
+                    <p class='mv' style='font-size:1.1rem'>{active_months}<span>/12ヶ月</span></p>
                 </div>""", unsafe_allow_html=True)
             
             st.caption("※ カレンダーの金額は配当月が入力されている銘柄のみ。未入力の銘柄は含まれません。")
