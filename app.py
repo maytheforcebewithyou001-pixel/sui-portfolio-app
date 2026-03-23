@@ -632,7 +632,7 @@ if not display_df.empty and '前日比' in display_df.columns:
 # ==========================================
 # 📑 メインタブ
 # ==========================================
-tab_pf, tab_an, tab_div, tab_sim, tab_mkt = st.tabs(["📊 ポートフォリオ", "🔍 分析", "💰 配当", "🚀 シミュレーション", "🌍 世界指標"])
+tab_pf, tab_an, tab_div, tab_sim, tab_mkt, tab_ai = st.tabs(["📊 ポートフォリオ", "🔍 分析", "💰 配当", "🚀 シミュレーション", "🌍 世界指標", "🤖 AI総評"])
 
 # ── TAB 1: ポートフォリオ ──
 with tab_pf:
@@ -1192,3 +1192,120 @@ with tab_mkt:
                         else:
                             with tc_: st.markdown(f"<p style='color:#B0B8C0;font-weight:bold'>{iname}</p><p style='color:#FF5252'>取得失敗</p>", unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
+
+# ── TAB 6: AI総評 ──
+with tab_ai:
+    st.markdown("#### 🤖 Claudeによるポートフォリオ総評")
+    st.caption("現在の保有銘柄・損益状況・市場環境を踏まえた総合分析を生成します。")
+    
+    if not df.empty and total_asset > 0 and not display_df.empty:
+        
+        # APIキーの確認
+        api_key = st.secrets.get("anthropic_api_key", "")
+        if not api_key:
+            st.warning("⚠ Streamlit Secretsに `anthropic_api_key` を設定してください。")
+            st.code('anthropic_api_key = "sk-ant-xxxxx..."', language="toml")
+            st.info("設定方法: Streamlit Cloud → Settings → Secrets に上記を追加")
+        else:
+            # ポートフォリオデータをテキストに変換
+            def build_portfolio_summary():
+                lines = []
+                lines.append(f"■ ポートフォリオ概要")
+                lines.append(f"  評価額合計: {total_asset:,.0f}円")
+                lines.append(f"  税引後含み損益: {total_net_profit:,.0f}円")
+                lines.append(f"  年間予想配当（税引前）: {total_dividend:,.0f}円")
+                lines.append(f"  配当利回り: {avg_dividend_yield:.2f}%")
+                lines.append(f"  為替レート: $1 = ¥{jpy_usd_rate:.1f}")
+                lines.append(f"  銘柄数: {stock_count}")
+                lines.append(f"")
+                lines.append(f"■ 保有銘柄一覧")
+                for _, row in display_df.iterrows():
+                    code = row.get("銘柄コード", "")
+                    name = row.get("銘柄名", "")
+                    market = row.get("市場", "")
+                    sector = row.get("セクター", "")
+                    val = row.get("評価額(円)", 0)
+                    pnl = row.get("税引後損益(円)", 0)
+                    dod = row.get("前日比", None)
+                    div_amt = row.get("予想配当(円)", 0)
+                    pct_of_total = (val / total_asset * 100) if total_asset > 0 else 0
+                    dod_str = f"前日比{dod:+.1f}%" if pd.notna(dod) else ""
+                    lines.append(f"  {code} {name} [{market}/{sector}] 評価額:{val:,.0f}円({pct_of_total:.1f}%) 損益:{pnl:+,.0f}円 {dod_str} 配当:{div_amt:,.0f}円")
+                
+                # セクター配分
+                lines.append(f"")
+                lines.append(f"■ セクター配分")
+                sector_grp = display_df[display_df["評価額(円)"] > 0].groupby("セクター")["評価額(円)"].sum().sort_values(ascending=False)
+                for sec, val in sector_grp.items():
+                    lines.append(f"  {sec}: {val:,.0f}円 ({val/total_asset*100:.1f}%)")
+                
+                return "\n".join(lines)
+            
+            portfolio_text = build_portfolio_summary()
+            
+            # 生成ボタン
+            if st.button("📝 AI総評を生成する", use_container_width=True, key="gen_ai"):
+                with st.spinner("Claudeが分析中... （20〜30秒かかります）"):
+                    try:
+                        import requests as req
+                        
+                        prompt = f"""あなたは日本の個人投資家向けのポートフォリオアドバイザーです。
+以下のポートフォリオデータを分析して、日本語で総合的な評価レポートを作成してください。
+
+{portfolio_text}
+
+以下の5つの観点で分析してください。各セクションは見出しを付けて整理してください。
+
+1. **全体評価** — ポートフォリオの健全度（分散度合い、リスク水準）を5段階で評価し、理由を述べてください。
+
+2. **強みと弱み** — このポートフォリオの良い点と改善すべき点を具体的に挙げてください。特に集中リスクや特定セクターへの偏りに言及してください。
+
+3. **市場環境との整合性** — 現在の世界経済・日本経済の状況（金利動向、為替、地政学リスク等）を踏まえ、このポートフォリオの妥当性を評価してください。
+
+4. **配当戦略の評価** — 配当利回りと配当月の分散度合いを評価してください。キャッシュフローの安定性についてコメントしてください。
+
+5. **アクション提案** — 具体的な改善アクションを3〜5つ、優先度付きで提案してください。「○○セクターを○%まで引き上げ」のように具体的な数字を入れてください。
+
+注意: 投資助言ではなく、あくまで参考情報としての分析です。最終的な投資判断は本人が行うものです。"""
+
+                        response = req.post(
+                            "https://api.anthropic.com/v1/messages",
+                            headers={
+                                "Content-Type": "application/json",
+                                "x-api-key": api_key,
+                                "anthropic-version": "2023-06-01",
+                            },
+                            json={
+                                "model": "claude-sonnet-4-20250514",
+                                "max_tokens": 2000,
+                                "messages": [{"role": "user", "content": prompt}],
+                            },
+                            timeout=60,
+                        )
+                        
+                        if response.status_code == 200:
+                            data = response.json()
+                            ai_text = "".join([b["text"] for b in data["content"] if b["type"] == "text"])
+                            
+                            # 結果を表示
+                            st.markdown(f"""
+                            <div style='background:#12161E;border:1px solid #1E232F;border-radius:12px;padding:1.5rem;border-left:3px solid #00D2FF'>
+                                <div style='color:#00D2FF;font-weight:700;margin-bottom:0.8rem;font-size:1rem'>🤖 Claude ポートフォリオ分析レポート</div>
+                                <div style='color:#B0B8C0;font-size:0.75rem;margin-bottom:1rem'>{datetime.now().strftime('%Y/%m/%d %H:%M')} 時点の分析</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.markdown(ai_text)
+                            
+                            st.caption("⚠ この分析はAIによる参考情報であり、投資助言ではありません。投資判断はご自身の責任で行ってください。")
+                        else:
+                            error_detail = response.json().get("error", {}).get("message", response.text)
+                            st.error(f"API エラー (HTTP {response.status_code}): {error_detail}")
+                    
+                    except Exception as e:
+                        st.error(f"エラーが発生しました: {e}")
+            
+            # 入力データのプレビュー
+            with st.expander("📄 Claudeに送信されるデータ（プレビュー）", expanded=False):
+                st.code(portfolio_text, language="text")
+    else:
+        st.info("銘柄を追加するとAI総評を利用できます。")
