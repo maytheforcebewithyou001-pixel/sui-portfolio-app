@@ -1243,13 +1243,85 @@ with tab_ai:
             
             portfolio_text = build_portfolio_summary()
             
-            # 生成ボタン
-            if st.button("📝 AI総評を生成する", use_container_width=True, key="gen_ai"):
-                with st.spinner("Claudeが分析中... （20〜30秒かかります）"):
+            # ★ Google Sheetsから前回の生成結果を読み込む（永続化）
+            def load_ai_review():
+                sh = get_spreadsheet()
+                if sh is None: return None, ""
+                try:
+                    ws = sh.worksheet("AI総評")
+                    vals = ws.get_all_values()
+                    if len(vals) >= 2 and vals[1][0]:
+                        return vals[1][0], vals[1][1]  # (日時, 本文)
+                except:
+                    pass
+                return None, ""
+            
+            def save_ai_review(dt_str, text):
+                sh = get_spreadsheet()
+                if sh is None: return
+                try:
                     try:
-                        import requests as req
-                        
-                        prompt = f"""あなたは日本の個人投資家向けのポートフォリオアドバイザーです。
+                        ws = sh.worksheet("AI総評")
+                    except:
+                        ws = sh.add_worksheet(title="AI総評", rows="5", cols="2")
+                        ws.update_cell(1, 1, "生成日時")
+                        ws.update_cell(1, 2, "分析レポート")
+                    ws.update_cell(2, 1, dt_str)
+                    ws.update_cell(2, 2, text)
+                except Exception as e:
+                    st.warning(f"保存エラー: {e}")
+            
+            if "ai_confirm_regen" not in st.session_state:
+                st.session_state.ai_confirm_regen = False
+            
+            # 前回の結果を読み込み
+            saved_dt_str, saved_text = load_ai_review()
+            
+            # 前回の結果がある場合は表示
+            if saved_text and saved_dt_str:
+                try:
+                    saved_dt = datetime.strptime(saved_dt_str, "%Y/%m/%d %H:%M")
+                    hours_ago = (datetime.now() - saved_dt).total_seconds() / 3600
+                    time_label = f"{hours_ago:.1f}時間前" if hours_ago < 48 else f"{hours_ago/24:.0f}日前"
+                except:
+                    saved_dt = None
+                    time_label = ""
+                
+                st.markdown(f"""
+                <div style='background:#12161E;border:1px solid #1E232F;border-radius:12px;padding:1.5rem;border-left:3px solid #00D2FF'>
+                    <div style='color:#00D2FF;font-weight:700;margin-bottom:0.8rem;font-size:1rem'>🤖 Claude ポートフォリオ分析レポート</div>
+                    <div style='color:#B0B8C0;font-size:0.75rem;margin-bottom:1rem'>{saved_dt_str} 時点の分析（{time_label}）</div>
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown(saved_text)
+                st.caption("⚠ この分析はAIによる参考情報であり、投資助言ではありません。投資判断はご自身の責任で行ってください。")
+                st.markdown("---")
+            
+            # 24時間以内かどうか判定
+            need_confirm = False
+            if saved_dt_str:
+                try:
+                    saved_dt = datetime.strptime(saved_dt_str, "%Y/%m/%d %H:%M")
+                    if (datetime.now() - saved_dt).total_seconds() < 86400:
+                        need_confirm = True
+                except:
+                    pass
+            
+            if need_confirm and not st.session_state.ai_confirm_regen:
+                hours_ago = (datetime.now() - saved_dt).total_seconds() / 3600
+                st.info(f"⏱ {hours_ago:.1f}時間前に生成済みです。再生成するとAPIクレジットを消費します。")
+                if st.button("🔄 それでも再生成する", use_container_width=True, key="gen_ai_confirm"):
+                    st.session_state.ai_confirm_regen = True
+                    st.rerun()
+            else:
+                btn_label = "🔄 AI総評を再生成する" if saved_text else "📝 AI総評を生成する"
+                if st.button(btn_label, use_container_width=True, key="gen_ai"):
+                    st.session_state.ai_confirm_regen = False
+                    with st.spinner("Claudeが分析中... （20〜30秒かかります）"):
+                        try:
+                            import requests as req
+                            
+                            prompt = f"""あなたは日本の個人投資家向けのポートフォリオアドバイザーです。
 以下のポートフォリオデータを分析して、日本語で総合的な評価レポートを作成してください。
 
 {portfolio_text}
@@ -1268,41 +1340,35 @@ with tab_ai:
 
 注意: 投資助言ではなく、あくまで参考情報としての分析です。最終的な投資判断は本人が行うものです。"""
 
-                        response = req.post(
-                            "https://api.anthropic.com/v1/messages",
-                            headers={
-                                "Content-Type": "application/json",
-                                "x-api-key": api_key,
-                                "anthropic-version": "2023-06-01",
-                            },
-                            json={
-                                "model": "claude-sonnet-4-20250514",
-                                "max_tokens": 2000,
-                                "messages": [{"role": "user", "content": prompt}],
-                            },
-                            timeout=60,
-                        )
+                            response = req.post(
+                                "https://api.anthropic.com/v1/messages",
+                                headers={
+                                    "Content-Type": "application/json",
+                                    "x-api-key": api_key,
+                                    "anthropic-version": "2023-06-01",
+                                },
+                                json={
+                                    "model": "claude-sonnet-4-20250514",
+                                    "max_tokens": 2000,
+                                    "messages": [{"role": "user", "content": prompt}],
+                                },
+                                timeout=60,
+                            )
+                            
+                            if response.status_code == 200:
+                                data = response.json()
+                                ai_text = "".join([b["text"] for b in data["content"] if b["type"] == "text"])
+                                
+                                # Google Sheetsに永続保存
+                                now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+                                save_ai_review(now_str, ai_text)
+                                st.rerun()
+                            else:
+                                error_detail = response.json().get("error", {}).get("message", response.text)
+                                st.error(f"API エラー (HTTP {response.status_code}): {error_detail}")
                         
-                        if response.status_code == 200:
-                            data = response.json()
-                            ai_text = "".join([b["text"] for b in data["content"] if b["type"] == "text"])
-                            
-                            # 結果を表示
-                            st.markdown(f"""
-                            <div style='background:#12161E;border:1px solid #1E232F;border-radius:12px;padding:1.5rem;border-left:3px solid #00D2FF'>
-                                <div style='color:#00D2FF;font-weight:700;margin-bottom:0.8rem;font-size:1rem'>🤖 Claude ポートフォリオ分析レポート</div>
-                                <div style='color:#B0B8C0;font-size:0.75rem;margin-bottom:1rem'>{datetime.now().strftime('%Y/%m/%d %H:%M')} 時点の分析</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            st.markdown(ai_text)
-                            
-                            st.caption("⚠ この分析はAIによる参考情報であり、投資助言ではありません。投資判断はご自身の責任で行ってください。")
-                        else:
-                            error_detail = response.json().get("error", {}).get("message", response.text)
-                            st.error(f"API エラー (HTTP {response.status_code}): {error_detail}")
-                    
-                    except Exception as e:
-                        st.error(f"エラーが発生しました: {e}")
+                        except Exception as e:
+                            st.error(f"エラーが発生しました: {e}")
             
             # 入力データのプレビュー
             with st.expander("📄 Claudeに送信されるデータ（プレビュー）", expanded=False):
