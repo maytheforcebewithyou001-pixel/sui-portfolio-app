@@ -425,7 +425,25 @@ if not df.empty:
             stock_gain = 0.0
 
             t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
-            sector = info_dict.get(t, {}).get("sector", "手動入力/その他")
+            sector = info_dict.get(t, {}).get("sector", "")
+            # セクター不明の場合、市場種別で分類
+            if not sector or sector in ["不明", "ETF/その他", ""]:
+                if market_type == "投資信託":
+                    # 投資信託は銘柄名からカテゴリを推測
+                    nm = str(row["銘柄名"])
+                    if "全世界" in nm or "オール" in nm: sector = "投信/全世界株式"
+                    elif "S&P" in nm or "米国" in nm or "500" in nm: sector = "投信/米国株式"
+                    elif "新興国" in nm: sector = "投信/新興国株式"
+                    elif "高配当" in nm: sector = "投信/高配当"
+                    elif "債券" in nm or "国債" in nm: sector = "投信/債券"
+                    else: sector = "投信/その他"
+                elif market_type == "その他資産":
+                    nm = str(row["銘柄名"])
+                    if "国債" in nm: sector = "国債"
+                    elif "金" in nm or "ゴールド" in nm: sector = "コモディティ"
+                    else: sector = "その他資産"
+                else:
+                    sector = "ETF/その他"
             div_rate = info_dict.get(t, {}).get("div_rate", 0.0)
             div_yield = info_dict.get(t, {}).get("div_yield", 0.0)
 
@@ -720,7 +738,7 @@ with tab_pf:
         st.markdown("#### 📋 保有銘柄一覧")
         def cpf(v): return f"color: {'#00E676' if v >= 0 else '#FF5252'}"
         def cpc(v): return "" if pd.isna(v) else f"color: {'#00E676' if v > 0 else '#FF5252' if v < 0 else '#E0E0E0'}"
-        def fp(v): return "-" if pd.isna(v) else (f"前日比 +{v:.1f}%" if v > 0 else f"前日比 {v:.1f}%")
+        def fp(v): return "-" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
         sc = ["銘柄コード","銘柄名","市場","口座","口座区分","保有株数","取得単価(円)","現在値(円)","前日比","評価額(円)","税引後損益(円)","予想配当(円)"]
         ac = [c for c in sc if c in display_df.columns]
         fd = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
