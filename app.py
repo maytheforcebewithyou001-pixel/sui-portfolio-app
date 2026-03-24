@@ -273,13 +273,17 @@ def get_future_simulation(current_asset, annual_rate, years, yearly_addition):
     monthly_rate = annual_rate / 12
     monthly_add = yearly_addition / 12
     today = datetime.now()
-    dates, values = [], []
+    dates, values, principals, gains = [], [], [], []
     current_val = current_asset
+    current_principal = current_asset  # 初期元本
     for i in range(months + 1):
         dates.append(today + pd.DateOffset(months=i))
         values.append(current_val)
+        principals.append(current_principal)
+        gains.append(max(current_val - current_principal, 0))
         current_val = current_val * (1 + monthly_rate) + monthly_add
-    return pd.DataFrame({"日時": dates, "予測評価額(円)": values})
+        current_principal += monthly_add
+    return pd.DataFrame({"日時": dates, "予測評価額(円)": values, "積立元本(円)": principals, "運用益(円)": gains})
 
 def get_ticker_name(code, market_type):
     if not code: return ""
@@ -1186,11 +1190,57 @@ with tab_sim:
         plf = st.select_slider("期間", options=["1年後", "3年後", "5年後", "10年後", "20年後", "30年後"], value="10年後")
         ym = {"1年後": 1, "3年後": 3, "5年後": 5, "10年後": 10, "20年後": 20, "30年後": 30}
         sdl = get_future_simulation(total_asset, interest_rate, ym[plf], yearly_add)
+        
+        # 年単位に集約（棒グラフ用）
+        sdl["年"] = sdl["日時"].dt.year
+        yearly_data = sdl.groupby("年").last().reset_index()
+        # 現在年からの経過年数ラベル
+        base_year = yearly_data["年"].iloc[0]
+        yearly_data["経過年数"] = yearly_data["年"].apply(lambda y: f"{y - base_year}年目" if y > base_year else "現在")
+        
         ff = go.Figure()
-        ff.add_trace(go.Scatter(x=sdl["日時"], y=sdl["予測評価額(円)"], mode='lines', line=dict(color="#00D2FF", width=3), fill='tozeroy', fillcolor="rgba(0,210,255,0.15)", name="予測評価額"))
+        ff.add_trace(go.Bar(
+            x=yearly_data["経過年数"], y=yearly_data["積立元本(円)"],
+            name="積立元本",
+            marker_color="#4A90D9",
+            hovertemplate="積立元本: %{y:,.0f}円<extra></extra>"
+        ))
+        ff.add_trace(go.Bar(
+            x=yearly_data["経過年数"], y=yearly_data["運用益(円)"],
+            name="運用益",
+            marker_color="#00D2FF",
+            hovertemplate="運用益: %{y:,.0f}円<extra></extra>"
+        ))
         if goal_amount > 0:
-            ff.add_trace(go.Scatter(x=[sdl["日時"].iloc[0], sdl["日時"].iloc[-1]], y=[goal_amount, goal_amount], mode='lines', line=dict(color="#FF1744", width=2, dash='dash'), name=f"目標 ({goal_oku}億円)"))
-        ff.update_layout(plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0', margin=dict(l=0, r=0, t=20, b=10), height=350, xaxis=dict(showgrid=True, gridcolor='#1E232F'), yaxis=dict(showgrid=True, gridcolor='#1E232F', tickformat=","), legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+            ff.add_trace(go.Scatter(
+                x=[yearly_data["経過年数"].iloc[0], yearly_data["経過年数"].iloc[-1]],
+                y=[goal_amount, goal_amount],
+                mode='lines', line=dict(color="#FF1744", width=2, dash='dash'),
+                name=f"目標 ({goal_oku}億円)",
+                hovertemplate="目標: %{y:,.0f}円<extra></extra>"
+            ))
+        
+        # 最終年の金額を表示
+        final_val = yearly_data["予測評価額(円)"].iloc[-1]
+        final_principal = yearly_data["積立元本(円)"].iloc[-1]
+        final_gain = yearly_data["運用益(円)"].iloc[-1]
+        
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            st.markdown(f"<div class='status-card'><h4>予測評価額</h4><p class='mv' style='color:#00D2FF'>{final_val:,.0f}<span>円</span></p></div>", unsafe_allow_html=True)
+        with fc2:
+            st.markdown(f"<div class='status-card'><h4>積立元本</h4><p class='mv'>{final_principal:,.0f}<span>円</span></p></div>", unsafe_allow_html=True)
+        with fc3:
+            st.markdown(f"<div class='status-card'><h4>運用益</h4><p class='mv' style='color:#00E676'>{final_gain:,.0f}<span>円</span></p></div>", unsafe_allow_html=True)
+        
+        ff.update_layout(
+            barmode='stack',
+            plot_bgcolor='#0A0E13', paper_bgcolor='#0A0E13', font_color='#E0E0E0',
+            margin=dict(l=0, r=0, t=20, b=10), height=400,
+            xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+            yaxis=dict(showgrid=True, gridcolor='#1E232F', tickformat=","),
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0)")
+        )
         st.plotly_chart(ff, use_container_width=True)
     else:
         st.info("銘柄を追加するとシミュレーションが表示されます。")
