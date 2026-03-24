@@ -213,10 +213,10 @@ with tab_pf:
         ac = [c for c in show if c in display_df.columns]
         fmt = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp, "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
         sdf = display_df[ac].style
-        if "税引後損益(円)" in ac: sdf = sdf.applymap(cpf, subset=["税引後損益(円)"])
-        if "前日比" in ac: sdf = sdf.applymap(cpc, subset=["前日比"])
+        if "税引後損益(円)" in ac: sdf = sdf.map(cpf, subset=["税引後損益(円)"])
+        if "前日比" in ac: sdf = sdf.map(cpc, subset=["前日比"])
         sdf = sdf.format({k: v for k, v in fmt.items() if k in ac})
-        st.dataframe(sdf, use_container_width=True, hide_index=True)
+        st.dataframe(sdf, width='stretch', hide_index=True)
 
         # CSV出力
         st.markdown("---"); st.markdown("#### 📥 データエクスポート")
@@ -240,7 +240,7 @@ with tab_pf:
     if not df.empty:
         with st.expander("✏️ 銘柄の修正・削除", expanded=False):
             edf = df.copy(); edf["削除"] = False
-            edited = st.data_editor(edf, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={
+            edited = st.data_editor(edf, num_rows="dynamic", width='stretch', hide_index=True, column_config={
                 "口座": st.column_config.SelectboxColumn("口座", options=BROKER_OPTIONS, required=True),
                 "口座区分": st.column_config.SelectboxColumn("口座区分", options=TAX_OPTIONS, required=True),
                 "市場": st.column_config.SelectboxColumn("市場", options=MARKET_OPTIONS, required=True),
@@ -264,7 +264,7 @@ with tab_pf:
             fig.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
                               margin=dict(t=10,b=10,l=10,r=10), height=300,
                               xaxis=dict(showgrid=True, gridcolor="#1E232F"), yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
         else:
             st.info("ヘッダーの「💾 本日の資産を記録」で記録を開始してください。")
 
@@ -277,12 +277,12 @@ with tab_an:
         with a1:
             f1 = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
             f1.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0", showlegend=False, margin=dict(t=10,b=10))
-            st.plotly_chart(f1, use_container_width=True)
+            st.plotly_chart(f1, width='stretch')
         with a2:
             t1 = display_df[display_df["評価額(円)"]>0].groupby("円グラフ表示名",as_index=False)["評価額(円)"].sum().sort_values("評価額(円)",ascending=False)
             t1["割合"] = (t1["評価額(円)"]/TA*100).apply(lambda x: f"{x:.1f}%")
             t1["評価額(円)"] = t1["評価額(円)"].apply(lambda x: f"{int(x):,}円")
-            st.dataframe(t1.rename(columns={"円グラフ表示名":"銘柄"}), use_container_width=True, hide_index=True)
+            st.dataframe(t1.rename(columns={"円グラフ表示名":"銘柄"}), width='stretch', hide_index=True)
 
         st.markdown("---"); st.markdown("#### 🏢 セクター別割合")
         s1, s2 = st.columns([1.2, 1])
@@ -290,12 +290,12 @@ with tab_an:
             f2 = px.pie(display_df, values="評価額(円)", names="セクター", hole=0.4)
             f2.update_traces(textposition="inside", textinfo="percent+label")
             f2.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0", showlegend=False, margin=dict(t=10,b=10))
-            st.plotly_chart(f2, use_container_width=True)
+            st.plotly_chart(f2, width='stretch')
         with s2:
             t2 = display_df[display_df["評価額(円)"]>0].groupby("セクター",as_index=False)["評価額(円)"].sum().sort_values("評価額(円)",ascending=False)
             t2["割合"] = (t2["評価額(円)"]/TA*100).apply(lambda x: f"{x:.1f}%")
             t2["評価額(円)"] = t2["評価額(円)"].apply(lambda x: f"{int(x):,}円")
-            st.dataframe(t2, use_container_width=True, hide_index=True)
+            st.dataframe(t2, width='stretch', hide_index=True)
 
         st.markdown("---"); st.markdown("#### 🗺️ ヒートマップ")
         st.caption("四角の大きさ＝評価額、色＝前日比。手動入力資産は除外。")
@@ -306,7 +306,7 @@ with tab_an:
             ft = px.treemap(tdf, path=["市場","セクター","Treemap Label"], values="評価額(円)", color="前日比(数値)", color_continuous_scale="RdYlGn", color_continuous_midpoint=0)
             ft.update_layout(margin=dict(t=10,l=10,r=10,b=10), height=500, paper_bgcolor="#0A0E13")
             ft.data[0].textfont.color = "black"
-            st.plotly_chart(ft, use_container_width=True)
+            st.plotly_chart(ft, width='stretch')
 
         # リバランス
         st.markdown("---"); st.markdown("#### ⚖️ リバランス提案")
@@ -334,7 +334,7 @@ with tab_an:
                 fr.add_trace(go.Bar(x=[r["乖離(%)"]],y=[r["セクター"]],orientation="h",marker_color=cl,text=f"{r['乖離(%)']:+.1f}%",textposition="auto",showlegend=False))
             fr.update_layout(plot_bgcolor="#0A0E13",paper_bgcolor="#0A0E13",font_color="#E0E0E0",margin=dict(t=10,b=10,l=10,r=10),height=max(len(secs)*40,200),
                              xaxis=dict(title="乖離（%）",showgrid=True,gridcolor="#1E232F",zeroline=True,zerolinecolor="#4A5060"),yaxis=dict(showgrid=False))
-            st.plotly_chart(fr, use_container_width=True)
+            st.plotly_chart(fr, width='stretch')
             st.caption("🔴 比重オーバー / 🟢 比重不足 / 灰 適正範囲(±1%)")
             ha = rdf[abs(rdf["乖離(%)"])>1.0]
             if not ha.empty:
@@ -393,7 +393,7 @@ with tab_div:
         if not drank.empty:
             drank["予想配当(円)"] = drank["予想配当(円)"].apply(lambda x: f"¥{int(x):,}")
             drank["手動配当利回り(%)"] = drank["手動配当利回り(%)"].apply(lambda x: f"{x:.2f}%" if x>0 else "自動")
-            st.dataframe(drank, use_container_width=True, hide_index=True)
+            st.dataframe(drank, width='stretch', hide_index=True)
     else: st.info("銘柄を追加すると配当カレンダーが表示されます。")
 
 # ── TAB 4: シミュレーション ──
@@ -410,7 +410,7 @@ with tab_sim:
         fb = px.bar(sdb, x="年間積立額", y="達成年数", orientation="h", text="表示用金額")
         fb.update_traces(textposition="auto", marker_color="#00D2FF")
         fb.update_layout(plot_bgcolor="#0A0E13",paper_bgcolor="#0A0E13",font_color="#E0E0E0",margin=dict(t=10,b=10),xaxis=dict(tickformat=",",ticksuffix="円"))
-        st.plotly_chart(fb, use_container_width=True)
+        st.plotly_chart(fb, width='stretch')
         st.markdown("---"); st.markdown("#### 🚀 未来の資産推移")
         plf = st.select_slider("期間",["1年後","3年後","5年後","10年後","20年後","30年後"],value="10年後")
         ym = {"1年後":1,"3年後":3,"5年後":5,"10年後":10,"20年後":20,"30年後":30}
@@ -429,7 +429,7 @@ with tab_sim:
         ff.update_layout(barmode="stack",plot_bgcolor="#0A0E13",paper_bgcolor="#0A0E13",font_color="#E0E0E0",margin=dict(l=0,r=0,t=20,b=10),height=400,
                          xaxis=dict(showgrid=False),yaxis=dict(showgrid=True,gridcolor="#1E232F",tickformat=","),
                          legend=dict(yanchor="top",y=0.99,xanchor="left",x=0.01,bgcolor="rgba(0,0,0,0)"))
-        st.plotly_chart(ff, use_container_width=True)
+        st.plotly_chart(ff, width='stretch')
     else: st.info("銘柄を追加するとシミュレーションが表示されます。")
 
 # ── TAB 5: 世界指標 ──
