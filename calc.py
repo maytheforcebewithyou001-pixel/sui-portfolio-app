@@ -60,6 +60,35 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
             if len(series) >= 2:
                 prev = series.iloc[-2]
                 dod_pct = ((latest_price / prev) - 1) * 100 if prev != 0 else None
+    elif market_type in ("日本株", "米国株"):
+        # 一括DLで取得できなかった銘柄 → 個別にリトライ
+        try:
+            import yfinance as yf
+            single = yf.download(t, period="5d", progress=False)
+            if not single.empty:
+                if isinstance(single.columns, pd.MultiIndex):
+                    s_close = single["Close"][t].dropna()
+                else:
+                    s_close = single["Close"].dropna()
+                if not s_close.empty:
+                    latest_price = s_close.iloc[-1]
+                    fetch_success = True
+                    if market_type == "日本株":
+                        price_jpy, buy_jpy = latest_price, buy_price_raw
+                    else:
+                        price_jpy = latest_price * jpy_usd_rate
+                        buy_jpy = buy_price_raw * jpy_usd_rate
+                        if buy_fx_rate > 0:
+                            stock_gain = (latest_price - buy_price_raw) * shares * jpy_usd_rate
+                            fx_gain = buy_price_raw * shares * (jpy_usd_rate - buy_fx_rate)
+                    if len(s_close) >= 2:
+                        prev = s_close.iloc[-2]
+                        dod_pct = ((latest_price / prev) - 1) * 100 if prev != 0 else None
+        except Exception:
+            pass
+        # それでも取得できなかった場合は取得単価をフォールバック
+        if not fetch_success:
+            price_jpy, buy_jpy, fetch_success = buy_price_raw, buy_price_raw, True
     else:
         if market_type == "投資信託" and ticker_code in fund_prices:
             price_jpy, buy_jpy, fetch_success = fund_prices[ticker_code], buy_price_raw, True
