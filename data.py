@@ -89,7 +89,7 @@ def _migrate_account_columns(df):
 
 def _fill_missing_columns(df):
     defaults = {"口座": "SBI証券", "口座区分": "特定口座", "手動配当利回り(%)": 0.0,
-                "年間配当金(円/株)": 0.0, "取得時為替": 0.0, "配当月": ""}
+                "年間配当金(円/株)": 0.0, "取得時為替": 0.0, "手動現在値": 0.0, "配当月": ""}
     for col in EXPECTED_COLS:
         if col not in df.columns:
             df[col] = defaults.get(col, "-")
@@ -99,7 +99,7 @@ def _cast_numeric_columns(df):
     df["銘柄コード"] = df["銘柄コード"].astype(str)
     df["銘柄名"] = df["銘柄名"].astype(str)
     for col, fill in {"保有株数": 0, "取得単価": 0, "手動配当利回り(%)": 0.0,
-                       "年間配当金(円/株)": 0.0, "取得時為替": 0.0}.items():
+                       "年間配当金(円/株)": 0.0, "取得時為替": 0.0, "手動現在値": 0.0}.items():
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(fill)
     return df

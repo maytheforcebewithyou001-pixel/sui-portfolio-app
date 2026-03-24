@@ -35,6 +35,7 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
     manual_yield = float(row.get("手動配当利回り(%)", 0.0))
     annual_div_per_share = float(row.get("年間配当金(円/株)", 0.0))
     buy_fx_rate = float(row.get("取得時為替", 0.0))
+    manual_price = float(row.get("手動現在値", 0.0))
 
     t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
     info = info_dict.get(t, {})
@@ -44,7 +45,16 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
     fx_gain = stock_gain = 0.0
     fetch_success = False
 
-    if market_type in ("日本株", "米国株") and t in closes_df.columns:
+    # ★ 手動現在値が入力されていれば最優先で使用（yfinance取得不可の銘柄用）
+    if manual_price > 0 and market_type in ("日本株", "米国株", "投資信託", "その他資産"):
+        if market_type == "米国株":
+            price_jpy = manual_price * jpy_usd_rate
+            buy_jpy = buy_price_raw * jpy_usd_rate
+        else:
+            price_jpy = manual_price
+            buy_jpy = buy_price_raw
+        fetch_success = True
+    elif market_type in ("日本株", "米国株") and t in closes_df.columns:
         series = closes_df[t].dropna()
         if not series.empty:
             latest_price = series.iloc[-1]
