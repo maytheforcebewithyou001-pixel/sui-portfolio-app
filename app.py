@@ -1190,10 +1190,18 @@ with tab_sim:
 
 # ── TAB 5: 世界指標 ──
 with tab_mkt:
-    pil = st.selectbox("チャート期間", ["1週間", "1ヶ月", "3ヶ月", "1年"], index=1, key="idx_period")
+    mkt_c1, mkt_c2 = st.columns([3, 1])
+    with mkt_c1:
+        pil = st.selectbox("チャート期間", ["1週間", "1ヶ月", "3ヶ月", "1年"], index=1, key="idx_period")
+    with mkt_c2:
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("🔄 指標を更新", use_container_width=True, key="refresh_mkt"):
+            # 世界指標のキャッシュだけクリアして再取得
+            get_cached_market_data.clear()
+            st.rerun()
     pmi = {"1週間": "5d", "1ヶ月": "1mo", "3ヶ月": "3mo", "1年": "1y"}
     sp = pmi[pil]
-    idd = {"日経平均": "^N225", "日経先物": "NIY=F", "TOPIX": "1306.T", "NYダウ": "^DJI", "S&P 500": "^GSPC", "S&P先物": "ES=F", "NASDAQ": "^IXIC", "ドル円": "JPY=X", "金(GOLD)": "GC=F", "銀(SILVER)": "SI=F", "銅(COPPER)": "HG=F"}
+    idd = {"日経平均": "^N225", "TOPIX": "1306.T", "S&P 500": "^GSPC", "NASDAQ": "^IXIC", "ドル円": "JPY=X", "米国10年債利回り": "^TNX", "VIX": "^VIX", "金(GOLD)": "GC=F"}
     with st.spinner("指標データを取得中..."):
         ic = get_cached_market_data(tuple(sorted(idd.values())), period=sp)
         items = list(idd.items())
