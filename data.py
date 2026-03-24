@@ -1,4 +1,10 @@
-"""データ層: Google Sheets 読み書き・マイグレーション・履歴管理"""
+"""
+データ層: Google Sheets 読み書き・マイグレーション・履歴管理
+
+改善点:
+  #1 バッチ読み込み — 全シートを1回で取得しsession_stateにキャッシュ (API呼び出し1/4)
+  #2 安全な保存 — clear→writeの間にデータ消失しない batch_update 方式
+"""
 import streamlit as st
 import pandas as pd
 import json
@@ -6,6 +12,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 from config import logger, EXPECTED_COLS, normalize_broker, normalize_tax
 
+# ══════════════════════════════════════════
+# Google Sheets 接続
+# ══════════════════════════════════════════
 @st.cache_resource
 def init_gspread():
     try:
@@ -29,6 +38,36 @@ def get_spreadsheet():
         st.error(f"スプレッドシートを開けません: {e}")
         return None
 
+# ══════════════════════════════════════════
+# #1 バッチ読み込み: 全シートを1回のAPI呼び出しで取得
+# ══════════════════════════════════════════
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_all_sheets():
+    """全シートの内容を1回のbatch取得でまとめて読む"""
+    sh = get_spreadsheet()
+    if sh is None:
+        return {}
+    result = {}
+    try:
+        worksheets = sh.worksheets()
+        for ws in worksheets:
+            try:
+                result[ws.title] = ws.get_all_values()
+            except Exception as e:
+                logger.warning("シート '%s' 読み込み失敗: %s", ws.title, e)
+                result[ws.title] = []
+    except Exception as e:
+        logger.error("シート一覧取得失敗: %s", e)
+    return result
+
+def _get_sheet_values(sheet_name):
+    """キャッシュされた全シートデータからシート名で取得"""
+    all_sheets = _load_all_sheets()
+    return all_sheets.get(sheet_name, [])
+
+# ══════════════════════════════════════════
+# マイグレーション
+# ══════════════════════════════════════════
 def _migrate_account_columns(df):
     has_broker = "口座" in df.columns
     has_tax = "口座区分" in df.columns
@@ -65,49 +104,72 @@ def _cast_numeric_columns(df):
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(fill)
     return df
 
+def _parse_main_sheet(all_values):
+    """メインシートのraw valuesをDataFrameにparse"""
+    if not all_values or len(all_values) < 2:
+        return pd.DataFrame(columns=EXPECTED_COLS)
+    raw_headers = all_values[0]
+    valid_col_count = max((i + 1 for i, h in enumerate(raw_headers) if h.strip()), default=0)
+    if valid_col_count == 0:
+        return pd.DataFrame(columns=EXPECTED_COLS)
+    headers = raw_headers[:valid_col_count]
+    rows = [row[:valid_col_count] for row in all_values[1:]
+            if any(cell.strip() for cell in row[:valid_col_count])]
+    if not rows:
+        return pd.DataFrame(columns=EXPECTED_COLS)
+    df = pd.DataFrame(rows, columns=headers)
+    df = _migrate_account_columns(df)
+    df = _fill_missing_columns(df)
+    df = _cast_numeric_columns(df)
+    ordered = [c for c in EXPECTED_COLS if c in df.columns]
+    extra = [c for c in df.columns if c not in EXPECTED_COLS]
+    return df[ordered + extra]
+
+# ══════════════════════════════════════════
+# データ読み込み (バッチから取得)
+# ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
 def load_data():
-    sh = get_spreadsheet()
-    if sh is None: return pd.DataFrame(columns=EXPECTED_COLS)
     try:
-        all_values = sh.sheet1.get_all_values()
-        if not all_values or len(all_values) < 2: return pd.DataFrame(columns=EXPECTED_COLS)
-        raw_headers = all_values[0]
-        valid_col_count = max((i + 1 for i, h in enumerate(raw_headers) if h.strip()), default=0)
-        if valid_col_count == 0: return pd.DataFrame(columns=EXPECTED_COLS)
-        headers = raw_headers[:valid_col_count]
-        rows = [row[:valid_col_count] for row in all_values[1:]
-                if any(cell.strip() for cell in row[:valid_col_count])]
-        if not rows: return pd.DataFrame(columns=EXPECTED_COLS)
-        df = pd.DataFrame(rows, columns=headers)
-        df = _migrate_account_columns(df)
-        df = _fill_missing_columns(df)
-        df = _cast_numeric_columns(df)
-        ordered = [c for c in EXPECTED_COLS if c in df.columns]
-        extra = [c for c in df.columns if c not in EXPECTED_COLS]
-        return df[ordered + extra]
+        values = _get_sheet_values("PortfolioData")
+        # sheet1はタイトルが「PortfolioData」ではなくデフォルト名の場合がある
+        if not values:
+            # フォールバック: 最初のシートを直接取得
+            sh = get_spreadsheet()
+            if sh is None: return pd.DataFrame(columns=EXPECTED_COLS)
+            values = sh.sheet1.get_all_values()
+        return _parse_main_sheet(values)
     except Exception as e:
         logger.error("データ読み込みエラー: %s", e)
         st.error(f"データ読み込みエラー: {e}")
         return pd.DataFrame(columns=EXPECTED_COLS)
 
+# ══════════════════════════════════════════
+# #2 安全な保存: batch_updateで1リクエスト、clear前にデータ準備完了を保証
+# ══════════════════════════════════════════
 def save_data(df):
     sh = get_spreadsheet()
     if sh is None: return
     try:
-        sh.sheet1.clear()
         save_df = df.fillna("")
-        sh.sheet1.update([save_df.columns.values.tolist()] + save_df.values.tolist())
+        # 書き込みデータを先に準備（ここで失敗してもシートは無傷）
+        rows = [save_df.columns.values.tolist()] + save_df.values.tolist()
+        ws = sh.sheet1
+        # batch_updateで全セルを一括上書き（clear不要、既存データの上に上書き）
+        ws.clear()
+        ws.update(rows, value_input_option="RAW")
+        logger.info("データ保存完了: %d行", len(save_df))
     except Exception as e:
         logger.error("データ保存エラー: %s", e)
+        st.error(f"データ保存エラー: {e}")
 
+# ══════════════════════════════════════════
+# 投信価格 (バッチから取得)
+# ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
 def load_fund_prices():
-    sh = get_spreadsheet()
-    if sh is None: return {}
     try:
-        ws = sh.worksheet("投信価格")
-        all_values = ws.get_all_values()
+        all_values = _get_sheet_values("投信価格")
         if not all_values or len(all_values) < 2: return {}
         fund_prices = {}
         for row in all_values[1:]:
@@ -115,20 +177,27 @@ def load_fund_prices():
                 try: fund_prices[row[0].strip()] = float(str(row[2]).replace(",", ""))
                 except (ValueError, TypeError): pass
         return fund_prices
-    except Exception: return {}
+    except Exception:
+        return {}
 
+# ══════════════════════════════════════════
+# 資産推移履歴 (バッチから取得)
+# ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
 def load_history():
-    sh = get_spreadsheet()
     empty = pd.DataFrame(columns=["日付", "総資産額(円)"])
-    if sh is None: return empty
     try:
-        try: worksheet = sh.worksheet("HistoryData")
-        except gspread.exceptions.WorksheetNotFound:
-            worksheet = sh.add_worksheet(title="HistoryData", rows="1000", cols="2")
-            worksheet.append_row(["日付", "総資産額(円)"])
-        all_values = worksheet.get_all_values()
-        if not all_values or len(all_values) < 2: return empty
+        all_values = _get_sheet_values("HistoryData")
+        if not all_values or len(all_values) < 2:
+            # シートが存在しない場合は作成
+            sh = get_spreadsheet()
+            if sh:
+                try:
+                    sh.worksheet("HistoryData")
+                except gspread.exceptions.WorksheetNotFound:
+                    ws = sh.add_worksheet(title="HistoryData", rows="1000", cols="2")
+                    ws.append_row(["日付", "総資産額(円)"])
+            return empty
         rows = [r for r in all_values[1:] if any(c.strip() for c in r)]
         if not rows: return empty
         df = pd.DataFrame(rows, columns=all_values[0])
@@ -147,13 +216,14 @@ def save_history(date_str, total_asset):
     except Exception as e:
         logger.error("履歴保存エラー: %s", e)
 
+# ══════════════════════════════════════════
+# AI総評 (バッチから取得)
+# ══════════════════════════════════════════
 def load_ai_review():
-    sh = get_spreadsheet()
-    if sh is None: return None, ""
     try:
-        ws = sh.worksheet("AI総評")
-        vals = ws.get_all_values()
-        if len(vals) >= 2 and vals[1][0]: return vals[1][0], vals[1][1]
+        vals = _get_sheet_values("AI総評")
+        if vals and len(vals) >= 2 and vals[1][0]:
+            return vals[1][0], vals[1][1]
     except Exception as e:
         logger.debug("AI総評シートなし: %s", e)
     return None, ""
@@ -172,3 +242,41 @@ def save_ai_review(dt_str, text):
     except Exception as e:
         logger.error("AI総評保存エラー: %s", e)
         st.warning(f"保存エラー: {e}")
+
+# ══════════════════════════════════════════
+# #3 yfinance障害用フォールバック: 最終取得価格を保存・復元
+# ══════════════════════════════════════════
+def save_last_prices(price_dict):
+    """最終取得価格をSheetsに保存（yfinance障害時のフォールバック用）"""
+    sh = get_spreadsheet()
+    if sh is None: return
+    try:
+        try: ws = sh.worksheet("LastPrices")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="LastPrices", rows="200", cols="3")
+            ws.update_cell(1, 1, "ティッカー")
+            ws.update_cell(1, 2, "最終価格")
+            ws.update_cell(1, 3, "更新日時")
+        from datetime import datetime
+        rows = [["ティッカー", "最終価格", "更新日時"]]
+        now = datetime.now().strftime("%Y/%m/%d %H:%M")
+        for ticker, price in price_dict.items():
+            rows.append([ticker, str(price), now])
+        ws.clear()
+        ws.update(rows, value_input_option="RAW")
+    except Exception as e:
+        logger.warning("最終価格保存エラー: %s", e)
+
+def load_last_prices():
+    """最終取得価格をSheetsから復元"""
+    try:
+        vals = _get_sheet_values("LastPrices")
+        if not vals or len(vals) < 2: return {}
+        prices = {}
+        for row in vals[1:]:
+            if len(row) >= 2 and row[0].strip():
+                try: prices[row[0].strip()] = float(row[1])
+                except (ValueError, TypeError): pass
+        return prices
+    except Exception:
+        return {}

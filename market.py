@@ -1,9 +1,15 @@
-"""市場データ取得: yfinance + 並列化"""
+"""
+市場データ取得: yfinance + 並列化
+
+改善点:
+  #3 yfinance障害フォールバック — 取得成功時に最終価格を保存、失敗時に復元
+"""
 import streamlit as st
 import pandas as pd
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import logger, SECTOR_MAP
+from data import save_last_prices, load_last_prices
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_cached_market_data(tickers_tuple, period="1y"):
@@ -11,14 +17,36 @@ def get_cached_market_data(tickers_tuple, period="1y"):
     if not tickers: return pd.DataFrame()
     try:
         data = yf.download(tickers, period=period, progress=False, threads=True)
+        if data.empty:
+            raise ValueError("yfinanceから空データ")
         if isinstance(data.columns, pd.MultiIndex):
             closes = data["Close"]
         else:
             closes = data[["Close"]]
             closes.columns = [tickers[0]]
-        return closes.ffill().bfill()
+        closes = closes.ffill().bfill()
+        # 成功時: 最終価格をSheetsに保存（フォールバック用）
+        try:
+            last_prices = {}
+            for col in closes.columns:
+                s = closes[col].dropna()
+                if not s.empty:
+                    last_prices[col] = float(s.iloc[-1])
+            if last_prices:
+                save_last_prices(last_prices)
+        except Exception as e:
+            logger.debug("最終価格保存スキップ: %s", e)
+        return closes
     except Exception as e:
-        logger.error("市場データ取得エラー: %s", e)
+        logger.error("yfinance取得失敗 — フォールバック価格を使用: %s", e)
+        # フォールバック: Sheetsに保存された最終価格から疑似DataFrameを生成
+        fallback = load_last_prices()
+        if fallback:
+            fb_data = {t: [fallback.get(t, 0.0)] for t in tickers if t in fallback}
+            if fb_data:
+                fb_df = pd.DataFrame(fb_data, index=[pd.Timestamp.now()])
+                st.warning("⚠ yfinanceから株価を取得できませんでした。前回取得した価格を表示しています。")
+                return fb_df
         return pd.DataFrame()
 
 def _fetch_single_info(t):

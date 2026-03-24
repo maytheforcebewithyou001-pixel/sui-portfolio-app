@@ -12,6 +12,7 @@ EXPECTED_COLS = [
 BROKER_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)"]
 TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
 MARKET_OPTIONS = ["日本株", "米国株", "投資信託", "その他資産"]
+MONTH_OPTIONS = [f"{m}月" for m in range(1, 13)]
 TAX_RATE = 0.20315
 
 SECTOR_MAP = {
@@ -20,7 +21,6 @@ SECTOR_MAP = {
     "Consumer Defensive": "生活必需品", "Energy": "エネルギー", "Basic Materials": "素材",
     "Real Estate": "不動産", "Utilities": "公益事業",
 }
-
 WORLD_INDICES = {
     "日経平均": "^N225", "TOPIX": "1306.T", "S&P 500": "^GSPC", "NASDAQ": "^IXIC",
     "ドル円": "JPY=X", "米国10年債利回り": "^TNX", "VIX": "^VIX", "金(GOLD)": "GC=F",

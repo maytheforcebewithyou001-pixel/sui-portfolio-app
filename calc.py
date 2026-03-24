@@ -1,4 +1,9 @@
-"""計算エンジン: 評価額・損益・配当・税金・シミュレーション"""
+"""
+計算エンジン: 評価額・損益・配当・税金・シミュレーション
+
+改善点:
+  #5 AI総評に資産推移履歴を含める
+"""
 import pandas as pd
 import math
 from datetime import datetime
@@ -137,7 +142,8 @@ def round_up_3(val):
         return f"{int(rounded):,}" if rounded.is_integer() else f"{rounded:,.3f}".rstrip("0").rstrip(".")
     except (ValueError, TypeError): return val
 
-def build_portfolio_summary_text(display_df, totals, jpy_usd_rate):
+def build_portfolio_summary_text(display_df, totals, jpy_usd_rate, history_df=None):
+    """#5 AI総評用サマリー — 資産推移履歴も含める"""
     ta = totals["total_asset"]
     lines = [
         "■ ポートフォリオ概要",
@@ -158,4 +164,18 @@ def build_portfolio_summary_text(display_df, totals, jpy_usd_rate):
     lines += ["", "■ セクター配分"]
     for sec, val in display_df[display_df["評価額(円)"] > 0].groupby("セクター")["評価額(円)"].sum().sort_values(ascending=False).items():
         lines.append(f"  {sec}: {val:,.0f}円 ({val/ta*100:.1f}%)")
+
+    # #5 資産推移履歴を追加（直近10件）
+    if history_df is not None and not history_df.empty:
+        lines += ["", "■ 資産推移（直近の記録）"]
+        recent = history_df.tail(10)
+        for _, hr in recent.iterrows():
+            lines.append(f"  {hr['日付']}: {hr['総資産額(円)']:,.0f}円")
+        if len(history_df) >= 2:
+            first_val = history_df["総資産額(円)"].iloc[0]
+            last_val = history_df["総資産額(円)"].iloc[-1]
+            if first_val > 0:
+                change_pct = (last_val / first_val - 1) * 100
+                lines.append(f"  記録期間の変化: {change_pct:+.1f}%")
+
     return "\n".join(lines)

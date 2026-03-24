@@ -139,38 +139,36 @@ tab_pf, tab_an, tab_div, tab_sim, tab_mkt, tab_ai = st.tabs(
 # ── TAB 1: ポートフォリオ ──
 with tab_pf:
     st.markdown("#### ➕ 銘柄を追加")
-    r1a, r1b, r1c = st.columns([1, 1, 2])
-    with r1a: market = st.selectbox("市場", MARKET_OPTIONS, key="fm")
-    with r1b: code = st.text_input("証券コード", placeholder="例: 7203", key="fc")
-    with r1c:
+    # #4 st.formで囲み、submitまでyfinance呼び出しを抑制
+    with st.form("add_stock_form", clear_on_submit=True):
+        r1a, r1b, r1c = st.columns([1, 1, 2])
+        with r1a: market = st.selectbox("市場", MARKET_OPTIONS, key="fm")
+        with r1b: code = st.text_input("証券コード", placeholder="例: 7203", key="fc")
+        with r1c: manual_name = st.text_input("銘柄名", key="fn", placeholder="自動取得 or 手動入力")
+        r2a, r2b, r2c, r2d, r2e = st.columns(5)
+        with r2a: shares = st.number_input("保有数", min_value=0.0001, value=100.0, key="fs")
+        with r2b: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0, key="fp")
+        with r2c: annual_div = st.number_input("年間配当金(円/株)", min_value=0.0, value=0.0, step=1.0, key="fd")
+        with r2d: broker = st.selectbox("口座", BROKER_OPTIONS, key="fb")
+        with r2e: tax = st.selectbox("口座区分", TAX_OPTIONS, key="ft")
+        r3a, r3b, _ = st.columns([1.5, 1.5, 2])
+        # #6 配当月をmultiselectに変更（フリーテキストの入力ミスを防止）
+        with r3a: div_month_sel = st.multiselect("配当月", options=list(range(1,13)),
+                                                  format_func=lambda x: f"{x}月", key="fdm")
+        with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, value=0.0, step=0.1, key="ffx")
+        submitted = st.form_submit_button("＋ 追加", use_container_width=True)
+
+    if submitted and code:
+        # フォーム送信後にのみ銘柄名を取得（rerun抑制）
         auto_name = ""
-        if code and market in ["日本株", "米国株"]:
+        if not manual_name and market in ["日本株", "米国株"]:
             with st.spinner("銘柄名を取得中..."):
                 auto_name = get_ticker_name(code, market)
-            if auto_name and auto_name not in ("取得失敗", ""):
-                st.markdown(f"<p style='color:#00D2FF;font-size:0.85rem;margin:0 0 4px'>🔍 {auto_name}</p>", unsafe_allow_html=True)
-                manual_name = st.text_input("銘柄名（変更可）", value=auto_name, key="fn")
-            else:
-                st.markdown("<p style='color:#FF5252;font-size:0.85rem;margin:0 0 4px'>⚠ 銘柄名を取得できませんでした</p>", unsafe_allow_html=True)
-                manual_name = st.text_input("銘柄名（手動入力）", key="fn")
-        else:
-            manual_name = st.text_input("銘柄名", key="fn", placeholder="手動入力してください")
-
-    r2a, r2b, r2c, r2d, r2e = st.columns(5)
-    with r2a: shares = st.number_input("保有数", min_value=0.0001, value=100.0, key="fs")
-    with r2b: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0, key="fp")
-    with r2c: annual_div = st.number_input("年間配当金(円/株)", min_value=0.0, value=0.0, step=1.0, key="fd")
-    with r2d: broker = st.selectbox("口座", BROKER_OPTIONS, key="fb")
-    with r2e: tax = st.selectbox("口座区分", TAX_OPTIONS, key="ft")
-    r3a, r3b, _ = st.columns([1.5, 1.5, 2])
-    with r3a: div_months = st.text_input("配当月 (例: 3,9)", placeholder="3,6,9,12", key="fdm")
-    with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, value=0.0, step=0.1, key="ffx")
-
-    if st.button("＋ 追加", key="add") and code:
         final_name = manual_name or auto_name or code
+        div_months_str = ",".join(str(m) for m in sorted(div_month_sel))
         new = pd.DataFrame({"銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
             "保有株数": [shares], "取得単価": [avg_price], "口座": [broker], "口座区分": [tax],
-            "手動配当利回り(%)": [0.0], "配当月": [div_months], "年間配当金(円/株)": [annual_div],
+            "手動配当利回り(%)": [0.0], "配当月": [div_months_str], "年間配当金(円/株)": [annual_div],
             "取得時為替": [buy_fx], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
         save_data(pd.concat([df, new], ignore_index=True))
         st.cache_data.clear(); st.success(f"✓ {final_name} を追加"); st.rerun()
@@ -481,7 +479,7 @@ with tab_ai:
         if not api_key:
             st.warning("⚠ Streamlit Secretsに `anthropic_api_key` を設定してください。")
         else:
-            ptxt = build_portfolio_summary_text(display_df, totals, jpy_usd_rate)
+            ptxt = build_portfolio_summary_text(display_df, totals, jpy_usd_rate, history_df=load_history())
             for k,v in [("ai_review_dt",None),("ai_review_text",""),("ai_review_loaded",False),("ai_confirm_regen",False)]:
                 if k not in st.session_state: st.session_state[k] = v
             if not st.session_state.ai_review_loaded:
