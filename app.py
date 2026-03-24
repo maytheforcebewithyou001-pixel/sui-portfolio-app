@@ -122,7 +122,7 @@ def load_fund_prices():
 @st.cache_data(ttl=120, show_spinner=False)
 def load_data():
     sh = get_spreadsheet()
-    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "配当月", "取得時為替", "最新更新日"]
+    expected_cols = ["銘柄コード", "銘柄名", "市場", "保有株数", "取得単価", "口座", "口座区分", "手動配当利回り(%)", "配当月", "年間配当金(円/株)", "取得時為替", "最新更新日"]
     BROKER_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)"]
     TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
     if sh is None: return pd.DataFrame(columns=expected_cols)
@@ -207,6 +207,7 @@ def load_data():
                 if col == "口座": df[col] = "SBI証券"
                 elif col == "口座区分": df[col] = "特定口座"
                 elif col == "手動配当利回り(%)": df[col] = 0.0
+                elif col == "年間配当金(円/株)": df[col] = 0.0
                 elif col == "取得時為替": df[col] = 0.0
                 elif col == "配当月": df[col] = ""
                 else: df[col] = "-"
@@ -216,6 +217,7 @@ def load_data():
         df["保有株数"] = pd.to_numeric(df["保有株数"], errors='coerce').fillna(0)
         df["取得単価"] = pd.to_numeric(df["取得単価"], errors='coerce').fillna(0)
         df["手動配当利回り(%)"] = pd.to_numeric(df["手動配当利回り(%)"], errors='coerce').fillna(0.0)
+        df["年間配当金(円/株)"] = pd.to_numeric(df["年間配当金(円/株)"], errors='coerce').fillna(0.0)
         df["取得時為替"] = pd.to_numeric(df["取得時為替"], errors='coerce').fillna(0.0)
         
         ordered = [c for c in expected_cols if c in df.columns]
@@ -440,6 +442,7 @@ if not df.empty:
             shares, buy_price_raw = float(row["保有株数"]), float(row["取得単価"])
             tax_category = str(row.get("口座区分", "特定口座"))
             manual_yield = float(row.get("手動配当利回り(%)", 0.0))
+            annual_div_per_share = float(row.get("年間配当金(円/株)", 0.0))
             div_month_str = str(row.get("配当月", ""))
             buy_fx_rate = float(row.get("取得時為替", 0.0))
 
@@ -507,7 +510,10 @@ if not df.empty:
             buy_total = buy_jpy * shares
             profit = value - buy_total
 
-            if manual_yield > 0:
+            if annual_div_per_share > 0:
+                # ★ 最優先: 年間配当金(円/株) × 株数（米国株は円換算）
+                dividend = annual_div_per_share * shares * (jpy_usd_rate if market_type == "米国株" else 1)
+            elif manual_yield > 0:
                 dividend = value * (manual_yield / 100.0)
             elif div_rate > 0:
                 dividend = div_rate * shares * (jpy_usd_rate if market_type == "米国株" else 1)
@@ -692,7 +698,7 @@ with tab_pf:
     r2a, r2b, r2c, r2d, r2e = st.columns([1, 1, 1, 1, 1])
     with r2a: shares = st.number_input("保有数", min_value=0.0001, value=100.0, key="form_shares")
     with r2b: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0, key="form_price")
-    with r2c: manual_div = st.number_input("手動利回り(%)", min_value=0.0, value=0.0, step=0.1, help="0=自動取得", key="form_div")
+    with r2c: annual_div_input = st.number_input("年間配当金(円/株)", min_value=0.0, value=0.0, step=1.0, help="1株あたりの年間配当金額。米国株はドル建て", key="form_div")
     with r2d: broker_type = st.selectbox("口座", ["SBI証券", "楽天証券", "持ち株会(野村證券)"], key="form_broker")
     with r2e: tax_type = st.selectbox("口座区分", ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"], key="form_tax")
 
@@ -706,7 +712,7 @@ with tab_pf:
         new_data = pd.DataFrame({
             "銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
             "保有株数": [shares], "取得単価": [avg_price], "口座": [broker_type], "口座区分": [tax_type],
-            "手動配当利回り(%)": [manual_div], "配当月": [div_months], "取得時為替": [buy_fx],
+            "手動配当利回り(%)": [0.0], "配当月": [div_months], "年間配当金(円/株)": [annual_div_input], "取得時為替": [buy_fx],
             "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]
         })
         df = pd.concat([df, new_data], ignore_index=True)
@@ -869,6 +875,7 @@ with tab_pf:
                     "保有株数": st.column_config.NumberColumn("保有株数", min_value=0, format="%.4f"),
                     "取得単価": st.column_config.NumberColumn("取得単価", min_value=0, format="%.2f"),
                     "手動配当利回り(%)": st.column_config.NumberColumn("手動利回り(%)", min_value=0, format="%.2f"),
+                    "年間配当金(円/株)": st.column_config.NumberColumn("年間配当(円/株)", min_value=0, format="%.2f"),
                     "取得時為替": st.column_config.NumberColumn("取得時為替($/¥)", min_value=0, format="%.1f", help="米国株のみ"),
                     "削除": st.column_config.CheckboxColumn("削除", default=False),
                 },
