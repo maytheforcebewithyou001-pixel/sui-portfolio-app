@@ -26,7 +26,7 @@ def classify_sector(row, info_sector):
         return "その他資産"
     return "ETF/その他"
 
-def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
+def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices=None):
     ticker_code = str(row["銘柄コード"])
     market_type = row["市場"]
     shares = float(row["保有株数"])
@@ -36,6 +36,8 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
     annual_div_per_share = float(row.get("年間配当金(円/株)", 0.0))
     buy_fx_rate = float(row.get("取得時為替", 0.0))
     manual_price = float(row.get("手動現在値", 0.0))
+    if gas_prices is None:
+        gas_prices = {}
 
     t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
     info = info_dict.get(t, {})
@@ -45,16 +47,16 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
     fx_gain = stock_gain = 0.0
     fetch_success = False
 
-    # ★ 手動現在値が入力されていれば最優先で使用（yfinance取得不可の銘柄用）
-    if manual_price > 0 and market_type in ("日本株", "米国株", "投資信託", "その他資産"):
-        if market_type == "米国株":
-            price_jpy = manual_price * jpy_usd_rate
-            buy_jpy = buy_price_raw * jpy_usd_rate
-        else:
-            price_jpy = manual_price
-            buy_jpy = buy_price_raw
-        fetch_success = True
-    elif market_type in ("日本株", "米国株") and t in closes_df.columns:
+    # GAS株価データを確認（銘柄コードでもティッカーでも検索）
+    gas_entry = gas_prices.get(ticker_code) or gas_prices.get(t)
+
+    # ══ 価格取得の優先順位 ══
+    # 1. yfinance（リアルタイム性が最も高い）
+    # 2. GAS株価データ（GOOGLEFINANCE経由、15〜20分遅延）
+    # 3. 手動現在値（ユーザー手入力）
+    # 4. 取得単価フォールバック（最終手段）
+
+    if market_type in ("日本株", "米国株") and t in closes_df.columns:
         series = closes_df[t].dropna()
         if not series.empty:
             latest_price = series.iloc[-1]
@@ -70,36 +72,31 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
             if len(series) >= 2:
                 prev = series.iloc[-2]
                 dod_pct = ((latest_price / prev) - 1) * 100 if prev != 0 else None
-    elif market_type in ("日本株", "米国株"):
-        # 一括DLで取得できなかった銘柄 → 個別にリトライ
-        try:
-            import yfinance as yf
-            single = yf.download(t, period="5d", progress=False)
-            if not single.empty:
-                if isinstance(single.columns, pd.MultiIndex):
-                    s_close = single["Close"][t].dropna()
-                else:
-                    s_close = single["Close"].dropna()
-                if not s_close.empty:
-                    latest_price = s_close.iloc[-1]
-                    fetch_success = True
-                    if market_type == "日本株":
-                        price_jpy, buy_jpy = latest_price, buy_price_raw
-                    else:
-                        price_jpy = latest_price * jpy_usd_rate
-                        buy_jpy = buy_price_raw * jpy_usd_rate
-                        if buy_fx_rate > 0:
-                            stock_gain = (latest_price - buy_price_raw) * shares * jpy_usd_rate
-                            fx_gain = buy_price_raw * shares * (jpy_usd_rate - buy_fx_rate)
-                    if len(s_close) >= 2:
-                        prev = s_close.iloc[-2]
-                        dod_pct = ((latest_price / prev) - 1) * 100 if prev != 0 else None
-        except Exception:
-            pass
-        # それでも取得できなかった場合は取得単価をフォールバック
-        if not fetch_success:
-            price_jpy, buy_jpy, fetch_success = buy_price_raw, buy_price_raw, True
-    else:
+
+    # yfinanceで取れなかった場合 → GAS価格を使用
+    if not fetch_success and gas_entry and gas_entry.get("price", 0) > 0:
+        gas_price = gas_entry["price"]
+        if market_type == "米国株":
+            price_jpy = gas_price * jpy_usd_rate
+            buy_jpy = buy_price_raw * jpy_usd_rate
+        else:
+            price_jpy = gas_price
+            buy_jpy = buy_price_raw
+        dod_pct = gas_entry.get("change_pct")
+        fetch_success = True
+
+    # GASでも取れなかった場合 → 手動現在値
+    if not fetch_success and manual_price > 0:
+        if market_type == "米国株":
+            price_jpy = manual_price * jpy_usd_rate
+            buy_jpy = buy_price_raw * jpy_usd_rate
+        else:
+            price_jpy = manual_price
+            buy_jpy = buy_price_raw
+        fetch_success = True
+
+    # 全部ダメ → 投信価格 or 取得単価フォールバック
+    if not fetch_success:
         if market_type == "投資信託" and ticker_code in fund_prices:
             price_jpy, buy_jpy, fetch_success = fund_prices[ticker_code], buy_price_raw, True
         else:
@@ -129,11 +126,11 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate):
         "株価損益(円)": stock_gain, "為替損益(円)": fx_gain, "fetch_success": fetch_success,
     }
 
-def calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate):
+def calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices=None):
     now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
     results = []
     for _, row in df.iterrows():
-        r = calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate)
+        r = calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices)
         r["手動配当利回り(%)"] = float(row.get("手動配当利回り(%)", 0.0))
         r["配当月"] = str(row.get("配当月", ""))
         r["最新更新日"] = now_str if r["fetch_success"] else str(row.get("最新更新日", "-"))
