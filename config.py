@@ -15,6 +15,16 @@ MARKET_OPTIONS = ["日本株", "米国株", "投資信託", "その他資産"]
 MONTH_OPTIONS = [f"{m}月" for m in range(1, 13)]
 TAX_RATE = 0.20315
 
+# AI モデル（変更時はここだけ修正）
+AI_MODEL = "claude-sonnet-4-20250514"
+
+# NISA 年間・生涯枠（2024年新NISA）
+NISA_GROWTH_ANNUAL = 2_400_000      # 成長投資枠 年間上限
+NISA_GROWTH_LIFETIME = 12_000_000   # 成長投資枠 生涯上限
+NISA_TSUMITATE_ANNUAL = 1_200_000   # 積立投資枠 年間上限
+NISA_TSUMITATE_LIFETIME = 6_000_000 # 積立投資枠 生涯上限
+NISA_TOTAL_LIFETIME = 18_000_000    # 合計生涯上限
+
 SECTOR_MAP = {
     "Technology": "テクノロジー", "Financial Services": "金融", "Healthcare": "ヘルスケア",
     "Consumer Cyclical": "一般消費財", "Industrials": "資本財", "Communication Services": "通信",

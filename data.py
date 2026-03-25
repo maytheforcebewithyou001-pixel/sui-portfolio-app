@@ -271,6 +271,51 @@ def save_ai_review(dt_str, text):
 # ══════════════════════════════════════════
 # #3 yfinance障害用フォールバック: 最終取得価格を保存・復元
 # ══════════════════════════════════════════
+# ══════════════════════════════════════════
+# 取引履歴 (TransactionData シート)
+# 列: 日付 | 銘柄コード | 銘柄名 | 市場 | 取引種別 | 数量 | 単価(円) | 手数料 | 損益確定(円) | 口座 | 口座区分
+# ══════════════════════════════════════════
+TRANSACTION_COLS = ["日付", "銘柄コード", "銘柄名", "市場", "取引種別", "数量", "単価(円)", "手数料", "損益確定(円)", "口座", "口座区分"]
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_transactions():
+    empty = pd.DataFrame(columns=TRANSACTION_COLS)
+    try:
+        all_values = _get_sheet_values("TransactionData")
+        if not all_values or len(all_values) < 2:
+            return empty
+        rows = [r for r in all_values[1:] if any(c.strip() for c in r)]
+        if not rows:
+            return empty
+        df = pd.DataFrame(rows, columns=all_values[0])
+        for col in TRANSACTION_COLS:
+            if col not in df.columns:
+                df[col] = ""
+        for col in ["数量", "単価(円)", "手数料", "損益確定(円)"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        return df[TRANSACTION_COLS]
+    except Exception as e:
+        logger.error("取引履歴読み込みエラー: %s", e)
+        return empty
+
+def save_transaction(tx_dict):
+    """取引1件をTransactionDataシートに追記"""
+    sh = get_spreadsheet()
+    if sh is None:
+        return
+    try:
+        try:
+            ws = sh.worksheet("TransactionData")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="TransactionData", rows="2000", cols=str(len(TRANSACTION_COLS)))
+            ws.append_row(TRANSACTION_COLS)
+        row = [str(tx_dict.get(c, "")) for c in TRANSACTION_COLS]
+        ws.append_row(row)
+        load_transactions.clear()
+    except Exception as e:
+        logger.error("取引履歴保存エラー: %s", e)
+        st.error(f"取引履歴保存エラー: {e}")
+
 def save_last_prices(price_dict):
     """最終取得価格をSheetsに保存（yfinance障害時のフォールバック用）"""
     sh = get_spreadsheet()

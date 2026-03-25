@@ -10,9 +10,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
-from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, WORLD_INDICES
+from config import (BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, WORLD_INDICES,
+                    AI_MODEL, NISA_GROWTH_ANNUAL, NISA_GROWTH_LIFETIME,
+                    NISA_TSUMITATE_ANNUAL, NISA_TSUMITATE_LIFETIME, NISA_TOTAL_LIFETIME)
 from data import (load_data, save_data, load_fund_prices, load_gas_prices, load_history,
-                  save_history, load_ai_review, save_ai_review)
+                  save_history, load_ai_review, save_ai_review,
+                  load_transactions, save_transaction)
 from market import get_cached_market_data, get_cached_ticker_info, get_ticker_name
 from calc import (calculate_portfolio, get_portfolio_totals, get_future_simulation,
                   round_up_3, build_portfolio_summary_text)
@@ -72,6 +75,20 @@ with st.sidebar:
 df = load_data()
 fund_prices = load_fund_prices()
 gas_prices = load_gas_prices()
+
+# GAS最終更新日時を取得
+gas_last_updated = None
+try:
+    from data import _get_sheet_values as _gsv
+    _gv = _gsv("株価データ")
+    if _gv and len(_gv) >= 2:
+        # 更新日時は5列目（index=4）
+        for row in _gv[1:]:
+            if len(row) >= 5 and row[4].strip():
+                gas_last_updated = row[4].strip()
+                break
+except Exception:
+    pass
 
 if not df.empty:
     with st.spinner("市場データを取得中..."):
@@ -199,6 +216,19 @@ with _rec2:
         save_history(datetime.now().strftime("%Y/%m/%d"), TA)
         st.toast("✓ 記録しました"); st.rerun()
 
+# GAS株価データ 更新日時バナー
+if gas_prices:
+    try:
+        if gas_last_updated:
+            gas_dt = datetime.strptime(gas_last_updated[:16], "%Y/%m/%d %H:%M")
+            gas_age_min = (datetime.now() - gas_dt).total_seconds() / 60
+            if gas_age_min > 60:
+                st.markdown(f"<div class='alert-bar alert-down'>⚠ GAS株価データが古い可能性があります（最終更新: {gas_last_updated}、約{gas_age_min/60:.0f}時間前）— サイドバーの「全データ最新化」を試してください</div>", unsafe_allow_html=True)
+            else:
+                st.caption(f"📡 GAS株価データ 最終更新: {gas_last_updated}")
+    except Exception:
+        pass
+
 # 為替損益サマリー
 tfx, tsg = totals["total_fx_gain"], totals["total_stock_gain"]
 if tfx != 0 or tsg != 0:
@@ -219,8 +249,8 @@ if not display_df.empty and "前日比" in display_df.columns:
 # ══════════════════════════════════════════
 # メインタブ
 # ══════════════════════════════════════════
-tab_pf, tab_an, tab_div, tab_sim, tab_mkt, tab_ai = st.tabs(
-    ["📊 ポートフォリオ", "🔍 分析", "💰 配当", "🚀 シミュレーション", "🌍 世界指標", "🤖 AI総評"])
+tab_pf, tab_an, tab_div, tab_sim, tab_mkt, tab_tx, tab_ai = st.tabs(
+    ["📊 ポートフォリオ", "🔍 分析", "💰 配当", "🚀 シミュレーション", "🌍 世界指標", "📒 取引履歴", "🤖 AI総評"])
 
 # ── TAB 1: ポートフォリオ ──
 with tab_pf:
@@ -345,12 +375,49 @@ with tab_pf:
         st.markdown("---"); st.markdown("#### 📈 資産推移")
         hdf = load_history()
         if not hdf.empty:
-            fig = px.line(hdf, x="日付", y="総資産額(円)", markers=True)
-            fig.update_traces(line_color="#00E676", marker=dict(size=8, color="#FFFFFF"))
-            fig.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
-                              margin=dict(t=10,b=10,l=10,r=10), height=300,
-                              xaxis=dict(showgrid=True, gridcolor="#1E232F"), yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","))
-            st.plotly_chart(fig, width='stretch')
+            hdf["総資産額(円)"] = pd.to_numeric(hdf["総資産額(円)"], errors="coerce")
+            hdf = hdf.dropna(subset=["総資産額(円)"])
+            hdf["日付_dt"] = pd.to_datetime(hdf["日付"], errors="coerce")
+            hdf = hdf.dropna(subset=["日付_dt"]).sort_values("日付_dt")
+            # 日付フィルター
+            hf1, hf2, hf3 = st.columns([1, 1, 2])
+            with hf1:
+                h_range = st.selectbox("期間", ["全期間", "直近1ヶ月", "直近3ヶ月", "直近6ヶ月", "直近1年"], key="hrange")
+            cutoffs = {"直近1ヶ月": 30, "直近3ヶ月": 90, "直近6ヶ月": 180, "直近1年": 365}
+            if h_range in cutoffs:
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=cutoffs[h_range])
+                hdf_f = hdf[hdf["日付_dt"] >= cutoff]
+            else:
+                hdf_f = hdf
+            with hf2:
+                show_cost = st.checkbox("投資元本ラインを表示", value=True, key="hcost")
+            if not hdf_f.empty:
+                fig_h = go.Figure()
+                fig_h.add_trace(go.Scatter(x=hdf_f["日付_dt"], y=hdf_f["総資産額(円)"], mode="lines+markers",
+                                           name="評価額", line=dict(color="#00E676", width=2),
+                                           marker=dict(size=6, color="#FFFFFF")))
+                if show_cost and not df.empty:
+                    # 投資元本 = 保有銘柄の(取得単価×保有株数)合計 ※為替考慮なし概算
+                    total_cost = (df["保有株数"] * df["取得単価"]).sum()
+                    fig_h.add_trace(go.Scatter(x=[hdf_f["日付_dt"].iloc[0], hdf_f["日付_dt"].iloc[-1]],
+                                               y=[total_cost, total_cost], mode="lines",
+                                               name="投資元本(概算)", line=dict(color="#FFD54F", width=1, dash="dash")))
+                if len(hdf_f) >= 2:
+                    first_v, last_v = hdf_f["総資産額(円)"].iloc[0], hdf_f["総資産額(円)"].iloc[-1]
+                    chg = last_v - first_v; chg_pct = (chg / first_v * 100) if first_v > 0 else 0
+                    chg_col = "#00E676" if chg >= 0 else "#FF5252"; chg_s = "+" if chg >= 0 else ""
+                    with hf3:
+                        st.markdown(f"<div style='padding:0.5rem 0;font-size:0.85rem;color:#B0B8C0'>期間変化: "
+                                    f"<span style='color:{chg_col};font-weight:bold'>{chg_s}{chg:,.0f}円 ({chg_s}{chg_pct:.1f}%)</span></div>",
+                                    unsafe_allow_html=True)
+                fig_h.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                                    margin=dict(t=10,b=10,l=10,r=10), height=320,
+                                    xaxis=dict(showgrid=True, gridcolor="#1E232F"),
+                                    yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
+                                    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0)"))
+                st.plotly_chart(fig_h, width='stretch')
+            else:
+                st.info("選択期間内に記録がありません。")
         else:
             st.info("ヘッダーの「💾 本日の資産を記録」で記録を開始してください。")
 
@@ -358,7 +425,48 @@ with tab_pf:
 with tab_an:
     if not df.empty and TA > 0 and not display_df.empty:
         display_df["円グラフ表示名"] = display_df["銘柄コード"].astype(str) + " " + display_df["銘柄名"].astype(str)
-        st.markdown("#### 🍩 銘柄別割合")
+
+        # ── NISA 枠管理 ──
+        st.markdown("#### 🌿 NISA 枠残高")
+        _nisa_g = display_df[display_df["口座区分"].str.contains("成長", na=False)]["評価額(円)"].sum()
+        _nisa_t = display_df[display_df["口座区分"].str.contains("積立", na=False)]["評価額(円)"].sum()
+        _nisa_total = _nisa_g + _nisa_t
+        _ng_pct = min(_nisa_g / NISA_GROWTH_LIFETIME * 100, 100)
+        _nt_pct = min(_nisa_t / NISA_TSUMITATE_LIFETIME * 100, 100)
+        _tot_pct = min(_nisa_total / NISA_TOTAL_LIFETIME * 100, 100)
+        _ng_rem = max(NISA_GROWTH_LIFETIME - _nisa_g, 0)
+        _nt_rem = max(NISA_TSUMITATE_LIFETIME - _nisa_t, 0)
+        _ng_rem_y = max(NISA_GROWTH_ANNUAL - _nisa_g, 0)   # 今年の残枠概算（評価額ベース）
+        _nt_rem_y = max(NISA_TSUMITATE_ANNUAL - _nisa_t, 0)
+        nc_a, nc_b, nc_c = st.columns(3)
+        with nc_a:
+            st.markdown(f"""<div class='status-card' style='padding:0.8rem;border-left:3px solid #00E676'>
+                <h4>成長投資枠</h4>
+                <p class='mv' style='font-size:1.1rem;color:#00E676'>{_nisa_g:,.0f}<span>円</span></p>
+                <p class='sv'>生涯上限 1,200万 → 残 {_ng_rem:,.0f}円 ({100-_ng_pct:.1f}%)</p>
+                <div style='background:#1E232F;border-radius:4px;height:6px;margin-top:6px'>
+                  <div style='height:100%;border-radius:4px;background:#00E676;width:{_ng_pct:.1f}%'></div></div>
+                <p class='sv' style='margin-top:4px'>年間上限 240万 → 今年の残枠概算 {_ng_rem_y:,.0f}円</p>
+            </div>""", unsafe_allow_html=True)
+        with nc_b:
+            st.markdown(f"""<div class='status-card' style='padding:0.8rem;border-left:3px solid #69F0AE'>
+                <h4>積立投資枠</h4>
+                <p class='mv' style='font-size:1.1rem;color:#69F0AE'>{_nisa_t:,.0f}<span>円</span></p>
+                <p class='sv'>生涯上限 600万 → 残 {_nt_rem:,.0f}円 ({100-_nt_pct:.1f}%)</p>
+                <div style='background:#1E232F;border-radius:4px;height:6px;margin-top:6px'>
+                  <div style='height:100%;border-radius:4px;background:#69F0AE;width:{_nt_pct:.1f}%'></div></div>
+                <p class='sv' style='margin-top:4px'>年間上限 120万 → 今年の残枠概算 {_nt_rem_y:,.0f}円</p>
+            </div>""", unsafe_allow_html=True)
+        with nc_c:
+            st.markdown(f"""<div class='status-card' style='padding:0.8rem;border-left:3px solid #00D2FF'>
+                <h4>NISA 合計</h4>
+                <p class='mv' style='font-size:1.1rem;color:#00D2FF'>{_nisa_total:,.0f}<span>円</span></p>
+                <p class='sv'>生涯上限 1,800万 → 残 {max(NISA_TOTAL_LIFETIME-_nisa_total,0):,.0f}円 ({100-_tot_pct:.1f}%)</p>
+                <div style='background:#1E232F;border-radius:4px;height:6px;margin-top:6px'>
+                  <div style='height:100%;border-radius:4px;background:linear-gradient(90deg,#00D2FF,#00E676);width:{_tot_pct:.1f}%'></div></div>
+                <p class='sv' style='margin-top:4px'>※評価額ベースの概算。実際の枠は投資元本で管理されます。</p>
+            </div>""", unsafe_allow_html=True)
+        st.markdown("---")
         a1, a2 = st.columns([1.2, 1])
         with a1:
             f1 = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
@@ -557,7 +665,153 @@ with tab_mkt:
                             with tc_: st.markdown(f"<p style='color:#B0B8C0;font-weight:bold'>{iname}</p><p style='color:#FF5252'>取得失敗</p>",unsafe_allow_html=True)
                         st.markdown("</div>",unsafe_allow_html=True)
 
-# ── TAB 6: AI総評 ──
+
+# ── TAB 6: 取引履歴 ──
+with tab_tx:
+    st.markdown("#### 📒 取引履歴")
+
+    # ── 売却・買い増しフォーム ──
+    if not df.empty:
+        with st.expander("➕ 取引を記録", expanded=True):
+            with st.form("tx_form", clear_on_submit=True):
+                tx_r1a, tx_r1b, tx_r1c = st.columns([1, 2, 1])
+                with tx_r1a:
+                    tx_type = st.selectbox("取引種別", ["買い増し", "売却", "新規購入"], key="txtype")
+                with tx_r1b:
+                    tx_options = [f"{row['銘柄コード']} {row['銘柄名']}" for _, row in df.iterrows()]
+                    tx_sel = st.selectbox("銘柄", tx_options, key="txsel") if tx_options else None
+                with tx_r1c:
+                    tx_date = st.date_input("取引日", value=datetime.now().date(), key="txdate")
+                tx_r2a, tx_r2b, tx_r2c, tx_r2d = st.columns(4)
+                with tx_r2a: tx_qty = st.number_input("数量", min_value=0.0001, value=1.0, step=1.0, key="txqty")
+                with tx_r2b: tx_price = st.number_input("単価(円)", min_value=0.0, value=0.0, key="txprice")
+                with tx_r2c: tx_fee = st.number_input("手数料(円)", min_value=0.0, value=0.0, key="txfee")
+                with tx_r2d:
+                    tx_broker = st.selectbox("口座", BROKER_OPTIONS, key="txbroker")
+                    tx_tax = st.selectbox("口座区分", TAX_OPTIONS, key="txtax")
+                tx_submitted = st.form_submit_button("記録する", use_container_width=True)
+
+            if tx_submitted and tx_sel:
+                tx_code = tx_sel.split(" ")[0]
+                tx_name = " ".join(tx_sel.split(" ")[1:])
+                # 保有数を更新
+                idx = df[df["銘柄コード"].astype(str) == str(tx_code)].index
+                if len(idx) > 0:
+                    cur_shares = float(df.at[idx[0], "保有株数"])
+                    cur_price = float(df.at[idx[0], "取得単価"])
+                    pnl_realized = 0.0
+                    if tx_type == "売却":
+                        new_shares = max(cur_shares - tx_qty, 0)
+                        pnl_realized = (tx_price - cur_price) * tx_qty
+                        df.at[idx[0], "保有株数"] = new_shares
+                    else:  # 買い増し・新規
+                        new_total = cur_shares + tx_qty
+                        new_avg = (cur_shares * cur_price + tx_qty * tx_price) / new_total if new_total > 0 else tx_price
+                        df.at[idx[0], "保有株数"] = new_total
+                        df.at[idx[0], "取得単価"] = new_avg
+                    save_data(df)
+                    mkt_type = df.at[idx[0], "市場"] if "市場" in df.columns else "-"
+                    save_transaction({
+                        "日付": tx_date.strftime("%Y/%m/%d"),
+                        "銘柄コード": tx_code, "銘柄名": tx_name, "市場": mkt_type,
+                        "取引種別": tx_type, "数量": tx_qty, "単価(円)": tx_price,
+                        "手数料": tx_fee, "損益確定(円)": round(pnl_realized, 0),
+                        "口座": tx_broker, "口座区分": tx_tax,
+                    })
+                    st.cache_data.clear()
+                    st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
+                    if tx_type == "売却" and pnl_realized != 0:
+                        c_ = "#00E676" if pnl_realized >= 0 else "#FF5252"; s_ = "+" if pnl_realized >= 0 else ""
+                        st.markdown(f"<div class='alert-bar {'alert-up' if pnl_realized>=0 else 'alert-down'}'>確定損益: <b style='color:{c_}'>{s_}{pnl_realized:,.0f}円</b></div>", unsafe_allow_html=True)
+                    st.rerun()
+
+    # ── CSVインポート ──
+    st.markdown("---"); st.markdown("#### 📂 証券会社CSVから取込")
+    st.caption("SBI証券・楽天証券の保有銘柄CSV（口座照会→CSV出力）を読み込み、保有銘柄を一括更新します。")
+    csv_brok = st.selectbox("証券会社", ["SBI証券", "楽天証券"], key="csvbrok")
+    csv_file = st.file_uploader("CSVファイルを選択", type=["csv"], key="csvup")
+    if csv_file:
+        try:
+            raw = csv_file.read()
+            for enc in ["shift_jis", "utf-8-sig", "utf-8", "cp932"]:
+                try:
+                    csv_text = raw.decode(enc); break
+                except Exception: continue
+            import io
+            csv_df_raw = pd.read_csv(io.StringIO(csv_text), header=None)
+            # ヘッダー行を探す（「銘柄コード」または「コード」を含む行）
+            header_row = None
+            for i, row in csv_df_raw.iterrows():
+                if any("コード" in str(v) or "銘柄" in str(v) for v in row.values):
+                    header_row = i; break
+            if header_row is not None:
+                csv_df = pd.read_csv(io.StringIO(csv_text), header=header_row, encoding_errors="ignore")
+                st.write("**プレビュー（先頭5行）**")
+                st.dataframe(csv_df.head(5), width='stretch')
+                # カラムマッピング（SBI / 楽天）
+                col_map = {}
+                for col in csv_df.columns:
+                    c = str(col)
+                    if "コード" in c and "銘柄" not in c: col_map["コード"] = c
+                    elif "銘柄名" in c or "銘柄" in c: col_map["銘柄名"] = c
+                    elif "保有" in c and "数" in c: col_map["保有株数"] = c
+                    elif "平均" in c and ("単価" in c or "取得" in c): col_map["取得単価"] = c
+                    elif "取得" in c and "単価" in c: col_map["取得単価"] = c
+                if "コード" in col_map and "保有株数" in col_map:
+                    if st.button(f"✅ {csv_brok} の保有銘柄を更新", use_container_width=True, key="csvimport"):
+                        updated, skipped = 0, 0
+                        for _, crow in csv_df.iterrows():
+                            code = str(crow[col_map["コード"]]).strip().split(".")[0]
+                            if not code or code in ("nan", "-", ""): continue
+                            shares_raw = str(crow[col_map["保有株数"]]).replace(",", "").strip()
+                            try: new_shares = float(shares_raw)
+                            except ValueError: skipped += 1; continue
+                            price_raw = str(crow.get(col_map.get("取得単価", ""), 0)).replace(",", "").strip()
+                            try: new_price = float(price_raw)
+                            except ValueError: new_price = 0.0
+                            idx = df[df["銘柄コード"].astype(str) == code].index
+                            if len(idx) > 0:
+                                df.at[idx[0], "保有株数"] = new_shares
+                                if new_price > 0: df.at[idx[0], "取得単価"] = new_price
+                                updated += 1
+                            else: skipped += 1
+                        save_data(df); st.cache_data.clear()
+                        st.success(f"✓ {updated}銘柄を更新しました。{skipped}銘柄はスキップ（未登録）。"); st.rerun()
+                else:
+                    st.warning("「コード」「保有株数」列が見つかりませんでした。CSVの形式を確認してください。")
+            else:
+                st.warning("ヘッダー行が見つかりませんでした。")
+        except Exception as e:
+            st.error(f"CSVの読み込みに失敗しました: {e}")
+
+    # ── 取引履歴一覧 ──
+    st.markdown("---"); st.markdown("#### 📋 取引履歴一覧")
+    tx_df = load_transactions()
+    if not tx_df.empty:
+        # サマリー
+        tx_buy = tx_df[tx_df["取引種別"].isin(["買い増し", "新規購入"])]
+        tx_sell = tx_df[tx_df["取引種別"] == "売却"]
+        total_pnl = tx_df["損益確定(円)"].sum()
+        ts1, ts2, ts3 = st.columns(3)
+        with ts1: st.markdown(f"<div class='status-card' style='padding:0.7rem'><h4>買い付け回数</h4><p class='mv' style='font-size:1.2rem'>{len(tx_buy)}<span>回</span></p></div>", unsafe_allow_html=True)
+        with ts2: st.markdown(f"<div class='status-card' style='padding:0.7rem'><h4>売却回数</h4><p class='mv' style='font-size:1.2rem'>{len(tx_sell)}<span>回</span></p></div>", unsafe_allow_html=True)
+        with ts3:
+            tc = "#00E676" if total_pnl >= 0 else "#FF5252"; ts = "+" if total_pnl >= 0 else ""
+            st.markdown(f"<div class='status-card' style='padding:0.7rem'><h4>確定損益合計</h4><p class='mv' style='font-size:1.2rem;color:{tc}'>{ts}{total_pnl:,.0f}<span>円</span></p></div>", unsafe_allow_html=True)
+        # 一覧テーブル（新しい順）
+        tx_show = tx_df.sort_values("日付", ascending=False).copy()
+        tx_show["損益確定(円)"] = tx_show["損益確定(円)"].apply(lambda x: f"{x:+,.0f}円" if x != 0 else "-")
+        tx_show["単価(円)"] = tx_show["単価(円)"].apply(lambda x: f"{x:,.0f}" if x > 0 else "-")
+        tx_show["数量"] = tx_show["数量"].apply(lambda x: f"{x:,.4g}")
+        st.dataframe(tx_show, width='stretch', hide_index=True)
+        # CSVダウンロード
+        st.download_button("📥 取引履歴をCSVでダウンロード",
+                           tx_df.to_csv(index=False).encode("utf-8-sig"),
+                           f"transactions_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
+    else:
+        st.info("取引を記録すると履歴が表示されます。")
+
+# ── TAB 7: AI総評 ──
 with tab_ai:
     st.markdown("#### 🤖 Claudeによるポートフォリオ総評")
     if not df.empty and TA > 0 and not display_df.empty:
@@ -606,7 +860,7 @@ with tab_ai:
 注意: 投資助言ではなく参考情報です。"""
                             resp = req.post("https://api.anthropic.com/v1/messages",
                                 headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                                json={"model":"claude-sonnet-4-20250514","max_tokens":2000,"messages":[{"role":"user","content":prompt}]},timeout=60)
+                                json={"model": AI_MODEL,"max_tokens":2000,"messages":[{"role":"user","content":prompt}]},timeout=60)
                             if resp.status_code == 200:
                                 ai_text = "".join(b["text"] for b in resp.json()["content"] if b["type"]=="text")
                                 ns = datetime.now().strftime("%Y/%m/%d %H:%M")
