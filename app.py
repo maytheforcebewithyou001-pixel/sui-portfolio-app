@@ -123,36 +123,36 @@ st.markdown(f"""
     </div>
     <div class='term-ticker-bar'>{ticker_bar_html}</div>
     <div class='term-time'>
-      <div class='live'>LIVE</div>
+      <div class='live'>配信中</div>
       <div class='dt'>{now_str} JST</div>
     </div>
   </div>
   <div class='term-bottom'>
     <div class='term-metric'>
-      <span class='label'>NAV</span>
+      <span class='label'>評価額</span>
       <span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>
       {prev_html}
     </div>
     <div class='term-vsep'></div>
     <div class='term-metric'>
-      <span class='label'>P&amp;L</span>
+      <span class='label'>損益</span>
       <span class='val-md' style='color:{pnl_color}'>{pnl_sign}¥{abs(tnp):,.0f}</span>
       <span class='val-sm' style='color:{pnl_color}'>({pnl_sign}{pnl_pct:.1f}%)</span>
     </div>
     <div class='term-vsep'></div>
     <div class='term-metric'>
-      <span class='label'>DIV/Y</span>
+      <span class='label'>年間配当</span>
       <span class='val-md' style='color:#FFD54F'>¥{tda:,.0f}</span>
       <span class='val-sm' style='color:rgba(255,255,255,0.35)'>{totals["avg_dividend_yield"]:.2f}%</span>
     </div>
     <div class='term-vsep'></div>
     <div class='term-metric'>
-      <span class='label'>POS</span>
+      <span class='label'>銘柄</span>
       <span class='val-md' style='color:rgba(255,255,255,0.7)'>{SC}</span>
     </div>
     <div style='flex:1'></div>
     <div class='term-metric'>
-      <span class='label'>GOAL</span>
+      <span class='label'>目標</span>
       <div class='term-goal-bar'><div class='term-goal-fill' style='width:{prog:.1f}%'></div></div>
       <span class='val-sm' style='color:rgba(255,255,255,0.5)'>{prog:.1f}%</span>
     </div>
