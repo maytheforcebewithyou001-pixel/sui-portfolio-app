@@ -853,14 +853,22 @@ with tab_ai:
                     st.session_state.ai_confirm_regen = False
                     with st.spinner("Claudeが分析中...（20〜30秒）"):
                         try:
-                            import requests as req
+                            import requests as req, time as _time
                             prompt = f"""あなたは日本の個人投資家向けポートフォリオアドバイザーです。以下を分析し日本語でレポートを作成。
 {ptxt}
 5つの観点で分析: 1.全体評価(5段階) 2.強みと弱み 3.市場環境との整合性 4.配当戦略の評価 5.アクション提案(3〜5つ,優先度付き)
 注意: 投資助言ではなく参考情報です。"""
-                            resp = req.post("https://api.anthropic.com/v1/messages",
-                                headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
-                                json={"model": AI_MODEL,"max_tokens":2000,"messages":[{"role":"user","content":prompt}]},timeout=60)
+                            MAX_RETRIES, resp = 3, None
+                            for attempt in range(MAX_RETRIES):
+                                resp = req.post("https://api.anthropic.com/v1/messages",
+                                    headers={"Content-Type":"application/json","x-api-key":api_key,"anthropic-version":"2023-06-01"},
+                                    json={"model": AI_MODEL,"max_tokens":2000,"messages":[{"role":"user","content":prompt}]},timeout=60)
+                                if resp.status_code == 200:
+                                    break
+                                if resp.status_code in (429, 529, 500, 502, 503) and attempt < MAX_RETRIES - 1:
+                                    _time.sleep(2 ** attempt * 2)   # 2s, 4s
+                                    continue
+                                break
                             if resp.status_code == 200:
                                 ai_text = "".join(b["text"] for b in resp.json()["content"] if b["type"]=="text")
                                 ns = datetime.now().strftime("%Y/%m/%d %H:%M")
