@@ -11,14 +11,14 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, WORLD_INDICES
-from data import (load_data, save_data, load_fund_prices, load_history,
+from data import (load_data, save_data, load_fund_prices, load_gas_prices, load_history,
                   save_history, load_ai_review, save_ai_review)
 from market import get_cached_market_data, get_cached_ticker_info, get_ticker_name
 from calc import (calculate_portfolio, get_portfolio_totals, get_future_simulation,
                   round_up_3, build_portfolio_summary_text)
 from style import MAIN_CSS, ACCT_BADGE_MAP
 
-st.set_page_config(page_title="PORTFOLIO資産管理", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="FORCE CAPITAL", layout="wide", initial_sidebar_state="collapsed")
 st.markdown(MAIN_CSS, unsafe_allow_html=True)
 
 # ─── サイドバー ───
@@ -39,6 +39,7 @@ with st.sidebar:
 # ─── データ一括処理 ───
 df = load_data()
 fund_prices = load_fund_prices()
+gas_prices = load_gas_prices()
 
 if not df.empty:
     with st.spinner("市場データを取得中..."):
@@ -55,7 +56,7 @@ if not df.empty:
             jpy_usd_rate = s.iloc[-1] if not s.empty else 150.0
         else:
             jpy_usd_rate = 150.0
-        display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate)
+        display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices)
         totals = get_portfolio_totals(display_df)
 else:
     totals = dict(total_asset=0, total_net_profit=0, total_dividend=0,
@@ -67,18 +68,8 @@ else:
 TA = totals["total_asset"]
 SC = totals["stock_count"]
 
-# ─── ヘッダー ───
-h1, h2 = st.columns([4, 1.5])
-with h1:
-    st.markdown(f"<div class='logo-text'>P<span>ORTFOLIO</span></div>"
-                f"<div class='logo-sub'>{datetime.now().strftime('%Y/%m/%d %H:%M')} · {SC}銘柄 · $1 = ¥{jpy_usd_rate:.1f}</div>",
-                unsafe_allow_html=True)
-with h2:
-    if st.button("💾 本日の資産を記録", use_container_width=True) and TA > 0:
-        save_history(datetime.now().strftime("%Y/%m/%d"), TA)
-        st.toast("✓ 記録しました"); st.rerun()
-
-# ─── ステータスカード ───
+# ─── Bloomberg Terminal ヘッダー ───
+# 前回比の計算
 prev_asset = prev_diff = prev_diff_pct = 0; prev_date_str = ""
 try:
     _hdf = load_history()
@@ -89,29 +80,92 @@ try:
             prev_diff = TA - prev_asset; prev_diff_pct = (prev_diff / prev_asset) * 100
 except Exception: pass
 
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    if prev_asset > 0:
-        dc = "#00E676" if prev_diff >= 0 else "#FF5252"; ds = "+" if prev_diff >= 0 else ""
-        sub = f"<p class='sv' style='color:{dc}'>{ds}{prev_diff:,.0f}円 ({ds}{prev_diff_pct:.2f}%) <span style='color:#7A8A9A'>vs {prev_date_str}</span></p>"
-    else:
-        sub = f"<p class='sv'>{SC}銘柄</p>"
-    st.markdown(f"<div class='status-card card-total c1'><h4>評価額合計</h4><p class='mv'>{TA:,.0f}<span>円</span></p>{sub}</div>", unsafe_allow_html=True)
-with c2:
-    tnp = totals["total_net_profit"]; pc = "#00E676" if tnp >= 0 else "#FF5252"; ps = "+" if tnp >= 0 else ""
-    pp = (tnp / (TA - tnp) * 100) if (TA - tnp) > 0 else 0
-    st.markdown(f"<div class='status-card card-profit c2'><h4>税引後 含み損益</h4><p class='mv' style='color:{pc}'>{ps}{tnp:,.0f}<span>円</span></p><p class='sv'>{ps}{pp:.2f}%</p></div>", unsafe_allow_html=True)
-with c3:
-    tda = totals["total_dividend_after_tax"]; md = tda / 12 if tda > 0 else 0
-    st.markdown(f"<div class='status-card card-dividend c3'><h4>年間予想配当</h4><p class='mv'>{tda:,.0f}<span>円</span></p><p class='sv'>税引後 · 利回り {totals['avg_dividend_yield']:.2f}% · 月平均 {md:,.0f}円</p></div>", unsafe_allow_html=True)
-with c4:
-    prog = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
-    rem = max(goal_amount - TA, 0)
-    st.markdown(f"<div class='status-card card-goal c4'><h4>{goal_oku}億円ゴール</h4><p class='mv'>{prog:.1f}<span>%</span></p><p class='sv'>残り {rem/1e8:,.2f}億円</p></div>", unsafe_allow_html=True)
+tnp = totals["total_net_profit"]
+tda = totals["total_dividend_after_tax"]
+prog = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
+pnl_color = "#00E676" if tnp >= 0 else "#FF5252"
+pnl_sign = "+" if tnp >= 0 else ""
+pnl_pct = (tnp / (TA - tnp) * 100) if (TA - tnp) > 0 else 0
+now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
 
-pv = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 0
-st.markdown(f"<div class='goal-bar-wrap'><div class='goal-bar-bg'><div class='goal-bar-fill' style='width:{pv}%'></div></div>"
-            f"<div class='goal-bar-labels'><span>¥0</span><span style='color:#00D2FF'>{pv:.1f}% 達成</span><span>{goal_oku}億円</span></div></div>", unsafe_allow_html=True)
+# ティッカーバーのデータ（世界指標タブと同じソースから取得）
+ticker_bar_html = ""
+try:
+    idx_closes = get_cached_market_data(tuple(sorted(["^N225", "^GSPC", "JPY=X", "^VIX"])), period="5d")
+    _ticker_items = [("N225", "^N225"), ("SPX", "^GSPC"), ("USD/JPY", "JPY=X"), ("VIX", "^VIX")]
+    for sym, tk in _ticker_items:
+        if tk in idx_closes.columns:
+            _s = idx_closes[tk].dropna()
+            if len(_s) >= 2:
+                _lc = _s.iloc[-1]; _pr = _s.iloc[-2]; _ch = ((_lc / _pr) - 1) * 100
+                _chcls = "chg-up" if _ch >= 0 else "chg-dn"
+                _chs = "+" if _ch >= 0 else ""
+                ticker_bar_html += f"""<div class='term-ticker'><span class='sym'>{sym}</span><span class='val'>{_lc:,.1f}</span><span class='{_chcls}'>{_chs}{_ch:.1f}%</span></div><div class='term-sep'></div>"""
+    if ticker_bar_html.endswith("<div class='term-sep'></div>"):
+        ticker_bar_html = ticker_bar_html[:-len("<div class='term-sep'></div>")]
+except Exception:
+    ticker_bar_html = "<span style='color:rgba(255,255,255,0.3);font-size:11px'>指標読込中...</span>"
+
+# 前回比HTML
+prev_html = ""
+if prev_asset > 0:
+    _pc = "#00E676" if prev_diff >= 0 else "#FF5252"
+    _ps = "+" if prev_diff >= 0 else ""
+    prev_html = f"<span class='val-sm' style='color:{_pc};margin-left:8px'>{_ps}{prev_diff:,.0f} ({_ps}{prev_diff_pct:.1f}%) vs {prev_date_str}</span>"
+
+st.markdown(f"""
+<div class='term-header'>
+  <div class='term-top'>
+    <div class='term-logo'>
+      <div class='dot'></div>
+      <span class='bracket'>&lt;</span><span class='name'>FORCE</span><span class='bracket'>&gt;</span>
+      <span class='sub'>CAPITAL</span>
+    </div>
+    <div class='term-ticker-bar'>{ticker_bar_html}</div>
+    <div class='term-time'>
+      <div class='live'>LIVE</div>
+      <div class='dt'>{now_str} JST</div>
+    </div>
+  </div>
+  <div class='term-bottom'>
+    <div class='term-metric'>
+      <span class='label'>NAV</span>
+      <span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>
+      {prev_html}
+    </div>
+    <div class='term-vsep'></div>
+    <div class='term-metric'>
+      <span class='label'>P&amp;L</span>
+      <span class='val-md' style='color:{pnl_color}'>{pnl_sign}¥{abs(tnp):,.0f}</span>
+      <span class='val-sm' style='color:{pnl_color}'>({pnl_sign}{pnl_pct:.1f}%)</span>
+    </div>
+    <div class='term-vsep'></div>
+    <div class='term-metric'>
+      <span class='label'>DIV/Y</span>
+      <span class='val-md' style='color:#FFD54F'>¥{tda:,.0f}</span>
+      <span class='val-sm' style='color:rgba(255,255,255,0.35)'>{totals["avg_dividend_yield"]:.2f}%</span>
+    </div>
+    <div class='term-vsep'></div>
+    <div class='term-metric'>
+      <span class='label'>POS</span>
+      <span class='val-md' style='color:rgba(255,255,255,0.7)'>{SC}</span>
+    </div>
+    <div style='flex:1'></div>
+    <div class='term-metric'>
+      <span class='label'>GOAL</span>
+      <div class='term-goal-bar'><div class='term-goal-fill' style='width:{prog:.1f}%'></div></div>
+      <span class='val-sm' style='color:rgba(255,255,255,0.5)'>{prog:.1f}%</span>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# 記録ボタン（ヘッダー下にコンパクト配置）
+_rec1, _rec2 = st.columns([5, 1])
+with _rec2:
+    if st.button("💾 記録", use_container_width=True) and TA > 0:
+        save_history(datetime.now().strftime("%Y/%m/%d"), TA)
+        st.toast("✓ 記録しました"); st.rerun()
 
 # 為替損益サマリー
 tfx, tsg = totals["total_fx_gain"], totals["total_stock_gain"]
