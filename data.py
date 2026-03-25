@@ -181,6 +181,31 @@ def load_fund_prices():
         return {}
 
 # ══════════════════════════════════════════
+# GAS株価データ (バッチから取得)
+# 「株価データ」シート: ティッカー | 銘柄名 | 現在値 | 前日比(%) | 更新日時
+# ══════════════════════════════════════════
+@st.cache_data(ttl=120, show_spinner=False)
+def load_gas_prices():
+    """GASが更新した株価データを読み込む → {銘柄コード: {"price": float, "change_pct": float}}"""
+    try:
+        all_values = _get_sheet_values("株価データ")
+        if not all_values or len(all_values) < 2:
+            return {}
+        gas_prices = {}
+        for row in all_values[1:]:
+            if len(row) >= 3 and row[0].strip() and row[2].strip():
+                try:
+                    code = row[0].strip()
+                    price = float(str(row[2]).replace(",", ""))
+                    change_pct = float(str(row[3]).replace(",", "")) if len(row) >= 4 and row[3].strip() else None
+                    gas_prices[code] = {"price": price, "change_pct": change_pct}
+                except (ValueError, TypeError):
+                    pass
+        return gas_prices
+    except Exception:
+        return {}
+
+# ══════════════════════════════════════════
 # 資産推移履歴 (バッチから取得)
 # ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
