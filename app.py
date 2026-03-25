@@ -726,61 +726,128 @@ with tab_tx:
                     st.rerun()
 
     # ── CSVインポート ──
-    st.markdown("---"); st.markdown("#### 📂 証券会社CSVから取込")
-    st.caption("SBI証券・楽天証券の保有銘柄CSV（口座照会→CSV出力）を読み込み、保有銘柄を一括更新します。")
-    csv_brok = st.selectbox("証券会社", ["SBI証券", "楽天証券"], key="csvbrok")
+    st.markdown("---"); st.markdown("#### 📂 SBI証券 約定履歴CSVから取込")
+    st.caption("SBI証券の約定履歴CSV（口座管理→取引履歴→CSV出力）を取り込みます。取引履歴への登録＋保有銘柄の数量更新を行います。")
     csv_file = st.file_uploader("CSVファイルを選択", type=["csv"], key="csvup")
     if csv_file:
         try:
-            raw = csv_file.read()
-            for enc in ["shift_jis", "utf-8-sig", "utf-8", "cp932"]:
-                try:
-                    csv_text = raw.decode(enc); break
-                except Exception: continue
             import io
-            csv_df_raw = pd.read_csv(io.StringIO(csv_text), header=None)
-            # ヘッダー行を探す（「銘柄コード」または「コード」を含む行）
-            header_row = None
-            for i, row in csv_df_raw.iterrows():
-                if any("コード" in str(v) or "銘柄" in str(v) for v in row.values):
-                    header_row = i; break
-            if header_row is not None:
-                csv_df = pd.read_csv(io.StringIO(csv_text), header=header_row, encoding_errors="ignore")
-                st.write("**プレビュー（先頭5行）**")
-                st.dataframe(csv_df.head(5), width='stretch')
-                # カラムマッピング（SBI / 楽天）
-                col_map = {}
-                for col in csv_df.columns:
-                    c = str(col)
-                    if "コード" in c and "銘柄" not in c: col_map["コード"] = c
-                    elif "銘柄名" in c or "銘柄" in c: col_map["銘柄名"] = c
-                    elif "保有" in c and "数" in c: col_map["保有株数"] = c
-                    elif "平均" in c and ("単価" in c or "取得" in c): col_map["取得単価"] = c
-                    elif "取得" in c and "単価" in c: col_map["取得単価"] = c
-                if "コード" in col_map and "保有株数" in col_map:
-                    if st.button(f"✅ {csv_brok} の保有銘柄を更新", use_container_width=True, key="csvimport"):
-                        updated, skipped = 0, 0
-                        for _, crow in csv_df.iterrows():
-                            code = str(crow[col_map["コード"]]).strip().split(".")[0]
-                            if not code or code in ("nan", "-", ""): continue
-                            shares_raw = str(crow[col_map["保有株数"]]).replace(",", "").strip()
-                            try: new_shares = float(shares_raw)
-                            except ValueError: skipped += 1; continue
-                            price_raw = str(crow.get(col_map.get("取得単価", ""), 0)).replace(",", "").strip()
-                            try: new_price = float(price_raw)
-                            except ValueError: new_price = 0.0
-                            idx = df[df["銘柄コード"].astype(str) == code].index
-                            if len(idx) > 0:
-                                df.at[idx[0], "保有株数"] = new_shares
-                                if new_price > 0: df.at[idx[0], "取得単価"] = new_price
-                                updated += 1
-                            else: skipped += 1
-                        save_data(df); st.cache_data.clear()
-                        st.success(f"✓ {updated}銘柄を更新しました。{skipped}銘柄はスキップ（未登録）。"); st.rerun()
-                else:
-                    st.warning("「コード」「保有株数」列が見つかりませんでした。CSVの形式を確認してください。")
-            else:
-                st.warning("ヘッダー行が見つかりませんでした。")
+            raw = csv_file.read()
+            csv_text = None
+            for enc in ["shift_jis", "cp932", "utf-8-sig", "utf-8"]:
+                try: csv_text = raw.decode(enc); break
+                except Exception: continue
+            if csv_text is None:
+                st.error("ファイルのエンコーディングを判別できませんでした。"); st.stop()
+
+            # ヘッダー行を探す（「約定日」を含む行）
+            lines = csv_text.splitlines()
+            header_idx = None
+            for i, line in enumerate(lines):
+                if "約定日" in line and "銘柄" in line:
+                    header_idx = i; break
+            if header_idx is None:
+                st.warning("SBI約定履歴のヘッダー行が見つかりませんでした。CSV形式を確認してください。"); st.stop()
+
+            body_text = "\n".join(lines[header_idx:])
+            csv_df = pd.read_csv(io.StringIO(body_text), encoding_errors="ignore")
+            # 空行・末尾ゴミ除去
+            csv_df = csv_df.dropna(subset=["約定日"], how="all")
+            csv_df = csv_df[csv_df["約定日"].astype(str).str.match(r"^\d{4}/")]
+
+            if csv_df.empty:
+                st.warning("有効な約定データが見つかりませんでした。"); st.stop()
+
+            # 全角→半角、前後空白除去
+            for col in csv_df.columns:
+                if csv_df[col].dtype == object:
+                    csv_df[col] = csv_df[col].astype(str).str.strip()
+
+            # 取引種別の判定
+            def _classify_trade(val):
+                v = str(val)
+                if "売" in v: return "売却"
+                if "買" in v or "再投資" in v: return "買い増し"
+                if "解約" in v: return "売却"
+                return "買い増し"
+
+            csv_df["_取引種別"] = csv_df["取引"].apply(_classify_trade)
+
+            # 預り区分 → 口座区分マッピング
+            def _classify_tax(val):
+                v = str(val)
+                if "つ" in v or "つみたて" in v or "旧つみたて" in v: return "NISA(積立投資枠)"
+                if "成" in v or "NISA" in v: return "NISA(成長投資枠)"
+                return "特定口座"
+
+            csv_df["_口座区分"] = csv_df["預り"].apply(_classify_tax)
+
+            # 数値変換
+            for nc in ["約定数量", "約定単価", "受渡金額/決済損益"]:
+                if nc in csv_df.columns:
+                    csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("--", "0")
+                    csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
+            if "手数料/諸経費等" in csv_df.columns:
+                csv_df["手数料/諸経費等"] = csv_df["手数料/諸経費等"].astype(str).str.replace(",", "").str.replace("--", "0")
+                csv_df["手数料/諸経費等"] = pd.to_numeric(csv_df["手数料/諸経費等"], errors="coerce").fillna(0)
+
+            # プレビュー
+            st.write(f"**{len(csv_df)}件の約定データを検出**")
+            preview_cols = ["約定日", "銘柄", "銘柄コード", "取引", "預り", "約定数量", "約定単価", "受渡金額/決済損益"]
+            st.dataframe(csv_df[[c for c in preview_cols if c in csv_df.columns]].head(10), use_container_width=True)
+
+            # インポートモード選択
+            imp_mode = st.radio("取込モード", ["取引履歴に登録", "保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"],
+                                index=2, key="csv_imp_mode", horizontal=True)
+
+            if st.button("✅ インポート実行", use_container_width=True, key="csvimport"):
+                tx_count, upd_count, skip_count = 0, 0, 0
+
+                # ① 取引履歴への登録
+                if imp_mode in ("取引履歴に登録", "両方（取引履歴＋保有銘柄更新）"):
+                    for _, crow in csv_df.iterrows():
+                        code_raw = str(crow.get("銘柄コード", "")).strip()
+                        code = code_raw if code_raw and code_raw not in ("nan", "") else ""
+                        name = str(crow.get("銘柄", "")).strip()
+                        market = str(crow.get("市場", "")).strip().replace("nan", "-")
+                        save_transaction({
+                            "日付": str(crow["約定日"]),
+                            "銘柄コード": code, "銘柄名": name, "市場": market if market else "-",
+                            "取引種別": crow["_取引種別"],
+                            "数量": crow["約定数量"], "単価(円)": crow["約定単価"],
+                            "手数料": crow.get("手数料/諸経費等", 0),
+                            "損益確定(円)": 0,
+                            "口座": "SBI証券", "口座区分": crow["_口座区分"],
+                        })
+                        tx_count += 1
+
+                # ② 保有銘柄の更新（登録済み銘柄の数量＋取得単価を約定ベースで更新）
+                if imp_mode in ("保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"):
+                    for _, crow in csv_df.iterrows():
+                        code_raw = str(crow.get("銘柄コード", "")).strip()
+                        if not code_raw or code_raw in ("nan", ""): skip_count += 1; continue
+                        qty = float(crow["約定数量"])
+                        price = float(crow["約定単価"])
+                        trade_type = crow["_取引種別"]
+                        idx = df[df["銘柄コード"].astype(str) == code_raw].index
+                        if len(idx) == 0: skip_count += 1; continue
+                        cur_shares = float(df.at[idx[0], "保有株数"])
+                        cur_price = float(df.at[idx[0], "取得単価"])
+                        if trade_type == "売却":
+                            df.at[idx[0], "保有株数"] = max(cur_shares - qty, 0)
+                        else:
+                            new_total = cur_shares + qty
+                            df.at[idx[0], "取得単価"] = (cur_shares * cur_price + qty * price) / new_total if new_total > 0 else price
+                            df.at[idx[0], "保有株数"] = new_total
+                        upd_count += 1
+                    save_data(df)
+
+                st.cache_data.clear()
+                msgs = []
+                if tx_count > 0: msgs.append(f"取引履歴: {tx_count}件登録")
+                if upd_count > 0: msgs.append(f"保有銘柄: {upd_count}件更新")
+                if skip_count > 0: msgs.append(f"{skip_count}件スキップ（未登録銘柄/投信）")
+                st.success(f"✓ {' / '.join(msgs)}"); st.rerun()
         except Exception as e:
             st.error(f"CSVの読み込みに失敗しました: {e}")
 
