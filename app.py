@@ -21,6 +21,38 @@ from style import MAIN_CSS, ACCT_BADGE_MAP
 st.set_page_config(page_title="FORCE CAPITAL", layout="wide", initial_sidebar_state="collapsed")
 st.markdown(MAIN_CSS, unsafe_allow_html=True)
 
+# ─── パスワード認証 ───
+def check_password():
+    """パスワード認証。正しければTrue、間違っていればFalse。"""
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.markdown("""
+    <div style='display:flex;justify-content:center;align-items:center;min-height:60vh'>
+      <div style='text-align:center'>
+        <div style='margin-bottom:1rem'>
+          <span style='color:rgba(255,255,255,0.35);font-family:Courier New,monospace;font-size:13px;letter-spacing:2px'>&lt;</span>
+          <span style='color:#00D2FF;font-family:Courier New,monospace;font-size:24px;font-weight:700;letter-spacing:4px'>FORCE</span>
+          <span style='color:rgba(255,255,255,0.35);font-family:Courier New,monospace;font-size:13px;letter-spacing:2px'>&gt;</span>
+          <span style='color:rgba(255,255,255,0.18);font-family:monospace;font-size:10px;letter-spacing:2px;margin-left:4px'>CAPITAL</span>
+        </div>
+        <p style='color:rgba(255,255,255,0.4);font-size:0.85rem;margin-bottom:1.5rem'>アクセスにはパスワードが必要です</p>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    password = st.text_input("パスワード", type="password", key="pw_input")
+    if st.button("ログイン", use_container_width=True):
+        if password == st.secrets.get("app_password", ""):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("パスワードが正しくありません")
+    return False
+
+if not check_password():
+    st.stop()
+
 # ─── サイドバー ───
 with st.sidebar:
     st.markdown("### ⚙️ 設定")
