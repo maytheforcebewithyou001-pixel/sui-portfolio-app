@@ -51,8 +51,8 @@ def render(tab, df, display_df, totals):
             with dc4: colored_card("配当発生月", f"{sum(1 for v in mdv.values() if v>0)}<span>/12ヶ月</span>", border_color="#BD93F9")
 
         st.markdown("---"); st.markdown("#### 🏆 配当金ランキング")
-        drank = display_df[display_df["予想配当(円)"] > 0][["銘柄コード", "銘柄名", "予想配当(円)", "手動配当利回り(%)"]].sort_values("予想配当(円)", ascending=False).head(10)
+        drank = display_df[display_df["予想配当(円)"] > 0][["銘柄コード", "銘柄名", "予想配当(円)", "実質利回り(%)"]].sort_values("予想配当(円)", ascending=False).head(10)
         if not drank.empty:
             drank["予想配当(円)"] = drank["予想配当(円)"].apply(lambda x: f"¥{int(x):,}")
-            drank["手動配当利回り(%)"] = drank["手動配当利回り(%)"].apply(lambda x: f"{x:.2f}%" if x > 0 else "自動")
+            drank["実質利回り(%)"] = drank["実質利回り(%)"].apply(lambda x: f"{x:.2f}%")
             st.dataframe(drank, width='stretch', hide_index=True)

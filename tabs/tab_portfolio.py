@@ -82,10 +82,10 @@ def render(tab, df, display_df, totals):
             cpf = lambda v: f"color: {'#00E676' if v >= 0 else '#FF5252'}"
             cpc = lambda v: "" if pd.isna(v) else f"color: {'#00E676' if v > 0 else '#FF5252' if v < 0 else '#E0E0E0'}"
             fp = lambda v: "-" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
-            show = ["銘柄コード", "銘柄名", "市場", "口座", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "前日比", "評価額(円)", "税引後損益(円)", "予想配当(円)"]
+            show = ["銘柄コード", "銘柄名", "市場", "口座", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "前日比", "評価額(円)", "税引後損益(円)", "予想配当(円)", "実質利回り(%)"]
             ac = [c for c in show if c in display_df.columns]
             fmt = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp,
-                   "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}"}
+                   "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}", "実質利回り(%)": "{:.2f}%"}
             sdf = display_df[ac].style
             if "税引後損益(円)" in ac: sdf = sdf.map(cpf, subset=["税引後損益(円)"])
             if "前日比" in ac: sdf = sdf.map(cpc, subset=["前日比"])
