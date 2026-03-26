@@ -85,7 +85,7 @@ if not df.empty:
         display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices)
         totals = get_portfolio_totals(display_df)
 else:
-    totals = dict(total_asset=0, total_net_profit=0, total_dividend=0, total_dividend_after_tax=0,
+    totals = dict(total_asset=0, total_net_profit=0, total_gross_profit=0, total_dividend=0, total_dividend_after_tax=0,
                   total_fx_gain=0, total_stock_gain=0, avg_dividend_yield=0.0, stock_count=0)
     jpy_usd_rate = 150.0; display_df = pd.DataFrame()
 
@@ -103,9 +103,10 @@ try:
 except Exception: pass
 
 tnp, tda = totals["total_net_profit"], totals["total_dividend_after_tax"]
+tgp = totals["total_gross_profit"]
 prog = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
-pc, ps = pnl_color(tnp), pnl_sign(tnp)
-pnl_pct = (tnp / (TA - tnp) * 100) if (TA - tnp) > 0 else 0
+pc, ps = pnl_color(tgp), pnl_sign(tgp)
+pnl_pct = (tgp / (TA - tgp) * 100) if (TA - tgp) > 0 else 0
 now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
 
 # ティッカーバー
@@ -139,7 +140,7 @@ st.markdown(f"""
   <div class='term-bottom'>
     <div class='term-metric'><span class='label'>評価額</span><span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>{prev_html}</div>
     <div class='term-vsep'></div>
-    <div class='term-metric'><span class='label'>損益</span><span class='val-md' style='color:{pc}'>{ps}¥{abs(tnp):,.0f}</span><span class='val-sm' style='color:{pc}'>({ps}{pnl_pct:.1f}%)</span></div>
+    <div class='term-metric'><span class='label'>損益</span><span class='val-md' style='color:{pc}'>{ps}¥{abs(tgp):,.0f}</span><span class='val-sm' style='color:{pnl_color(tnp)}'>({pnl_sign(tnp)}¥{abs(tnp):,.0f})</span><span class='val-sm' style='color:{pc}'> {ps}{pnl_pct:.1f}%</span></div>
     <div class='term-vsep'></div>
     <div class='term-metric'><span class='label'>年間配当</span><span class='val-md' style='color:#FFD54F'>¥{tda:,.0f}</span><span class='val-sm' style='color:rgba(255,255,255,0.35)'>{totals["avg_dividend_yield"]:.2f}%</span></div>
     <div class='term-vsep'></div>

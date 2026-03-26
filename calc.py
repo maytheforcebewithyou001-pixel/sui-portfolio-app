@@ -149,6 +149,7 @@ def get_portfolio_totals(display_df):
     return {
         "total_asset": ta,
         "total_net_profit": display_df["税引後損益(円)"].sum(),
+        "total_gross_profit": display_df["含み損益(円)"].sum(),
         "total_dividend": display_df["予想配当(円)"].sum(),
         "total_dividend_after_tax": display_df["税引後配当(円)"].sum(),
         "total_fx_gain": display_df["為替損益(円)"].sum(),
