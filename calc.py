@@ -107,14 +107,27 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
 
     div_rate = info.get("div_rate", 0.0)
     div_yield = info.get("div_yield", 0.0)
-    if annual_div_per_share > 0:
+
+    # 投信・その他資産は配当0（再投資型インデックスの分配金利回りは実質0%）
+    if market_type in ("投資信託", "その他資産"):
+        dividend = 0.0
+        effective_yield = 0.0
+    # 優先順位: ①年間配当金(円/株)手入力 → ②yfinance div_rate → ③手動利回り(%) → ④yfinance div_yield
+    elif annual_div_per_share > 0:
         dividend = annual_div_per_share * shares * (jpy_usd_rate if market_type == "米国株" else 1)
-    elif manual_yield > 0:
-        dividend = value * (manual_yield / 100.0)
+        effective_yield = (dividend / value * 100) if value > 0 else 0.0
     elif div_rate > 0:
         dividend = div_rate * shares * (jpy_usd_rate if market_type == "米国株" else 1)
-    else:
+        effective_yield = (dividend / value * 100) if value > 0 else 0.0
+    elif manual_yield > 0:
+        dividend = value * (manual_yield / 100.0)
+        effective_yield = manual_yield
+    elif div_yield > 0:
         dividend = value * div_yield
+        effective_yield = div_yield * 100
+    else:
+        dividend = 0.0
+        effective_yield = 0.0
 
     tax_rate = get_tax_rate(tax_category)
     tax_amount = profit * tax_rate if profit > 0 else 0.0
@@ -123,6 +136,7 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
         "前日比": dod_pct, "評価額(円)": value, "含み損益(円)": profit,
         "税引後損益(円)": profit - tax_amount, "予想配当(円)": dividend,
         "税引後配当(円)": dividend * (1 - tax_rate),
+        "実質利回り(%)": round(effective_yield, 2),
         "株価損益(円)": stock_gain, "為替損益(円)": fx_gain, "fetch_success": fetch_success,
     }
 
@@ -140,7 +154,7 @@ def calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas
     display_df["最新更新日"] = result_df["最新更新日"].values
     for col in ["セクター", "取得単価(円)", "現在値(円)", "前日比", "評価額(円)",
                 "含み損益(円)", "税引後損益(円)", "予想配当(円)", "税引後配当(円)",
-                "株価損益(円)", "為替損益(円)", "手動配当利回り(%)", "配当月"]:
+                "実質利回り(%)", "株価損益(円)", "為替損益(円)", "手動配当利回り(%)", "配当月"]:
         display_df[col] = result_df[col].values
     return display_df
 
