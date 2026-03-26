@@ -242,28 +242,43 @@ def save_history(date_str, total_asset):
         logger.error("履歴保存エラー: %s", e)
 
 # ══════════════════════════════════════════
-# AI総評 (バッチから取得)
+# AI総評 (履歴蓄積型)
 # ══════════════════════════════════════════
 def load_ai_review():
+    """最新1件を返す（後方互換）"""
     try:
         vals = _get_sheet_values("AI総評")
-        if vals and len(vals) >= 2 and vals[1][0]:
-            return vals[1][0], vals[1][1]
+        if vals and len(vals) >= 2:
+            # 最終行が最新
+            for row in reversed(vals[1:]):
+                if len(row) >= 2 and row[0].strip():
+                    return row[0], row[1]
     except Exception as e:
         logger.debug("AI総評シートなし: %s", e)
     return None, ""
 
+def load_ai_review_history(n=10):
+    """直近n件の分析履歴を返す [(日時, テキスト), ...]"""
+    try:
+        vals = _get_sheet_values("AI総評")
+        if not vals or len(vals) < 2:
+            return []
+        rows = [(r[0], r[1]) for r in vals[1:] if len(r) >= 2 and r[0].strip()]
+        return rows[-n:]  # 直近n件
+    except Exception:
+        return []
+
 def save_ai_review(dt_str, text):
+    """分析結果を追記保存（履歴蓄積）"""
     sh = get_spreadsheet()
     if sh is None: return
     try:
         try: ws = sh.worksheet("AI総評")
         except gspread.exceptions.WorksheetNotFound:
-            ws = sh.add_worksheet(title="AI総評", rows="5", cols="2")
-            ws.update_cell(1, 1, "生成日時")
-            ws.update_cell(1, 2, "分析レポート")
-        ws.update_cell(2, 1, dt_str)
-        ws.update_cell(2, 2, text)
+            ws = sh.add_worksheet(title="AI総評", rows="200", cols="2")
+            ws.append_row(["生成日時", "分析レポート"])
+        ws.append_row([dt_str, text], value_input_option="RAW")
+        _load_all_sheets.clear()
     except Exception as e:
         logger.error("AI総評保存エラー: %s", e)
         st.warning(f"保存エラー: {e}")
