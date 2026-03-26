@@ -49,5 +49,5 @@ def render(tab, df, totals, goal_amount, goal_oku, interest_rate, interest_rate_
         ff.update_layout(barmode="stack", plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
                          margin=dict(l=0, r=0, t=20, b=10), height=400,
                          xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
-                         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0)"))
+                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
         st.plotly_chart(ff, width='stretch')

@@ -163,7 +163,7 @@ def render(tab, df, display_df, totals):
                                         margin=dict(t=10, b=10, l=10, r=10), height=320,
                                         xaxis=dict(showgrid=True, gridcolor="#1E232F"),
                                         yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
-                                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0)"))
+                                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
                     st.plotly_chart(fig_h, width='stretch')
                 else: st.info("選択期間内に記録がありません。")
             else: st.info("ヘッダーの「💾 記録」で記録を開始してください。")
