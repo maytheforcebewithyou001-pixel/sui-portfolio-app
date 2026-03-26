@@ -6,7 +6,7 @@ html, body, .stApp { overflow-y: auto !important; }
 .stApp { background-color: #0A0E13; color: #E0E0E0; font-family: sans-serif; }
 
 /* Bloomberg terminal header */
-.term-header { background: #0A0E13; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin-bottom: 0.7rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.term-header { background: #0A0E13; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin-bottom: 0.7rem; }
 .term-top { display: flex; align-items: stretch; border-bottom: 1px solid rgba(255,255,255,0.06); }
 .term-logo { padding: 12px 20px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .term-logo .dot { width: 10px; height: 10px; background: #00E676; border-radius: 50%; }
