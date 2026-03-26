@@ -300,17 +300,21 @@ def load_transactions():
 
 def save_transaction(tx_dict):
     """取引1件をTransactionDataシートに追記"""
+    save_transactions_batch([tx_dict])
+
+def save_transactions_batch(tx_list):
+    """取引を一括追記（API呼び出し1回）"""
+    if not tx_list: return
     sh = get_spreadsheet()
-    if sh is None:
-        return
+    if sh is None: return
     try:
         try:
             ws = sh.worksheet("TransactionData")
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title="TransactionData", rows="2000", cols=str(len(TRANSACTION_COLS)))
             ws.append_row(TRANSACTION_COLS)
-        row = [str(tx_dict.get(c, "")) for c in TRANSACTION_COLS]
-        ws.append_row(row)
+        rows = [[str(tx.get(c, "")) for c in TRANSACTION_COLS] for tx in tx_list]
+        ws.append_rows(rows, value_input_option="RAW")
         load_transactions.clear()
     except Exception as e:
         logger.error("取引履歴保存エラー: %s", e)
