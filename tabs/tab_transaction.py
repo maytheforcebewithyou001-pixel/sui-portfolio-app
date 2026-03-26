@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS
-from data import save_data, save_transaction, load_transactions
+from data import save_data, save_transaction, save_transactions_batch, load_transactions
 from tabs import pnl_color, pnl_sign
 
 
@@ -114,14 +114,16 @@ def render(tab, df):
             if st.button("✅ インポート実行", use_container_width=True, key="csvimport"):
                 tx_count, upd_count, skip_count = 0, 0, 0
                 if imp_mode in ("取引履歴に登録", "両方（取引履歴＋保有銘柄更新）"):
+                    tx_batch = []
                     for _, crow in csv_df.iterrows():
                         code_raw = str(crow.get("銘柄コード", "")).strip()
                         code = code_raw if code_raw and code_raw not in ("nan", "") else ""
-                        save_transaction({"日付": str(crow["約定日"]), "銘柄コード": code, "銘柄名": str(crow.get("銘柄", "")).strip(),
+                        tx_batch.append({"日付": str(crow["約定日"]), "銘柄コード": code, "銘柄名": str(crow.get("銘柄", "")).strip(),
                                           "市場": str(crow.get("市場", "")).strip().replace("nan", "-") or "-",
                                           "取引種別": crow["_取引種別"], "数量": crow["約定数量"], "単価(円)": crow["約定単価"],
                                           "手数料": crow.get("手数料/諸経費等", 0), "損益確定(円)": 0, "口座": "SBI証券", "口座区分": crow["_口座区分"]})
-                        tx_count += 1
+                    save_transactions_batch(tx_batch)
+                    tx_count = len(tx_batch)
                 if imp_mode in ("保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"):
                     for _, crow in csv_df.iterrows():
                         code_raw = str(crow.get("銘柄コード", "")).strip()
