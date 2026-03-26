@@ -21,7 +21,9 @@ html, body, .stApp { overflow-y: auto !important; }
 .term-ticker .chg-dn { color: #FF5252; font-size: 13px; }
 .term-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.08); flex-shrink: 0; }
 .term-time { padding: 10px 16px; border-left: 1px solid rgba(255,255,255,0.06); text-align: right; white-space: nowrap; }
-.term-time .live { color: rgba(255,255,255,0.35); font-size: 10px; letter-spacing: 1px; }
+.term-time .mkt-row { display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 3px; }
+.term-time .mkt-open { color: #00E676; font-size: 11px; font-weight: 600; }
+.term-time .mkt-closed { color: rgba(255,255,255,0.3); font-size: 11px; }
 .term-time .dt { color: rgba(255,255,255,0.5); font-size: 11px; }
 .term-bottom { display: flex; align-items: center; gap: 20px; padding: 14px 20px; background: rgba(255,255,255,0.015); flex-wrap: wrap; }
 .term-metric { display: flex; align-items: baseline; gap: 8px; }

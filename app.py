@@ -109,7 +109,23 @@ pc, ps = pnl_color(tgp), pnl_sign(tgp)
 pnl_pct = (tgp / (TA - tgp) * 100) if (TA - tgp) > 0 else 0
 from zoneinfo import ZoneInfo
 _JST = ZoneInfo("Asia/Tokyo")
-now_str = datetime.now(_JST).strftime("%Y/%m/%d %H:%M")
+_EST = ZoneInfo("America/New_York")
+_now_jst = datetime.now(_JST)
+now_str = _now_jst.strftime("%Y/%m/%d %H:%M")
+
+# 市場開場判定
+def _is_market_open(now_local, open_h, open_m, close_h, close_m):
+    wd = now_local.weekday()
+    if wd >= 5: return False  # 土日
+    t = now_local.hour * 60 + now_local.minute
+    return open_h * 60 + open_m <= t < close_h * 60 + close_m
+
+_jp_open = _is_market_open(_now_jst, 9, 0, 15, 30)  # 東証 9:00-15:30
+_now_est = datetime.now(_EST)
+_us_open = _is_market_open(_now_est, 9, 30, 16, 0)   # NYSE/NASDAQ 9:30-16:00
+
+_jp_status = "<span class='mkt-open'>● 東証 開場中</span>" if _jp_open else "<span class='mkt-closed'>○ 東証 閉場</span>"
+_us_status = "<span class='mkt-open'>● 米国 開場中</span>" if _us_open else "<span class='mkt-closed'>○ 米国 閉場</span>"
 
 # ティッカーバー
 ticker_bar_html = ""
@@ -137,7 +153,7 @@ st.markdown(f"""
   <div class='term-top'>
     <div class='term-logo'><div class='dot'></div><span class='bracket'>&lt;</span><span class='name'>FORCE</span><span class='bracket'>&gt;</span><span class='sub'>CAPITAL</span></div>
     <div class='term-ticker-bar'>{ticker_bar_html}</div>
-    <div class='term-time'><div class='live'>配信中</div><div class='dt'>{now_str} JST</div></div>
+    <div class='term-time'><div class='mkt-row'>{_jp_status} {_us_status}</div><div class='dt'>{now_str} JST</div></div>
   </div>
   <div class='term-bottom'>
     <div class='term-metric'><span class='label'>評価額</span><span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>{prev_html}</div>
