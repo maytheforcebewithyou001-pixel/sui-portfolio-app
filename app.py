@@ -107,7 +107,9 @@ tgp = totals["total_gross_profit"]
 prog = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
 pc, ps = pnl_color(tgp), pnl_sign(tgp)
 pnl_pct = (tgp / (TA - tgp) * 100) if (TA - tgp) > 0 else 0
-now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+from zoneinfo import ZoneInfo
+_JST = ZoneInfo("Asia/Tokyo")
+now_str = datetime.now(_JST).strftime("%Y/%m/%d %H:%M")
 
 # ティッカーバー
 ticker_bar_html = ""
