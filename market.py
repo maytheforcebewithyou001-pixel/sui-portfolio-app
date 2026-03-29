@@ -53,8 +53,10 @@ def get_cached_market_data(tickers_tuple, period="1y"):
             ticker = f"{code}.T"
             if entries:
                 df_jq = pd.DataFrame(entries)
-                df_jq = df_jq.set_index("Date")
-                df_jq.index = pd.to_datetime(df_jq.index)
+                df_jq["Date"] = pd.to_datetime(df_jq["Date"])
+                df_jq = df_jq.set_index("Date").sort_index()
+                if closes.empty:
+                    closes = pd.DataFrame(index=df_jq.index)
                 closes[ticker] = df_jq["Close"]
 
     # J-Quantsで取れなかった日本株 → yfinanceフォールバック

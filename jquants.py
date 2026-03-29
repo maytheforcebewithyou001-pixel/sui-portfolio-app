@@ -131,11 +131,11 @@ def get_listed_info(code=None):
     for item in data:
         c = str(item.get("Code", ""))[:4]
         result[c] = {
-            "name": item.get("CompanyName", "") or item.get("company_name", ""),
-            "name_en": item.get("CompanyNameEnglish", "") or item.get("company_name_english", ""),
-            "sector17": item.get("Sector17CodeName", "") or item.get("sector17_code_name", ""),
-            "sector33": item.get("Sector33CodeName", "") or item.get("sector33_code_name", ""),
-            "market": item.get("MarketCodeName", "") or item.get("market_code_name", ""),
+            "name": item.get("CoName", "") or item.get("CompanyName", ""),
+            "name_en": item.get("CoNameEn", "") or item.get("CompanyNameEnglish", ""),
+            "sector17": item.get("S17Nm", "") or item.get("Sector17CodeName", ""),
+            "sector33": item.get("S33Nm", "") or item.get("Sector33CodeName", ""),
+            "market": item.get("MktNm", "") or item.get("MarketCodeName", ""),
         }
     return result
 
