@@ -28,9 +28,10 @@ def _get(path, params=None):
         while url:
             resp = requests.get(url, headers=_headers(), params=params, timeout=15)
             if resp.status_code != 200:
-                logger.warning("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:200])
+                logger.warning("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
                 return None
             data = resp.json()
+            logger.info("J-Quants %s keys: %s", path, list(data.keys()))
             # レスポンスのメインキーを探す（daily_quotes, info, statements等）
             for key in data:
                 if key != "pagination_key" and isinstance(data[key], list):
@@ -61,11 +62,14 @@ def get_daily_quotes(codes, days=5):
     to_date = today.strftime("%Y%m%d")
     result = {}
     for code in codes:
-        # J-Quantsは4桁コード（.T不要）
+        # J-Quantsは4桁コード（.T不要）、英字含むコードもある（例: 166A）
         c = str(code).replace(".T", "").strip()
-        if not c or not c.isdigit():
+        if not c or len(c) < 3:
             continue
         data = _get("/equities/bars/daily", {"code": c, "from": from_date, "to": to_date})
+        if data is None:
+            # V1パスにフォールバック
+            data = _get("/prices/daily_quotes", {"code": c, "from": from_date, "to": to_date})
         if data:
             df = pd.DataFrame(data)
             if not df.empty and "Date" in df.columns:

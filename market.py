@@ -45,7 +45,10 @@ def get_cached_market_data(tickers_tuple, period="1y"):
     # ── 日本株 → J-Quants優先 ──
     if jp_tickers and jquants.is_available():
         codes = [t.replace(".T", "") for t in jp_tickers]
-        jq_quotes = jquants.get_daily_quotes(codes, days=30 if "1mo" in period else 365)
+        # periodをJ-Quantsの日数に変換（終値＋前日比に必要な最小限）
+        period_days = {"5d": 10, "1mo": 40, "3mo": 100, "1y": 370}
+        jq_days = period_days.get(period, 370)
+        jq_quotes = jquants.get_daily_quotes(codes, days=jq_days)
         for code, entries in jq_quotes.items():
             ticker = f"{code}.T"
             if entries:
