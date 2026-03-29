@@ -67,9 +67,6 @@ def get_daily_quotes(codes, days=5):
         if not c or len(c) < 3:
             continue
         data = _get("/equities/bars/daily", {"code": c, "from": from_date, "to": to_date})
-        if data is None:
-            # V1パスにフォールバック
-            data = _get("/prices/daily_quotes", {"code": c, "from": from_date, "to": to_date})
         if data:
             df = pd.DataFrame(data)
             if not df.empty and "Date" in df.columns:
@@ -110,18 +107,18 @@ def get_listed_info(code=None):
     if code:
         c = str(code).replace(".T", "").strip()
         params["code"] = c
-    data = _get("/listed/info", params)
+    data = _get("/equities/master", params)
     if not data:
         return {}
     result = {}
     for item in data:
         c = str(item.get("Code", ""))[:4]
         result[c] = {
-            "name": item.get("CompanyName", ""),
-            "name_en": item.get("CompanyNameEnglish", ""),
-            "sector17": item.get("Sector17CodeName", ""),
-            "sector33": item.get("Sector33CodeName", ""),
-            "market": item.get("MarketCodeName", ""),
+            "name": item.get("CompanyName", "") or item.get("company_name", ""),
+            "name_en": item.get("CompanyNameEnglish", "") or item.get("company_name_english", ""),
+            "sector17": item.get("Sector17CodeName", "") or item.get("sector17_code_name", ""),
+            "sector33": item.get("Sector33CodeName", "") or item.get("sector33_code_name", ""),
+            "market": item.get("MarketCodeName", "") or item.get("market_code_name", ""),
         }
     return result
 
@@ -133,7 +130,7 @@ def get_listed_info(code=None):
 def get_fin_statements(code):
     """直近の財務サマリーを取得"""
     c = str(code).replace(".T", "").strip()
-    data = _get("/fins/statements", {"code": c})
+    data = _get("/fins/summary", {"code": c})
     if not data:
         return {}
     # 最新の決算データを返す
