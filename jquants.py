@@ -70,10 +70,21 @@ def get_daily_quotes(codes, days=5):
         if data:
             df = pd.DataFrame(data)
             logger.warning("J-Quants OK %s: %d rows, cols=%s", c, len(df), list(df.columns)[:8])
-            if not df.empty and "Date" in df.columns:
+            if not df.empty and ("Date" in df.columns):
                 df["Date"] = pd.to_datetime(df["Date"])
                 df = df.sort_values("Date")
-                close_col = "AdjustmentClose" if "AdjustmentClose" in df.columns else "Close"
+                # V2 APIはカラム名が略称: C=Close, AC=AdjustmentClose, O=Open等
+                if "AC" in df.columns:
+                    close_col = "AC"
+                elif "AdjustmentClose" in df.columns:
+                    close_col = "AdjustmentClose"
+                elif "C" in df.columns:
+                    close_col = "C"
+                elif "Close" in df.columns:
+                    close_col = "Close"
+                else:
+                    logger.warning("J-Quants %s: 終値カラムが見つからない cols=%s", c, list(df.columns))
+                    continue
                 entries = []
                 for _, row in df.iterrows():
                     entries.append({
@@ -114,6 +125,8 @@ def get_listed_info(code=None):
     data = _get("/equities/master", params)
     if not data:
         return {}
+    if data:
+        logger.warning("J-Quants master sample keys: %s", list(data[0].keys()) if data else "empty")
     result = {}
     for item in data:
         c = str(item.get("Code", ""))[:4]
