@@ -31,7 +31,7 @@ def _get(path, params=None):
                 logger.warning("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
                 return None
             data = resp.json()
-            logger.info("J-Quants %s keys: %s", path, list(data.keys()))
+            logger.warning("J-Quants %s keys: %s, count=%d", path, list(data.keys()), len(results))
             # レスポンスのメインキーを探す（daily_quotes, info, statements等）
             for key in data:
                 if key != "pagination_key" and isinstance(data[key], list):
@@ -56,19 +56,20 @@ def _get(path, params=None):
 def get_daily_quotes(codes, days=5):
     """日本株の直近N日の終値を取得。{銘柄コード: [{Date, Close, AdjClose, Change%}, ...]}"""
     if not _api_key() or not codes:
+        logger.warning("J-Quants: APIキーなし or コードなし. key=%s, codes=%s", bool(_api_key()), codes)
         return {}
     today = datetime.now(_JST)
-    from_date = (today - timedelta(days=days + 10)).strftime("%Y%m%d")  # 余裕を持つ
+    from_date = (today - timedelta(days=days + 10)).strftime("%Y%m%d")
     to_date = today.strftime("%Y%m%d")
     result = {}
     for code in codes:
-        # J-Quantsは4桁コード（.T不要）、英字含むコードもある（例: 166A）
         c = str(code).replace(".T", "").strip()
         if not c or len(c) < 3:
             continue
         data = _get("/equities/bars/daily", {"code": c, "from": from_date, "to": to_date})
         if data:
             df = pd.DataFrame(data)
+            logger.warning("J-Quants OK %s: %d rows, cols=%s", c, len(df), list(df.columns)[:8])
             if not df.empty and "Date" in df.columns:
                 df["Date"] = pd.to_datetime(df["Date"])
                 df = df.sort_values("Date")
@@ -80,6 +81,9 @@ def get_daily_quotes(codes, days=5):
                         "Close": float(row.get(close_col, 0) or 0),
                     })
                 result[c] = entries
+        else:
+            logger.warning("J-Quants FAIL %s: data=None", c)
+    logger.warning("J-Quants get_daily_quotes result keys: %s", list(result.keys()))
     return result
 
 
