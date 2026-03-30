@@ -75,7 +75,7 @@ def render(tab, df):
                     with tx_r2d:
                         tx_broker = st.selectbox("口座", BROKER_OPTIONS, key="txbroker")
                         tx_tax = st.selectbox("口座区分", TAX_OPTIONS, key="txtax")
-                    tx_submitted = st.form_submit_button("記録する", use_container_width=True)
+                    tx_submitted = st.form_submit_button("記録する", width="stretch")
 
                 if tx_submitted and tx_sel:
                     tx_code = tx_sel.split(" ")[0]; tx_name = " ".join(tx_sel.split(" ")[1:])
@@ -112,10 +112,10 @@ def render(tab, df):
             if err: st.error(err); return
             st.write(f"**{len(csv_df)}件の約定データを検出**")
             preview_cols = ["約定日", "銘柄", "銘柄コード", "取引", "預り", "約定数量", "約定単価", "受渡金額/決済損益"]
-            st.dataframe(csv_df[[c for c in preview_cols if c in csv_df.columns]], use_container_width=True, height=min(len(csv_df) * 35 + 38, 600))
+            st.dataframe(csv_df[[c for c in preview_cols if c in csv_df.columns]], width="stretch", height=min(len(csv_df) * 35 + 38, 600))
 
             imp_mode = st.radio("取込モード", ["取引履歴に登録", "保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"], index=2, key="csv_imp_mode", horizontal=True)
-            if st.button("✅ インポート実行", use_container_width=True, key="csvimport"):
+            if st.button("✅ インポート実行", width="stretch", key="csvimport"):
                 tx_count, upd_count, skip_count = 0, 0, 0
                 if imp_mode in ("取引履歴に登録", "両方（取引履歴＋保有銘柄更新）"):
                     tx_batch = []
@@ -170,5 +170,5 @@ def render(tab, df):
             tx_show["数量"] = tx_show["数量"].apply(lambda x: f"{x:,.4g}")
             st.dataframe(tx_show, width='stretch', hide_index=True)
             st.download_button("📥 取引履歴をCSVでダウンロード", tx_df.to_csv(index=False).encode("utf-8-sig"),
-                               f"transactions_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
+                               f"transactions_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
         else: st.info("取引を記録すると履歴が表示されます。")

@@ -11,7 +11,7 @@ def render(tab):
         with m1: pil = st.selectbox("チャート期間", ["1週間", "1ヶ月", "3ヶ月", "1年"], index=1, key="ip")
         with m2:
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            if st.button("🔄 指標を更新", use_container_width=True, key="rm"):
+            if st.button("🔄 指標を更新", width="stretch", key="rm"):
                 get_cached_market_data.clear(); st.rerun()
 
         sp = {"1週間": "5d", "1ヶ月": "1mo", "3ヶ月": "3mo", "1年": "1y"}[pil]
@@ -44,7 +44,7 @@ def render(tab):
                                                      xaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot", tickformat=xtf, tickfont=dict(color="#9E9E9E", size=10)),
                                                      yaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot", tickformat=",", tickfont=dict(color="#9E9E9E", size=10), range=[ymn - ymg, ymx + ymg]),
                                                      showlegend=False)
-                                    st.plotly_chart(fm, use_container_width=True, config={"displayModeBar": False})
+                                    st.plotly_chart(fm, width="stretch", config={"displayModeBar": False})
                             else:
                                 with tc_: st.markdown(f"<p style='color:#B0B8C0;font-weight:bold'>{iname}</p><p style='color:#FF5252'>データ不足</p>", unsafe_allow_html=True)
                         else:
