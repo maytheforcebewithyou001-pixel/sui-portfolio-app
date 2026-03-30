@@ -14,9 +14,10 @@ TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
 MARKET_OPTIONS = ["日本株", "米国株", "投資信託", "その他資産"]
 MONTH_OPTIONS = [f"{m}月" for m in range(1, 13)]
 TAX_RATE = 0.20315
+US_WITHHOLDING_TAX_RATE = 0.10  # 米国源泉徴収税率（10%）
 
-# AI モデル（変更時はここだけ修正）
-AI_MODEL = "claude-sonnet-4-20250514"
+# AI モデル（Secretsで上書き可能）
+AI_MODEL_DEFAULT = "claude-sonnet-4-20250514"
 
 # NISA 年間・生涯枠（2024年新NISA）
 NISA_GROWTH_ANNUAL = 2_400_000      # 成長投資枠 年間上限

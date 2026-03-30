@@ -6,9 +6,17 @@ FORCE CAPITAL — メインUI (司令塔)
 """
 import streamlit as st
 import pandas as pd
+import html
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from config import WORLD_INDICES
+
+_JST = ZoneInfo("Asia/Tokyo")
+
+def _esc(text):
+    """HTML特殊文字をエスケープ（XSS防止）"""
+    return html.escape(str(text))
 from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
@@ -35,7 +43,8 @@ def check_password():
     </div>""", unsafe_allow_html=True)
     password = st.text_input("パスワード", type="password", key="pw_input")
     if st.button("ログイン", use_container_width=True):
-        if password == st.secrets.get("app_password", ""):
+        correct_pw = st.secrets.get("app_password")
+        if correct_pw and password == correct_pw:
             st.session_state["authenticated"] = True; st.rerun()
         else: st.error("パスワードが正しくありません")
     return False
@@ -91,6 +100,14 @@ else:
 
 TA, SC = totals["total_asset"], totals["stock_count"]
 
+# ═══════════════════ 自動記録（1日1回） ═══════════════════
+if TA > 0:
+    today_str = datetime.now(_JST).strftime("%Y/%m/%d")
+    _hdf_auto = load_history()
+    already_recorded = not _hdf_auto.empty and today_str in _hdf_auto["日付"].values
+    if not already_recorded:
+        save_history(today_str, TA)
+
 # ═══════════════════ ヘッダー ═══════════════════
 prev_asset = prev_diff = prev_diff_pct = 0; prev_date_str = ""
 try:
@@ -107,8 +124,6 @@ tgp = totals["total_gross_profit"]
 prog = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
 pc, ps = pnl_color(tgp), pnl_sign(tgp)
 pnl_pct = (tgp / (TA - tgp) * 100) if (TA - tgp) > 0 else 0
-from zoneinfo import ZoneInfo
-_JST = ZoneInfo("Asia/Tokyo")
 _EST = ZoneInfo("America/New_York")
 _now_jst = datetime.now(_JST)
 now_str = _now_jst.strftime("%Y/%m/%d %H:%M")
@@ -177,8 +192,8 @@ with _rec2:
 # GASバナー
 if gas_prices and gas_last_updated:
     try:
-        gas_dt = datetime.strptime(gas_last_updated[:16], "%Y/%m/%d %H:%M")
-        gap_min = (datetime.now() - gas_dt).total_seconds() / 60
+        gas_dt = datetime.strptime(gas_last_updated[:16], "%Y/%m/%d %H:%M").replace(tzinfo=_JST)
+        gap_min = (datetime.now(_JST) - gas_dt).total_seconds() / 60
         if gap_min > 60:
             st.markdown(f"<div class='alert-bar alert-down'>⚠ GAS株価データが古い可能性あり（最終更新: {gas_last_updated}、約{gap_min/60:.0f}時間前）</div>", unsafe_allow_html=True)
         else: st.caption(f"📡 GAS株価データ 最終更新: {gas_last_updated}")

@@ -2,7 +2,7 @@
 import streamlit as st
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from config import AI_MODEL
+from config import AI_MODEL_DEFAULT
 from data import load_ai_review, load_ai_review_history, save_ai_review, load_history
 from calc import build_portfolio_summary_text
 
@@ -75,7 +75,7 @@ def render(tab, df, display_df, totals, jpy_usd_rate):
                 st.session_state.ai_confirm_regen = False
                 with st.spinner("Claudeが分析中...（20〜30秒）"):
                     try:
-                        import requests as req, time as _time
+                        import anthropic
 
                         # 過去の分析履歴を取得してプロンプトに含める
                         past_reviews = load_ai_review_history(10)
@@ -92,21 +92,18 @@ def render(tab, df, display_df, totals, jpy_usd_rate):
                             prompt += "6.前回からの変化点（改善/悪化/新たなリスク）\n"
                         prompt += "注意: 投資助言ではなく参考情報です。"
 
-                        MAX_RETRIES, resp = 3, None
-                        for attempt in range(MAX_RETRIES):
-                            resp = req.post("https://api.anthropic.com/v1/messages",
-                                            headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                                            json={"model": AI_MODEL, "max_tokens": 2000, "messages": [{"role": "user", "content": prompt}]}, timeout=60)
-                            if resp.status_code == 200: break
-                            if resp.status_code in (429, 529, 500, 502, 503) and attempt < MAX_RETRIES - 1:
-                                _time.sleep(2 ** attempt * 2); continue
-                            break
-                        if resp.status_code == 200:
-                            ai_text = "".join(b["text"] for b in resp.json()["content"] if b["type"] == "text")
-                            ns = datetime.now(_JST).strftime("%Y/%m/%d %H:%M")
-                            st.session_state.ai_review_dt = ns; st.session_state.ai_review_text = ai_text
-                            save_ai_review(ns, ai_text); st.rerun()
-                        else: st.error(f"API エラー (HTTP {resp.status_code}): {resp.json().get('error', {}).get('message', resp.text)}")
+                        ai_model = st.secrets.get("ai_model", AI_MODEL_DEFAULT)
+                        client = anthropic.Anthropic(api_key=api_key)
+                        message = client.messages.create(
+                            model=ai_model, max_tokens=2000,
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                        ai_text = "".join(b.text for b in message.content if b.type == "text")
+                        ns = datetime.now(_JST).strftime("%Y/%m/%d %H:%M")
+                        st.session_state.ai_review_dt = ns; st.session_state.ai_review_text = ai_text
+                        save_ai_review(ns, ai_text); st.rerun()
+                    except anthropic.APIError as e:
+                        st.error(f"API エラー: {e.message}")
                     except Exception as e: st.error(f"エラー: {e}")
 
         # ── 送信データプレビュー ──

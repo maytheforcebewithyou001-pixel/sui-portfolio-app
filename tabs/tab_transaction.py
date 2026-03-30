@@ -29,6 +29,10 @@ def _parse_sbi_csv(csv_file):
     csv_df = csv_df[csv_df["約定日"].astype(str).str.match(r"^\d{4}/")]
     if csv_df.empty: return None, "有効な約定データが見つかりませんでした。"
 
+    required_cols = ["約定日", "取引", "預り", "約定数量", "約定単価"]
+    missing = [c for c in required_cols if c not in csv_df.columns]
+    if missing: return None, f"必須列が不足しています: {', '.join(missing)}"
+
     for col in csv_df.columns:
         if csv_df[col].dtype == object:
             csv_df[col] = csv_df[col].astype(str).str.strip()
