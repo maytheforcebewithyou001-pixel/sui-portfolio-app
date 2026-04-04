@@ -30,7 +30,7 @@ def render(tab, df, display_df, totals):
                 m = rs + i + 1
                 with cols[i]:
                     if mdv[m] > 0:
-                        with st.popover(f"📅 {mn[m-1]}", width="stretch"):
+                        with st.popover(f"📅 {mn[m-1]}", use_container_width=True):
                             st.markdown(f"**{mn[m-1]}** 税引前:¥{mdv[m]:,.0f} → 手取り:¥{mda[m]:,.0f}")
                             for d in sorted(mdt[m], key=lambda x: x["税引前"], reverse=True):
                                 tb = "🟢" if d["税区分"] == "非課税" else "🟡"

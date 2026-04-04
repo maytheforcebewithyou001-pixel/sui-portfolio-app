@@ -1,7 +1,6 @@
 """TAB 1: ポートフォリオ"""
 import streamlit as st
 import pandas as pd
-import html
 import plotly.graph_objects as go
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS
@@ -10,10 +9,6 @@ from market import get_ticker_name
 from calc import round_up_3
 from style import ACCT_BADGE_MAP
 from tabs import card, colored_card, pnl_color, pnl_sign
-
-def _esc(text):
-    """HTML特殊文字をエスケープ（XSS防止）"""
-    return html.escape(str(text))
 
 
 def render(tab, df, display_df, totals):
@@ -36,21 +31,9 @@ def render(tab, df, display_df, totals):
             with r3a: div_month_sel = st.multiselect("配当月", options=list(range(1, 13)),
                                                       format_func=lambda x: f"{x}月", key="fdm")
             with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, value=0.0, step=0.1, key="ffx")
-            submitted = st.form_submit_button("＋ 追加", width="stretch")
+            submitted = st.form_submit_button("＋ 追加", use_container_width=True)
 
         if submitted and code:
-            # バリデーション
-            errors = []
-            if avg_price <= 0:
-                errors.append("取得単価は0より大きい値を入力してください。")
-            if market == "米国株" and buy_fx <= 0:
-                errors.append("米国株の場合、取得時為替を入力してください。")
-            if not df.empty and code in df["銘柄コード"].astype(str).values:
-                errors.append(f"銘柄コード {code} は既に登録されています。取引履歴タブから買い増しを記録してください。")
-            if errors:
-                for e in errors:
-                    st.error(e)
-                st.stop()
             auto_name = ""
             if not manual_name and market in ["日本株", "米国株"]:
                 with st.spinner("銘柄名を取得中..."):
@@ -115,17 +98,17 @@ def render(tab, df, display_df, totals):
             with ec1:
                 csv_c = ["銘柄コード", "銘柄名", "市場", "口座", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "評価額(円)", "含み損益(円)", "税引後損益(円)", "予想配当(円)", "税引後配当(円)", "セクター"]
                 st.download_button("📋 保有銘柄一覧", display_df[[c for c in csv_c if c in display_df.columns]].to_csv(index=False).encode("utf-8-sig"),
-                                   f"portfolio_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
+                                   f"portfolio_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
             with ec2:
                 dr = [{"銘柄コード": r["銘柄コード"], "銘柄名": r["銘柄名"], "口座": r.get("口座", ""), "口座区分": r.get("口座区分", ""),
                        "予想配当(税引前)": round(r["予想配当(円)"]), "税引後配当": round(r.get("税引後配当(円)", 0)), "配当月": r.get("配当月", "")}
                       for _, r in display_df.iterrows() if r.get("予想配当(円)", 0) > 0]
-                if dr: st.download_button("💰 配当明細", pd.DataFrame(dr).to_csv(index=False).encode("utf-8-sig"), f"dividends_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
-                else: st.button("💰 配当明細", disabled=True, width="stretch")
+                if dr: st.download_button("💰 配当明細", pd.DataFrame(dr).to_csv(index=False).encode("utf-8-sig"), f"dividends_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
+                else: st.button("💰 配当明細", disabled=True, use_container_width=True)
             with ec3:
                 hdf = load_history()
-                if not hdf.empty: st.download_button("📈 資産推移", hdf.to_csv(index=False).encode("utf-8-sig"), f"history_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
-                else: st.button("📈 資産推移", disabled=True, width="stretch")
+                if not hdf.empty: st.download_button("📈 資産推移", hdf.to_csv(index=False).encode("utf-8-sig"), f"history_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
+                else: st.button("📈 資産推移", disabled=True, use_container_width=True)
 
         # ── 修正・削除 ──
         if not df.empty:
@@ -141,9 +124,6 @@ def render(tab, df, display_df, totals):
                     "年間配当金(円/株)": st.column_config.NumberColumn("年間配当(円/株)", min_value=0, format="%.2f"),
                     "取得時為替": st.column_config.NumberColumn("取得時為替($/¥)", min_value=0, format="%.1f"),
                     "削除": st.column_config.CheckboxColumn("削除", default=False)})
-                del_count = edited["削除"].sum()
-                if del_count > 0:
-                    st.warning(f"⚠ {int(del_count)}件の銘柄が削除対象です。")
                 if st.button("💾 変更を保存", key="sv"):
                     save_data(edited[edited["削除"] == False].drop(columns=["削除"]))
                     st.cache_data.clear(); st.success("更新しました！"); st.rerun()
