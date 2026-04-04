@@ -4,7 +4,6 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import logger
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -29,10 +28,10 @@ def _get(path, params=None):
         while url:
             resp = requests.get(url, headers=_headers(), params=params, timeout=15)
             if resp.status_code != 200:
-                logger.debug("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
+                logger.warning("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
                 return None
             data = resp.json()
-            logger.debug("J-Quants %s keys: %s, count=%d", path, list(data.keys()), len(results))
+            logger.warning("J-Quants %s keys: %s, count=%d", path, list(data.keys()), len(results))
             # レスポンスのメインキーを探す（daily_quotes, info, statements等）
             for key in data:
                 if key != "pagination_key" and isinstance(data[key], list):
@@ -45,7 +44,7 @@ def _get(path, params=None):
             else:
                 break
     except Exception as e:
-        logger.debug("J-Quants API error: %s", e)
+        logger.warning("J-Quants API error: %s", e)
         return None
     return results
 
@@ -53,61 +52,49 @@ def _get(path, params=None):
 # ══════════════════════════════════════════
 # 株価取得
 # ══════════════════════════════════════════
-def _fetch_single_quote(code, from_date, to_date):
-    """1銘柄の株価を取得（並列実行用）"""
-    c = str(code).replace(".T", "").strip()
-    if not c or len(c) < 3:
-        return None, None
-    data = _get("/equities/bars/daily", {"code": c, "from": from_date, "to": to_date})
-    if data:
-        df = pd.DataFrame(data)
-        logger.debug("J-Quants OK %s: %d rows, cols=%s", c, len(df), list(df.columns)[:8])
-        if not df.empty and ("Date" in df.columns):
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.sort_values("Date")
-            if "AC" in df.columns:
-                close_col = "AC"
-            elif "AdjustmentClose" in df.columns:
-                close_col = "AdjustmentClose"
-            elif "C" in df.columns:
-                close_col = "C"
-            elif "Close" in df.columns:
-                close_col = "Close"
-            else:
-                logger.debug("J-Quants %s: 終値カラムが見つからない cols=%s", c, list(df.columns))
-                return c, None
-            entries = []
-            for _, row in df.iterrows():
-                entries.append({
-                    "Date": row["Date"],
-                    "Close": float(row.get(close_col, 0) or 0),
-                })
-            return c, entries
-    else:
-        logger.debug("J-Quants FAIL %s: data=None", c)
-    return c, None
-
-
 @st.cache_data(ttl=600, show_spinner=False)
 def get_daily_quotes(codes, days=5):
-    """日本株の直近N日の終値を取得（並列化）。{銘柄コード: [{Date, Close}, ...]}"""
+    """日本株の直近N日の終値を取得。{銘柄コード: [{Date, Close, AdjClose, Change%}, ...]}"""
     if not _api_key() or not codes:
-        logger.debug("J-Quants: APIキーなし or コードなし. key=%s, codes=%s", bool(_api_key()), codes)
+        logger.warning("J-Quants: APIキーなし or コードなし. key=%s, codes=%s", bool(_api_key()), codes)
         return {}
     today = datetime.now(_JST)
     from_date = (today - timedelta(days=days + 10)).strftime("%Y%m%d")
     to_date = today.strftime("%Y%m%d")
     result = {}
-    with ThreadPoolExecutor(max_workers=min(len(codes), 5)) as executor:
-        futures = {executor.submit(_fetch_single_quote, code, from_date, to_date): code for code in codes}
-        for future in as_completed(futures):
-            try:
-                c, entries = future.result()
-                if c and entries:
-                    result[c] = entries
-            except Exception as e:
-                logger.debug("J-Quants parallel fetch error: %s", e)
-    logger.debug("J-Quants get_daily_quotes result keys: %s", list(result.keys()))
+    for code in codes:
+        c = str(code).replace(".T", "").strip()
+        if not c or len(c) < 3:
+            continue
+        data = _get("/equities/bars/daily", {"code": c, "from": from_date, "to": to_date})
+        if data:
+            df = pd.DataFrame(data)
+            logger.warning("J-Quants OK %s: %d rows, cols=%s", c, len(df), list(df.columns)[:8])
+            if not df.empty and ("Date" in df.columns):
+                df["Date"] = pd.to_datetime(df["Date"])
+                df = df.sort_values("Date")
+                # V2 APIはカラム名が略称: C=Close, AC=AdjustmentClose, O=Open等
+                if "AC" in df.columns:
+                    close_col = "AC"
+                elif "AdjustmentClose" in df.columns:
+                    close_col = "AdjustmentClose"
+                elif "C" in df.columns:
+                    close_col = "C"
+                elif "Close" in df.columns:
+                    close_col = "Close"
+                else:
+                    logger.warning("J-Quants %s: 終値カラムが見つからない cols=%s", c, list(df.columns))
+                    continue
+                entries = []
+                for _, row in df.iterrows():
+                    entries.append({
+                        "Date": row["Date"],
+                        "Close": float(row.get(close_col, 0) or 0),
+                    })
+                result[c] = entries
+        else:
+            logger.warning("J-Quants FAIL %s: data=None", c)
+    logger.warning("J-Quants get_daily_quotes result keys: %s", list(result.keys()))
     return result
 
 
@@ -139,7 +126,7 @@ def get_listed_info(code=None):
     if not data:
         return {}
     if data:
-        logger.debug("J-Quants master sample keys: %s", list(data[0].keys()) if data else "empty")
+        logger.warning("J-Quants master sample keys: %s", list(data[0].keys()) if data else "empty")
     result = {}
     for item in data:
         c = str(item.get("Code", ""))[:4]

@@ -15,7 +15,7 @@ from config import logger, EXPECTED_COLS, normalize_broker, normalize_tax
 # ══════════════════════════════════════════
 # Google Sheets 接続
 # ══════════════════════════════════════════
-@st.cache_resource(ttl=3000)
+@st.cache_resource
 def init_gspread():
     try:
         creds_json = json.loads(st.secrets["gcp_credentials"])
@@ -27,7 +27,7 @@ def init_gspread():
         st.error(f"認証エラー: {e}")
         return None
 
-@st.cache_resource(ttl=3000)
+@st.cache_resource
 def get_spreadsheet():
     gc = init_gspread()
     if gc is None: return None
@@ -155,12 +155,9 @@ def save_data(df):
         # 書き込みデータを先に準備（ここで失敗してもシートは無傷）
         rows = [save_df.columns.values.tolist()] + save_df.values.tolist()
         ws = sh.sheet1
-        # 全セルを一括上書き（clearの代わりに余剰行だけクリア）
+        # batch_updateで全セルを一括上書き（clear不要、既存データの上に上書き）
+        ws.clear()
         ws.update(rows, value_input_option="RAW")
-        total_rows = ws.row_count
-        data_rows = len(rows)
-        if total_rows > data_rows + 1:
-            ws.batch_clear([f"A{data_rows + 1}:Z{total_rows}"])
         logger.info("データ保存完了: %d行", len(save_df))
     except Exception as e:
         logger.error("データ保存エラー: %s", e)

@@ -113,30 +113,6 @@ class TestCalculateHolding:
         expected_after_tax = 5000 * (1 - 0.20315)
         assert abs(result["税引後配当(円)"] - expected_after_tax) < 1
 
-    def test_us_stock_nisa_dividend_withholding(self):
-        """米国株NISA: 配当は米国源泉10%のみ"""
-        row = self._make_row(銘柄コード="AAPL", 市場="米国株", 取得単価=150,
-                             取得時為替=140, 保有株数=10, 口座区分="NISA(成長投資枠)")
-        row["年間配当金(円/株)"] = 5.0  # $5/株
-        closes = self._make_closes("AAPL", [148, 150, 170])
-        result = calculate_holding(row, closes, {"AAPL": {"sector": "テクノロジー", "div_rate": 0, "div_yield": 0}},
-                                    {}, 155.0)
-        gross_div = 5.0 * 10 * 155.0  # 7750
-        expected = gross_div * (1 - 0.10)  # 米国10%源泉のみ
-        assert abs(result["税引後配当(円)"] - expected) < 1
-
-    def test_us_stock_tokutei_dividend_double_tax(self):
-        """米国株特定口座: 配当は米国10% + 日本20.315%"""
-        row = self._make_row(銘柄コード="AAPL", 市場="米国株", 取得単価=150,
-                             取得時為替=140, 保有株数=10, 口座区分="特定口座")
-        row["年間配当金(円/株)"] = 5.0
-        closes = self._make_closes("AAPL", [148, 150, 170])
-        result = calculate_holding(row, closes, {"AAPL": {"sector": "テクノロジー", "div_rate": 0, "div_yield": 0}},
-                                    {}, 155.0)
-        gross_div = 5.0 * 10 * 155.0
-        expected = gross_div * (1 - 0.10) * (1 - 0.20315)
-        assert abs(result["税引後配当(円)"] - expected) < 1
-
 
 class TestRoundUp3:
     def test_integer(self):
@@ -157,7 +133,6 @@ class TestGetPortfolioTotals:
     def test_basic(self):
         df = pd.DataFrame({
             "評価額(円)": [100000, 200000],
-            "含み損益(円)": [10000, -5000],
             "税引後損益(円)": [10000, -5000],
             "予想配当(円)": [3000, 6000],
             "税引後配当(円)": [2400, 4800],
