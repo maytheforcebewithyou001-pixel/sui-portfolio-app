@@ -7,7 +7,7 @@
 import pandas as pd
 import math
 from datetime import datetime
-from config import get_tax_rate, is_nisa, US_WITHHOLDING_TAX_RATE
+from config import get_tax_rate
 
 def classify_sector(row, info_sector):
     if info_sector and info_sector not in ("不明", "ETF/その他", ""):
@@ -131,23 +131,11 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
 
     tax_rate = get_tax_rate(tax_category)
     tax_amount = profit * tax_rate if profit > 0 else 0.0
-
-    # 米国株配当の外国税額控除
-    if market_type == "米国株" and dividend > 0:
-        if is_nisa(tax_category):
-            # NISA: 日本側非課税だが米国源泉徴収10%はかかる
-            div_after_tax = dividend * (1 - US_WITHHOLDING_TAX_RATE)
-        else:
-            # 特定口座: 米国10%源泉 + 日本20.315%（外国税額控除で一部還付されるが概算では二重課税）
-            div_after_tax = dividend * (1 - US_WITHHOLDING_TAX_RATE) * (1 - tax_rate)
-    else:
-        div_after_tax = dividend * (1 - tax_rate)
-
     return {
         "セクター": sector, "取得単価(円)": buy_jpy, "現在値(円)": price_jpy,
         "前日比": dod_pct, "評価額(円)": value, "含み損益(円)": profit,
         "税引後損益(円)": profit - tax_amount, "予想配当(円)": dividend,
-        "税引後配当(円)": div_after_tax,
+        "税引後配当(円)": dividend * (1 - tax_rate),
         "実質利回り(%)": round(effective_yield, 2),
         "株価損益(円)": stock_gain, "為替損益(円)": fx_gain, "fetch_success": fetch_success,
     }
