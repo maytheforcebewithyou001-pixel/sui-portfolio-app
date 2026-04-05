@@ -32,7 +32,7 @@ SECTOR_MAP = {
     "Real Estate": "不動産", "Utilities": "公益事業",
 }
 WORLD_INDICES = {
-    "日経平均": "^N225", "TOPIX": "^TOPX", "S&P 500": "^GSPC", "NASDAQ": "^IXIC",
+    "日経平均": "^N225", "TOPIX": "1306.T", "S&P 500": "^GSPC", "NASDAQ": "^IXIC",
     "ドル円": "JPY=X", "米国10年債利回り": "^TNX", "VIX": "^VIX", "金(GOLD)": "GC=F",
 }
 
