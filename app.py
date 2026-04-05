@@ -38,8 +38,21 @@ def check_password():
     if attempts >= MAX_ATTEMPTS:
         st.error("試行回数が上限に達しました。ページを再読込してください。")
         return False
-    password = st.text_input("パスワード", type="password", key="pw_input")
-    if st.button("ログイン", width="stretch"):
+    with st.form("login_form", clear_on_submit=False):
+        password = st.text_input("パスワード", type="password", key="pw_input")
+        submitted = st.form_submit_button("ログイン", width="stretch")
+    # パスワード入力欄に自動フォーカス（ページ読込直後に数字をすぐ入力可能に）
+    st.markdown("""
+    <script>
+      const tryFocus = () => {
+        const inputs = window.parent.document.querySelectorAll('input[type="password"]');
+        if (inputs.length > 0) { inputs[inputs.length - 1].focus(); return true; }
+        return false;
+      };
+      if (!tryFocus()) setTimeout(tryFocus, 100);
+    </script>
+    """, unsafe_allow_html=True)
+    if submitted:
         if password == st.secrets.get("app_password", ""):
             st.session_state["authenticated"] = True
             st.session_state["login_attempts"] = 0
