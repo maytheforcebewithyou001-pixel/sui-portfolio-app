@@ -31,7 +31,7 @@ def render(tab, df, display_df, totals):
             with r3a: div_month_sel = st.multiselect("配当月", options=list(range(1, 13)),
                                                       format_func=lambda x: f"{x}月", key="fdm")
             with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, value=0.0, step=0.1, key="ffx")
-            submitted = st.form_submit_button("＋ 追加", use_container_width=True)
+            submitted = st.form_submit_button("＋ 追加", width="stretch")
 
         if submitted and code:
             auto_name = ""
@@ -98,17 +98,17 @@ def render(tab, df, display_df, totals):
             with ec1:
                 csv_c = ["銘柄コード", "銘柄名", "市場", "口座", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "評価額(円)", "含み損益(円)", "税引後損益(円)", "予想配当(円)", "税引後配当(円)", "セクター"]
                 st.download_button("📋 保有銘柄一覧", display_df[[c for c in csv_c if c in display_df.columns]].to_csv(index=False).encode("utf-8-sig"),
-                                   f"portfolio_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
+                                   f"portfolio_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
             with ec2:
                 dr = [{"銘柄コード": r["銘柄コード"], "銘柄名": r["銘柄名"], "口座": r.get("口座", ""), "口座区分": r.get("口座区分", ""),
                        "予想配当(税引前)": round(r["予想配当(円)"]), "税引後配当": round(r.get("税引後配当(円)", 0)), "配当月": r.get("配当月", "")}
                       for _, r in display_df.iterrows() if r.get("予想配当(円)", 0) > 0]
-                if dr: st.download_button("💰 配当明細", pd.DataFrame(dr).to_csv(index=False).encode("utf-8-sig"), f"dividends_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
-                else: st.button("💰 配当明細", disabled=True, use_container_width=True)
+                if dr: st.download_button("💰 配当明細", pd.DataFrame(dr).to_csv(index=False).encode("utf-8-sig"), f"dividends_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
+                else: st.button("💰 配当明細", disabled=True, width="stretch")
             with ec3:
                 hdf = load_history()
-                if not hdf.empty: st.download_button("📈 資産推移", hdf.to_csv(index=False).encode("utf-8-sig"), f"history_{datetime.now():%Y%m%d}.csv", "text/csv", use_container_width=True)
-                else: st.button("📈 資産推移", disabled=True, use_container_width=True)
+                if not hdf.empty: st.download_button("📈 資産推移", hdf.to_csv(index=False).encode("utf-8-sig"), f"history_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
+                else: st.button("📈 資産推移", disabled=True, width="stretch")
 
         # ── 修正・削除 ──
         if not df.empty:

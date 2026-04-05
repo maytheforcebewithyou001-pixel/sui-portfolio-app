@@ -39,7 +39,7 @@ def check_password():
         st.error("試行回数が上限に達しました。ページを再読込してください。")
         return False
     password = st.text_input("パスワード", type="password", key="pw_input")
-    if st.button("ログイン", use_container_width=True):
+    if st.button("ログイン", width="stretch"):
         if password == st.secrets.get("app_password", ""):
             st.session_state["authenticated"] = True
             st.session_state["login_attempts"] = 0
@@ -62,7 +62,7 @@ with st.sidebar:
     yearly_add_man = st.number_input("💰 年間積立額 (万円)", min_value=0, value=120, step=10)
     yearly_add = yearly_add_man * 10000
     st.markdown("---")
-    if st.button("🔄 全データ最新化", use_container_width=True):
+    if st.button("🔄 全データ最新化", width="stretch"):
         st.cache_data.clear(); st.rerun()
     st.caption("左上の × で閉じる")
 
@@ -174,7 +174,7 @@ st.markdown(f"""
 # 記録ボタン
 _rec1, _rec2 = st.columns([5, 1])
 with _rec2:
-    if st.button("💾 記録", use_container_width=True) and TA > 0:
+    if st.button("💾 記録", width="stretch") and TA > 0:
         save_history(datetime.now().strftime("%Y/%m/%d"), TA); st.toast("✓ 記録しました"); st.rerun()
 
 # GASバナー

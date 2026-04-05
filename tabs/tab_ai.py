@@ -67,11 +67,11 @@ def render(tab, df, display_df, totals, jpy_usd_rate):
         if need_confirm and not st.session_state.ai_confirm_regen:
             ha = (datetime.now(_JST) - sd.replace(tzinfo=_JST)).total_seconds() / 3600
             st.info(f"⏱ {ha:.1f}時間前に生成済み。再生成でAPIクレジット消費。")
-            if st.button("🔄 それでも再生成する", use_container_width=True, key="aic"):
+            if st.button("🔄 それでも再生成する", width="stretch", key="aic"):
                 st.session_state.ai_confirm_regen = True; st.rerun()
         else:
             bl = "🔄 再生成" if stx else "📝 AI総評を生成"
-            if st.button(bl, use_container_width=True, key="aig"):
+            if st.button(bl, width="stretch", key="aig"):
                 st.session_state.ai_confirm_regen = False
                 with st.spinner("Claudeが分析中...（20〜30秒）"):
                     try:
