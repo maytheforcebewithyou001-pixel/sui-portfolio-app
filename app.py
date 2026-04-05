@@ -90,11 +90,6 @@ def check_password():
     </script>
     """, unsafe_allow_html=True)
     if submitted:
-        # 【診断用・後で削除】Secrets の状態を表示
-        _users = st.secrets.get("users", {})
-        _stored = _users.get(username, "") if _users else ""
-        st.info(f"DEBUG: users存在={bool(_users)}, user '{username}' 見つかった={bool(_stored)}, "
-                f"hash長={len(_stored)}, pw長={len(password)}, pw末尾3文字={password[-3:]!r}")
         if _verify_credentials(username, password):
             st.session_state["authenticated"] = True
             st.session_state["username"] = username
