@@ -106,10 +106,13 @@ def goal_progress_bar(current, goal, goal_label):
 
 
 def big_mover_alert(name, code, pct):
+    import html as _html
     cls = "alert-up" if pct > 0 else "alert-down"
     arrow = "▲" if pct > 0 else "▼"
+    name_s = _html.escape(str(name))
+    code_s = _html.escape(str(code))
     st.markdown(
-        f"<div class='alert-bar {cls}'>{arrow} <b>{name}</b>（{code}）が前日比 {pct:+.2f}% の大幅変動</div>",
+        f"<div class='alert-bar {cls}'>{arrow} <b>{name_s}</b>（{code_s}）が前日比 {pct:+.2f}% の大幅変動</div>",
         unsafe_allow_html=True,
     )
 

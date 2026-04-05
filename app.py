@@ -6,9 +6,12 @@ FORCE CAPITAL — メインUI (司令塔)
 """
 import streamlit as st
 import pandas as pd
+import hmac
+import html
+import time
 from datetime import datetime
 
-from config import WORLD_INDICES
+from config import WORLD_INDICES, logger
 from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, get_gas_last_updated
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
@@ -19,8 +22,15 @@ st.set_page_config(page_title="FORCE CAPITAL", layout="wide", initial_sidebar_st
 st.markdown(MAIN_CSS, unsafe_allow_html=True)
 
 # ═══════════════════ 認証 ═══════════════════
+SESSION_TTL_SEC = 2 * 3600  # 2時間でセッション失効
+
 def check_password():
-    if st.session_state.get("authenticated"): return True
+    # セッション有効期限チェック
+    if st.session_state.get("authenticated"):
+        if time.time() - st.session_state.get("login_time", 0) < SESSION_TTL_SEC:
+            return True
+        st.session_state["authenticated"] = False
+        st.warning("セッションの有効期限が切れました。再ログインしてください。")
     st.markdown("""
     <div style='display:flex;justify-content:center;align-items:center;min-height:60vh'>
       <div style='text-align:center'>
@@ -53,13 +63,21 @@ def check_password():
     </script>
     """, unsafe_allow_html=True)
     if submitted:
-        if password == st.secrets.get("app_password", ""):
+        expected = st.secrets.get("app_password", "")
+        # タイミング攻撃対策: hmac.compare_digest で定数時間比較
+        if expected and hmac.compare_digest(password, expected):
             st.session_state["authenticated"] = True
+            st.session_state["login_time"] = time.time()
             st.session_state["login_attempts"] = 0
+            logger.info("ログイン成功")
             st.rerun()
         else:
             st.session_state["login_attempts"] = attempts + 1
             remaining = MAX_ATTEMPTS - st.session_state["login_attempts"]
+            # ブルートフォース対策: 失敗ごとに指数バックオフ遅延
+            delay = min(2 ** st.session_state["login_attempts"], 30)
+            logger.warning("ログイン失敗 attempt=%d delay=%ds", st.session_state["login_attempts"], delay)
+            time.sleep(delay)
             st.error(f"パスワードが正しくありません（残り{remaining}回）")
     return False
 
@@ -215,7 +233,8 @@ if tfx != 0 or tsg != 0:
 if not display_df.empty and "前日比" in display_df.columns:
     for _, mv in display_df[display_df["前日比"].apply(lambda x: abs(x) >= 3.0 if pd.notna(x) else False)].iterrows():
         d = mv["前日比"]; cls = "alert-up" if d > 0 else "alert-down"; arrow = "▲" if d > 0 else "▼"
-        st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{mv['銘柄名']}</b>（{mv['銘柄コード']}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
+        _name = html.escape(str(mv['銘柄名'])); _code = html.escape(str(mv['銘柄コード']))
+        st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
 
 # ═══════════════════ タブ ═══════════════════
 from tabs import tab_portfolio, tab_analysis, tab_dividend, tab_simulation, tab_market, tab_transaction, tab_ai
