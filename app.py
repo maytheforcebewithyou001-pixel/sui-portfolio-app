@@ -111,6 +111,14 @@ if not check_password(): st.stop()
 
 # ═══════════════════ サイドバー ═══════════════════
 with st.sidebar:
+    _current_user = st.session_state.get("username", "(未ログイン)")
+    st.markdown(f"### 👤 {html.escape(_current_user)}")
+    if st.button("🚪 ログアウト", width="stretch"):
+        st.cache_data.clear()
+        for k in ["authenticated", "username", "login_time", "login_attempts"]:
+            st.session_state.pop(k, None)
+        st.rerun()
+    st.markdown("---")
     st.markdown("### ⚙️ 設定")
     goal_oku = st.slider("🎯 目標金額 (億円)", 0.5, 10.0, 1.2, 0.1)
     goal_amount = goal_oku * 1e8

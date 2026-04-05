@@ -28,24 +28,44 @@ def init_gspread():
         st.error(f"認証エラー: {e}")
         return None
 
+# ══════════════════════════════════════════
+# ユーザー別シート分離
+# ══════════════════════════════════════════
+def _current_user() -> str:
+    """session_state からユーザー名を取得（未設定時は 'default'）"""
+    try:
+        return st.session_state.get("username") or "default"
+    except Exception:
+        return "default"
+
+def _sheet_name_for(user: str) -> str:
+    """ユーザー別スプレッドシート名（default は従来互換で PortfolioData）"""
+    return "PortfolioData" if user == "default" else f"PortfolioData_{user}"
+
 @st.cache_resource
-def get_spreadsheet():
+def get_spreadsheet_for(user: str):
+    """ユーザー別にスプレッドシートを開く（キャッシュ）"""
     gc = init_gspread()
     if gc is None: return None
+    name = _sheet_name_for(user)
     try:
-        return gc.open("PortfolioData")
+        return gc.open(name)
     except Exception as e:
-        logger.error("スプレッドシートを開けません: %s", e)
-        st.error(f"スプレッドシートを開けません: {e}")
+        logger.error("スプレッドシート '%s' を開けません: %s", name, e)
+        st.error(f"スプレッドシート '{name}' が見つかりません: {e}")
         return None
+
+def get_spreadsheet():
+    """現在のユーザーのスプレッドシートを取得（後方互換）"""
+    return get_spreadsheet_for(_current_user())
 
 # ══════════════════════════════════════════
 # #1 バッチ読み込み: 全シートを1回のAPI呼び出しで取得
 # ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
-def _load_all_sheets():
-    """全シートの内容を1回のbatch取得でまとめて読む"""
-    sh = get_spreadsheet()
+def _load_all_sheets_cached(user: str) -> dict:
+    """ユーザー別に全シートをbatch取得してキャッシュ（キーに user を含める）"""
+    sh = get_spreadsheet_for(user)
     if sh is None:
         return {}
     result = {}
@@ -61,10 +81,20 @@ def _load_all_sheets():
         logger.error("シート一覧取得失敗: %s", e)
     return result
 
+def _load_all_sheets() -> dict:
+    return _load_all_sheets_cached(_current_user())
+
 def _get_sheet_values(sheet_name):
     """キャッシュされた全シートデータからシート名で取得"""
     all_sheets = _load_all_sheets()
     return all_sheets.get(sheet_name, [])
+
+def _clear_sheet_cache() -> None:
+    """現在ユーザーのシートキャッシュをクリア（save後に呼ぶ）"""
+    try:
+        _load_all_sheets_cached.clear()
+    except Exception:
+        pass
 
 def get_gas_last_updated() -> Optional[str]:
     """GAS株価データシートの最終更新日時を取得（なければNone）"""
@@ -141,7 +171,6 @@ def _parse_main_sheet(all_values):
 # ══════════════════════════════════════════
 # データ読み込み (バッチから取得)
 # ══════════════════════════════════════════
-@st.cache_data(ttl=120, show_spinner=False)
 def load_data() -> pd.DataFrame:
     try:
         values = _get_sheet_values("PortfolioData")
@@ -180,6 +209,7 @@ def save_data(df: pd.DataFrame) -> None:
                 ws.delete_rows(n_rows + 1, ws.row_count)
             except Exception as de:
                 logger.warning("余剰行削除失敗（データ本体は保存済み）: %s", de)
+        _clear_sheet_cache()
         logger.info("データ保存完了: %d行", len(save_df))
     except Exception as e:
         logger.error("データ保存エラー: %s", e)
@@ -188,7 +218,6 @@ def save_data(df: pd.DataFrame) -> None:
 # ══════════════════════════════════════════
 # 投信価格 (バッチから取得)
 # ══════════════════════════════════════════
-@st.cache_data(ttl=120, show_spinner=False)
 def load_fund_prices() -> dict:
     try:
         all_values = _get_sheet_values("投信価格")
@@ -206,7 +235,6 @@ def load_fund_prices() -> dict:
 # GAS株価データ (バッチから取得)
 # 「株価データ」シート: ティッカー | 銘柄名 | 現在値 | 前日比(%) | 更新日時
 # ══════════════════════════════════════════
-@st.cache_data(ttl=120, show_spinner=False)
 def load_gas_prices() -> dict:
     """GASが更新した株価データを読み込む → {銘柄コード: {"price": float, "change_pct": float}}"""
     try:
@@ -230,7 +258,6 @@ def load_gas_prices() -> dict:
 # ══════════════════════════════════════════
 # 資産推移履歴 (バッチから取得)
 # ══════════════════════════════════════════
-@st.cache_data(ttl=120, show_spinner=False)
 def load_history() -> pd.DataFrame:
     empty = pd.DataFrame(columns=["日付", "総資産額(円)"])
     try:
@@ -260,6 +287,7 @@ def save_history(date_str: str, total_asset: float) -> None:
     try:
         worksheet = sh.worksheet("HistoryData")
         worksheet.append_row([date_str, total_asset])
+        _clear_sheet_cache()
     except Exception as e:
         logger.error("履歴保存エラー: %s", e)
 
@@ -300,7 +328,7 @@ def save_ai_review(dt_str, text):
             ws = sh.add_worksheet(title="AI総評", rows="200", cols="2")
             ws.append_row(["生成日時", "分析レポート"])
         ws.append_row([dt_str, text], value_input_option="RAW")
-        _load_all_sheets.clear()
+        _clear_sheet_cache()
     except Exception as e:
         logger.error("AI総評保存エラー: %s", e)
         st.warning(f"保存エラー: {e}")
@@ -314,7 +342,6 @@ def save_ai_review(dt_str, text):
 # ══════════════════════════════════════════
 TRANSACTION_COLS = ["日付", "銘柄コード", "銘柄名", "市場", "取引種別", "数量", "単価(円)", "手数料", "損益確定(円)", "口座", "口座区分"]
 
-@st.cache_data(ttl=120, show_spinner=False)
 def load_transactions() -> pd.DataFrame:
     empty = pd.DataFrame(columns=TRANSACTION_COLS)
     try:
@@ -352,7 +379,7 @@ def save_transactions_batch(tx_list):
             ws.append_row(TRANSACTION_COLS)
         rows = [[str(tx.get(c, "")) for c in TRANSACTION_COLS] for tx in tx_list]
         ws.append_rows(rows, value_input_option="RAW")
-        load_transactions.clear()
+        _clear_sheet_cache()
     except Exception as e:
         logger.error("取引履歴保存エラー: %s", e)
         st.error(f"取引履歴保存エラー: {e}")
