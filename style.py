@@ -87,72 +87,9 @@ html, body, .stApp { overflow-y: auto !important; }
 .streamlit-expanderHeader { background-color: #12161E; border-radius: 10px; color: #FFFFFF; font-weight: bold; font-size: 1.1rem; border: 1px solid #1E232F; }
 th { background-color: #1E232F !important; color: #FFFFFF !important; }
 @media (max-width: 768px) {
-    /* カード系 */
     .status-card p.mv { font-size: 1.1rem; }
     .status-card { padding: 0.7rem; }
-    .status-card h4 { font-size: 0.72rem; }
-    .status-card p.sv { font-size: 0.72rem; }
     .logo-text { font-size: 1.5rem; }
-
-    /* メインコンテナの余白削減（スマホは画面狭いので） */
-    .stApp .main .block-container { padding-left: 0.6rem !important; padding-right: 0.6rem !important; padding-top: 0.8rem !important; }
-
-    /* タブは横スクロール可能に（長いタブ名対応） */
-    .stTabs [data-baseweb="tab-list"] { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: thin; }
-    .stTabs [data-baseweb="tab"] { padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
-
-    /* テーブル/データフレーム: 横スクロール可 */
-    .stDataFrame, div[data-testid="stDataFrame"] { overflow-x: auto; }
-    .stDataFrame table { font-size: 0.75rem; }
-
-    /* アラートバー */
-    .alert-bar { font-size: 0.72rem; padding: 6px 10px; line-height: 1.4; }
-
-    /* ボタン: タップしやすく */
-    .stButton > button { padding: 0.6rem 1rem; font-size: 0.82rem; min-height: 40px; }
-
-    /* 入力欄: スマホで大きめに */
-    .stTextInput input, .stNumberInput input, .stSelectbox > div > div { font-size: 0.9rem !important; }
-
-    /* セレクトボックスのラベル */
-    .stTextInput label, .stNumberInput label, .stSelectbox label { font-size: 0.78rem !important; }
-
-    /* インジケーターカード */
-    .indicator-card { padding: 0.7rem; margin-bottom: 0.6rem; }
-
-    /* 配当月カード */
-    .div-month { padding: 6px 2px; font-size: 0.68rem; }
-    .div-month .month-amount { font-size: 0.75rem; }
-
-    /* ゴールバーラベル */
-    .goal-bar-labels { font-size: 0.65rem; }
-    .goal-bar-wrap { padding: 0.5rem 0.7rem; }
-
-    /* サイドバー: スマホでは自動的に折りたたまれるがフォント調整 */
-    section[data-testid="stSidebar"] { font-size: 0.85rem; }
-
-    /* ターミナルヘッダーのさらなる圧縮 */
-    .term-metric .val-sm { font-size: 11px; }
-    .term-metric .label { font-size: 11px; }
-    .term-goal-bar { width: 60px; }
-    .term-time .dt { font-size: 10px; }
-    .term-time .mkt-open, .term-time .mkt-closed { font-size: 10px; }
-    .term-ticker .sym, .term-ticker .val, .term-ticker .chg-up, .term-ticker .chg-dn { font-size: 11px; }
-
-    /* 水平スクロール防止（hr等） */
-    hr { margin: 0.5rem 0 !important; }
-
-    /* プロット（Plotly）の高さ圧縮 */
-    .js-plotly-plot { min-height: 250px !important; }
-}
-
-/* 極小画面（横幅400px以下、iPhone SE 等） */
-@media (max-width: 400px) {
-    .term-metric .val-lg { font-size: 18px; }
-    .term-metric .val-md { font-size: 14px; }
-    .term-metric { gap: 4px; }
-    .term-bottom { gap: 8px; padding: 10px 12px; }
-    .stTabs [data-baseweb="tab"] { padding: 6px 10px; font-size: 0.72rem; }
 }
 </style>
 """
