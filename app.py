@@ -47,7 +47,7 @@ def _verify_credentials(username: str, password: str) -> bool:
     if legacy and username == "admin":
         return hmac.compare_digest(password, legacy)
     # 存在しないユーザーでもダミー計算してタイミング差を作らない
-    bcrypt.checkpw(b"dummy", b"$2b$12$" + b"x" * 53)
+    bcrypt.checkpw(b"dummy", b"$2b$12$KIXtvPMnVAH9ccY1YY4vROlGK8YZQhgfYFCjLcfXsY9oB8q9T/TAG")
     return False
 
 def check_password():
