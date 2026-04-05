@@ -22,3 +22,13 @@ Thumbs.db
 
 # Misc
 gradle.properties
+
+# 旧バージョン（ローカルバックアップのみ）
+旧/
+ポートフォリオ旧/
+*.jpg
+*.jpeg
+*.png
+!static/**/*.png
+!static/**/*.jpg
+

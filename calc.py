@@ -7,6 +7,7 @@
 import pandas as pd
 import math
 from datetime import datetime
+from typing import Optional
 from config import get_tax_rate
 
 def classify_sector(row, info_sector):
@@ -140,7 +141,7 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
         "株価損益(円)": stock_gain, "為替損益(円)": fx_gain, "fetch_success": fetch_success,
     }
 
-def calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices=None):
+def calculate_portfolio(df: pd.DataFrame, closes_df: pd.DataFrame, info_dict: dict, fund_prices: dict, jpy_usd_rate: float, gas_prices: Optional[dict] = None) -> pd.DataFrame:
     now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
     results = []
     for _, row in df.iterrows():
@@ -158,7 +159,7 @@ def calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas
         display_df[col] = result_df[col].values
     return display_df
 
-def get_portfolio_totals(display_df):
+def get_portfolio_totals(display_df: pd.DataFrame) -> dict:
     ta = display_df["評価額(円)"].sum()
     return {
         "total_asset": ta,
@@ -172,7 +173,7 @@ def get_portfolio_totals(display_df):
         "stock_count": len(display_df),
     }
 
-def get_future_simulation(current_asset, annual_rate, years, yearly_addition):
+def get_future_simulation(current_asset: float, annual_rate: float, years: int, yearly_addition: float) -> pd.DataFrame:
     months = years * 12
     monthly_rate = annual_rate / 12
     monthly_add = yearly_addition / 12
@@ -193,7 +194,7 @@ def round_up_3(val):
         return f"{int(rounded):,}" if rounded.is_integer() else f"{rounded:,.3f}".rstrip("0").rstrip(".")
     except (ValueError, TypeError): return val
 
-def build_portfolio_summary_text(display_df, totals, jpy_usd_rate, history_df=None):
+def build_portfolio_summary_text(display_df: pd.DataFrame, totals: dict, jpy_usd_rate: float, history_df: Optional[pd.DataFrame] = None) -> str:
     """#5 AI総評用サマリー — 資産推移履歴も含める"""
     ta = totals["total_asset"]
     lines = [

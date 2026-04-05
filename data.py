@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 import json
 import gspread
+from typing import Optional
 from google.oauth2.service_account import Credentials
 from config import logger, EXPECTED_COLS, normalize_broker, normalize_tax
 
@@ -64,6 +65,18 @@ def _get_sheet_values(sheet_name):
     """キャッシュされた全シートデータからシート名で取得"""
     all_sheets = _load_all_sheets()
     return all_sheets.get(sheet_name, [])
+
+def get_gas_last_updated() -> Optional[str]:
+    """GAS株価データシートの最終更新日時を取得（なければNone）"""
+    try:
+        vals = _get_sheet_values("株価データ")
+        if vals and len(vals) >= 2:
+            for row in vals[1:]:
+                if len(row) >= 5 and row[4].strip():
+                    return row[4].strip()
+    except Exception:
+        pass
+    return None
 
 # ══════════════════════════════════════════
 # マイグレーション
@@ -129,7 +142,7 @@ def _parse_main_sheet(all_values):
 # データ読み込み (バッチから取得)
 # ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
-def load_data():
+def load_data() -> pd.DataFrame:
     try:
         values = _get_sheet_values("PortfolioData")
         # sheet1はタイトルが「PortfolioData」ではなくデフォルト名の場合がある
@@ -147,7 +160,8 @@ def load_data():
 # ══════════════════════════════════════════
 # #2 安全な保存: batch_updateで1リクエスト、clear前にデータ準備完了を保証
 # ══════════════════════════════════════════
-def save_data(df):
+def save_data(df: pd.DataFrame) -> None:
+    """clearせず上書きし、余剰行のみ削除することでデータ消失リスクを回避"""
     sh = get_spreadsheet()
     if sh is None: return
     try:
@@ -155,9 +169,17 @@ def save_data(df):
         # 書き込みデータを先に準備（ここで失敗してもシートは無傷）
         rows = [save_df.columns.values.tolist()] + save_df.values.tolist()
         ws = sh.sheet1
-        # batch_updateで全セルを一括上書き（clear不要、既存データの上に上書き）
-        ws.clear()
-        ws.update(rows, value_input_option="RAW")
+        n_rows = len(rows)
+        n_cols = len(rows[0]) if rows else 0
+        # 1. まず上書き（clearしない → 万一失敗してもデータ残る）
+        end_col = chr(ord("A") + n_cols - 1) if n_cols <= 26 else "Z"
+        ws.update(f"A1:{end_col}{n_rows}", rows, value_input_option="RAW")
+        # 2. 余剰行があれば削除
+        if ws.row_count > n_rows:
+            try:
+                ws.delete_rows(n_rows + 1, ws.row_count)
+            except Exception as de:
+                logger.warning("余剰行削除失敗（データ本体は保存済み）: %s", de)
         logger.info("データ保存完了: %d行", len(save_df))
     except Exception as e:
         logger.error("データ保存エラー: %s", e)
@@ -167,7 +189,7 @@ def save_data(df):
 # 投信価格 (バッチから取得)
 # ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
-def load_fund_prices():
+def load_fund_prices() -> dict:
     try:
         all_values = _get_sheet_values("投信価格")
         if not all_values or len(all_values) < 2: return {}
@@ -185,7 +207,7 @@ def load_fund_prices():
 # 「株価データ」シート: ティッカー | 銘柄名 | 現在値 | 前日比(%) | 更新日時
 # ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
-def load_gas_prices():
+def load_gas_prices() -> dict:
     """GASが更新した株価データを読み込む → {銘柄コード: {"price": float, "change_pct": float}}"""
     try:
         all_values = _get_sheet_values("株価データ")
@@ -209,7 +231,7 @@ def load_gas_prices():
 # 資産推移履歴 (バッチから取得)
 # ══════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
-def load_history():
+def load_history() -> pd.DataFrame:
     empty = pd.DataFrame(columns=["日付", "総資産額(円)"])
     try:
         all_values = _get_sheet_values("HistoryData")
@@ -232,7 +254,7 @@ def load_history():
         logger.error("履歴読み込みエラー: %s", e)
         return empty
 
-def save_history(date_str, total_asset):
+def save_history(date_str: str, total_asset: float) -> None:
     sh = get_spreadsheet()
     if sh is None: return
     try:
@@ -293,7 +315,7 @@ def save_ai_review(dt_str, text):
 TRANSACTION_COLS = ["日付", "銘柄コード", "銘柄名", "市場", "取引種別", "数量", "単価(円)", "手数料", "損益確定(円)", "口座", "口座区分"]
 
 @st.cache_data(ttl=120, show_spinner=False)
-def load_transactions():
+def load_transactions() -> pd.DataFrame:
     empty = pd.DataFrame(columns=TRANSACTION_COLS)
     try:
         all_values = _get_sheet_values("TransactionData")

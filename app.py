@@ -9,7 +9,7 @@ import pandas as pd
 from datetime import datetime
 
 from config import WORLD_INDICES
-from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history
+from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, get_gas_last_updated
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
 from style import MAIN_CSS
@@ -33,11 +33,21 @@ def check_password():
         <p style='color:rgba(255,255,255,0.4);font-size:0.85rem;margin-bottom:1.5rem'>アクセスにはパスワードが必要です</p>
       </div>
     </div>""", unsafe_allow_html=True)
+    MAX_ATTEMPTS = 5
+    attempts = st.session_state.get("login_attempts", 0)
+    if attempts >= MAX_ATTEMPTS:
+        st.error("試行回数が上限に達しました。ページを再読込してください。")
+        return False
     password = st.text_input("パスワード", type="password", key="pw_input")
     if st.button("ログイン", use_container_width=True):
         if password == st.secrets.get("app_password", ""):
-            st.session_state["authenticated"] = True; st.rerun()
-        else: st.error("パスワードが正しくありません")
+            st.session_state["authenticated"] = True
+            st.session_state["login_attempts"] = 0
+            st.rerun()
+        else:
+            st.session_state["login_attempts"] = attempts + 1
+            remaining = MAX_ATTEMPTS - st.session_state["login_attempts"]
+            st.error(f"パスワードが正しくありません（残り{remaining}回）")
     return False
 
 if not check_password(): st.stop()
@@ -61,14 +71,7 @@ df = load_data()
 fund_prices = load_fund_prices()
 gas_prices = load_gas_prices()
 
-gas_last_updated = None
-try:
-    from data import _get_sheet_values as _gsv
-    _gv = _gsv("株価データ")
-    if _gv and len(_gv) >= 2:
-        for row in _gv[1:]:
-            if len(row) >= 5 and row[4].strip(): gas_last_updated = row[4].strip(); break
-except Exception: pass
+gas_last_updated = get_gas_last_updated()
 
 if not df.empty:
     with st.spinner("市場データを取得中..."):
