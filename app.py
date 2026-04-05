@@ -9,6 +9,7 @@ import pandas as pd
 import hmac
 import html
 import time
+import bcrypt
 from datetime import datetime
 
 from config import WORLD_INDICES, logger
@@ -23,6 +24,31 @@ st.markdown(MAIN_CSS, unsafe_allow_html=True)
 
 # ═══════════════════ 認証 ═══════════════════
 SESSION_TTL_SEC = 2 * 3600  # 2時間でセッション失効
+
+def _verify_credentials(username: str, password: str) -> bool:
+    """ユーザー名＋bcryptハッシュでパスワード検証。
+    st.secrets["users"][username] に bcrypt ハッシュを保存する形式。
+    レガシー互換: st.secrets["app_password"] がある場合は単一ユーザーとして受付。
+    """
+    if not username or not password:
+        # タイミング攻撃防止のためダミーハッシュで計算
+        bcrypt.checkpw(b"dummy", b"$2b$12$KIXtvPMnVAH9ccY1YY4vROlGK8YZQhgfYFCjLcfXsY9oB8q9T/TAG")
+        return False
+    users = st.secrets.get("users", {})
+    stored_hash = users.get(username, "") if users else ""
+    if stored_hash:
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+        except (ValueError, TypeError) as e:
+            logger.error("bcrypt検証エラー: %s", e)
+            return False
+    # レガシー互換: 単一パスワードの旧設定
+    legacy = st.secrets.get("app_password", "")
+    if legacy and username == "admin":
+        return hmac.compare_digest(password, legacy)
+    # 存在しないユーザーでもダミー計算してタイミング差を作らない
+    bcrypt.checkpw(b"dummy", b"$2b$12$" + b"x" * 53)
+    return False
 
 def check_password():
     # セッション有効期限チェック
@@ -49,34 +75,34 @@ def check_password():
         st.error("試行回数が上限に達しました。ページを再読込してください。")
         return False
     with st.form("login_form", clear_on_submit=False):
-        password = st.text_input("パスワード", type="password", key="pw_input")
+        username = st.text_input("ユーザー名", key="user_input", autocomplete="username")
+        password = st.text_input("パスワード", type="password", key="pw_input", autocomplete="current-password")
         submitted = st.form_submit_button("ログイン", width="stretch")
-    # パスワード入力欄に自動フォーカス（ページ読込直後に数字をすぐ入力可能に）
+    # ユーザー名入力欄に自動フォーカス（ページ読込直後に即入力可能に）
     st.markdown("""
     <script>
       const tryFocus = () => {
-        const inputs = window.parent.document.querySelectorAll('input[type="password"]');
-        if (inputs.length > 0) { inputs[inputs.length - 1].focus(); return true; }
+        const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+        if (inputs.length > 0) { inputs[0].focus(); return true; }
         return false;
       };
       if (!tryFocus()) setTimeout(tryFocus, 100);
     </script>
     """, unsafe_allow_html=True)
     if submitted:
-        expected = st.secrets.get("app_password", "")
-        # タイミング攻撃対策: hmac.compare_digest で定数時間比較
-        if expected and hmac.compare_digest(password, expected):
+        if _verify_credentials(username, password):
             st.session_state["authenticated"] = True
+            st.session_state["username"] = username
             st.session_state["login_time"] = time.time()
             st.session_state["login_attempts"] = 0
-            logger.info("ログイン成功")
+            logger.info("ログイン成功 user=%s", username)
             st.rerun()
         else:
             st.session_state["login_attempts"] = attempts + 1
             remaining = MAX_ATTEMPTS - st.session_state["login_attempts"]
             # ブルートフォース対策: 失敗ごとに指数バックオフ遅延
             delay = min(2 ** st.session_state["login_attempts"], 30)
-            logger.warning("ログイン失敗 attempt=%d delay=%ds", st.session_state["login_attempts"], delay)
+            logger.warning("ログイン失敗 user=%s attempt=%d delay=%ds", username, st.session_state["login_attempts"], delay)
             time.sleep(delay)
             st.error(f"パスワードが正しくありません（残り{remaining}回）")
     return False
