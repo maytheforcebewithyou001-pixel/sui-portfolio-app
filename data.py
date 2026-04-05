@@ -44,15 +44,30 @@ def _sheet_name_for(user: str) -> str:
 
 @st.cache_resource
 def get_spreadsheet_for(user: str):
-    """ユーザー別にスプレッドシートを開く（キャッシュ）"""
+    """ユーザー別にスプレッドシートを開く。存在しない場合は自動作成（ヘッダー含む）"""
     gc = init_gspread()
     if gc is None: return None
     name = _sheet_name_for(user)
     try:
         return gc.open(name)
+    except gspread.exceptions.SpreadsheetNotFound:
+        # 初回ログイン: 新規作成
+        try:
+            logger.info("新規スプレッドシート作成: %s", name)
+            sh = gc.create(name)
+            # メインシートにヘッダーを書く
+            ws = sh.sheet1
+            ws.update_title("PortfolioData")
+            ws.update("A1", [EXPECTED_COLS], value_input_option="RAW")
+            st.success(f"✓ 新規ユーザー用スプレッドシート '{name}' を作成しました")
+            return sh
+        except Exception as e:
+            logger.error("スプレッドシート作成失敗 (%s): %s", name, e)
+            st.error(f"スプレッドシート作成に失敗: {e}")
+            return None
     except Exception as e:
         logger.error("スプレッドシート '%s' を開けません: %s", name, e)
-        st.error(f"スプレッドシート '{name}' が見つかりません: {e}")
+        st.error(f"スプレッドシート '{name}' エラー: {e}")
         return None
 
 def get_spreadsheet():

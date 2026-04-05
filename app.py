@@ -271,10 +271,15 @@ if not display_df.empty and "前日比" in display_df.columns:
         st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
 
 # ═══════════════════ タブ ═══════════════════
-from tabs import tab_portfolio, tab_analysis, tab_dividend, tab_simulation, tab_market, tab_transaction, tab_ai
+from tabs import tab_portfolio, tab_analysis, tab_dividend, tab_simulation, tab_market, tab_transaction, tab_ai, tab_admin
 
-tab_pf, tab_an, tab_div, tab_sim, tab_mkt, tab_tx, tab_ai_tab = st.tabs(
-    ["📊 ポートフォリオ", "🔍 分析", "💰 配当", "🚀 シミュレーション", "🌍 世界指標", "📒 取引履歴", "🤖 AI総評"])
+_tab_labels = ["📊 ポートフォリオ", "🔍 分析", "💰 配当", "🚀 シミュレーション", "🌍 世界指標", "📒 取引履歴", "🤖 AI総評"]
+_is_admin = tab_admin.is_admin(st.session_state.get("username", ""))
+if _is_admin:
+    _tab_labels.append("👑 管理者")
+
+_tabs = st.tabs(_tab_labels)
+tab_pf, tab_an, tab_div, tab_sim, tab_mkt, tab_tx, tab_ai_tab = _tabs[:7]
 
 tab_portfolio.render(tab_pf, df, display_df, totals)
 tab_analysis.render(tab_an, df, display_df, totals)
@@ -283,3 +288,5 @@ tab_simulation.render(tab_sim, df, totals, goal_amount, goal_oku, interest_rate,
 tab_market.render(tab_mkt)
 tab_transaction.render(tab_tx, df)
 tab_ai.render(tab_ai_tab, df, display_df, totals, jpy_usd_rate)
+if _is_admin:
+    tab_admin.render(_tabs[7])
