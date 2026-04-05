@@ -50,6 +50,34 @@ def _verify_credentials(username: str, password: str) -> bool:
     bcrypt.checkpw(b"dummy", b"$2b$12$KIXtvPMnVAH9ccY1YY4vROlGK8YZQhgfYFCjLcfXsY9oB8q9T/TAG")
     return False
 
+def _email_to_username(email: str) -> str:
+    """Google メールアドレスを管理者ユーザー名に変換（secretsで定義）"""
+    mapping = st.secrets.get("google_admin_map", {})
+    return mapping.get(email, "") if mapping else ""
+
+def _try_google_oauth_login() -> bool:
+    """Google OAuth でログイン済みなら admin として認証成立"""
+    try:
+        if not getattr(st.user, "is_logged_in", False):
+            return False
+    except Exception:
+        return False
+    email = getattr(st.user, "email", "")
+    mapped_user = _email_to_username(email)
+    if mapped_user:
+        st.session_state["authenticated"] = True
+        st.session_state["username"] = mapped_user
+        st.session_state["login_time"] = time.time()
+        st.session_state["login_attempts"] = 0
+        logger.info("Google OAuth ログイン成功 email=%s user=%s", email, mapped_user)
+        return True
+    # マッピングに無いメールは拒否
+    logger.warning("未許可のGoogleアカウントでログイン試行: %s", email)
+    st.error(f"このGoogleアカウント ({html.escape(email)}) は許可されていません。")
+    try: st.logout()
+    except Exception: pass
+    return False
+
 def check_password():
     # セッション有効期限チェック
     if st.session_state.get("authenticated"):
@@ -57,6 +85,9 @@ def check_password():
             return True
         st.session_state["authenticated"] = False
         st.warning("セッションの有効期限が切れました。再ログインしてください。")
+    # Google OAuth 経由でログインしているかチェック
+    if _try_google_oauth_login():
+        return True
     st.markdown("""
     <div style='display:flex;justify-content:center;align-items:center;min-height:60vh'>
       <div style='text-align:center'>
@@ -74,6 +105,14 @@ def check_password():
     if attempts >= MAX_ATTEMPTS:
         st.error("試行回数が上限に達しました。ページを再読込してください。")
         return False
+    # Google OAuth ログインボタン（管理者向け、パスキー対応）
+    if st.secrets.get("auth", {}):
+        if st.button("🔐 Google でログイン（管理者・パスキー対応）", width="stretch", key="google_login"):
+            try:
+                st.login()
+            except Exception as e:
+                st.error(f"Google ログイン起動に失敗: {e}")
+        st.caption("— または パスワード認証 —")
     with st.form("login_form", clear_on_submit=False):
         username = st.text_input("ユーザー名", key="user_input", autocomplete="username")
         password = st.text_input("パスワード", type="password", key="pw_input", autocomplete="current-password")
@@ -117,6 +156,12 @@ with st.sidebar:
         st.cache_data.clear()
         for k in ["authenticated", "username", "login_time", "login_attempts"]:
             st.session_state.pop(k, None)
+        # Google OAuth でログインしていた場合はそれも解除
+        try:
+            if getattr(st.user, "is_logged_in", False):
+                st.logout()
+        except Exception:
+            pass
         st.rerun()
     st.markdown("---")
     st.markdown("### ⚙️ 設定")
