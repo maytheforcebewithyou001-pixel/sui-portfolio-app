@@ -1,6 +1,9 @@
 """TAB 管理者: ユーザー追加補助＆シート管理"""
 import streamlit as st
 import bcrypt
+import pyotp
+import qrcode
+import io
 import html
 from config import logger
 from data import get_spreadsheet_for, _sheet_name_for
@@ -79,6 +82,62 @@ def render(tab):
                     st.success(f"✓ シート '{_sheet_name_for(pre_user)}' を確認/作成しました")
                 else:
                     st.error("シート作成に失敗しました。ログを確認してください。")
+
+        st.markdown("---")
+
+        # ── TOTP 2FA セットアップ ──
+        st.markdown("#### 2FA (TOTP) セットアップ")
+        st.caption("Google Authenticator 等でスキャンできる QR コードを生成します")
+        totp_user = st.text_input("対象ユーザー名", key="totp_user", placeholder="例: alice")
+        if st.button("TOTPシークレット生成 & QRコード表示", width="stretch", key="totp_gen_btn"):
+            if not totp_user:
+                st.error("ユーザー名を入力してください")
+            else:
+                secret = pyotp.random_base32()
+                uri = pyotp.totp.TOTP(secret).provisioning_uri(
+                    name=totp_user, issuer_name="FORCE CAPITAL"
+                )
+                # QRコード生成
+                img = qrcode.make(uri)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                st.image(buf.getvalue(), caption="Google Authenticator 等でスキャン", width=240)
+                st.code(f'''[users_totp]
+{totp_user} = "{secret}"''', language="toml")
+                st.caption("⚠ このシークレットは Streamlit Cloud Secrets に追加してください。スキャン後、ユーザーは6桁コードでログインが必要になります。")
+                st.caption(f"手動登録用シークレット: `{secret}`")
+                logger.info("管理者がTOTPシークレットを生成: user=%s", totp_user)
+
+        st.markdown("---")
+
+        # ── バックアップ ──
+        st.markdown("#### 📦 現在ユーザーのシートをCSVバックアップ")
+        st.caption("ログイン中ユーザーのポートフォリオデータを CSV でダウンロード")
+        from data import load_data, load_history, load_transactions
+        if st.button("バックアップ用CSVを生成", width="stretch", key="backup_btn"):
+            try:
+                import pandas as pd
+                from datetime import datetime as _dt
+                df_pf = load_data()
+                df_hist = load_history()
+                df_tx = load_transactions()
+                ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+                uname = st.session_state.get("username", "user")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.download_button("📊 ポートフォリオ", df_pf.to_csv(index=False).encode("utf-8-sig"),
+                                       f"portfolio_{uname}_{ts}.csv", "text/csv", width="stretch", key="dl_pf")
+                with c2:
+                    st.download_button("📈 資産推移", df_hist.to_csv(index=False).encode("utf-8-sig"),
+                                       f"history_{uname}_{ts}.csv", "text/csv", width="stretch", key="dl_hist",
+                                       disabled=df_hist.empty)
+                with c3:
+                    st.download_button("📒 取引履歴", df_tx.to_csv(index=False).encode("utf-8-sig"),
+                                       f"transactions_{uname}_{ts}.csv", "text/csv", width="stretch", key="dl_tx",
+                                       disabled=df_tx.empty)
+                st.success("✓ バックアップファイル生成完了。上のボタンからダウンロードしてください。")
+            except Exception as e:
+                st.error(f"バックアップ失敗: {e}")
 
         st.markdown("---")
         st.markdown("#### 運用メモ")

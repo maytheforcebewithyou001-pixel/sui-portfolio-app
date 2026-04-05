@@ -10,6 +10,7 @@ import hmac
 import html
 import time
 import bcrypt
+import pyotp
 from datetime import datetime
 
 from config import WORLD_INDICES, logger
@@ -24,6 +25,20 @@ st.markdown(MAIN_CSS, unsafe_allow_html=True)
 
 # ═══════════════════ 認証 ═══════════════════
 SESSION_TTL_SEC = 2 * 3600  # 2時間でセッション失効
+
+def _verify_totp(username: str, code: str) -> bool:
+    """TOTP検証。ユーザーが users_totp にシークレット登録されていなければスキップ（True）。"""
+    totp_secrets = st.secrets.get("users_totp", {})
+    secret = totp_secrets.get(username, "") if totp_secrets else ""
+    if not secret:
+        return True  # TOTP未設定ユーザーはスキップ
+    if not code or len(code) != 6 or not code.isdigit():
+        return False
+    try:
+        return pyotp.TOTP(secret).verify(code, valid_window=1)
+    except Exception as e:
+        logger.error("TOTP検証エラー: %s", e)
+        return False
 
 def _verify_credentials(username: str, password: str) -> bool:
     """ユーザー名＋bcryptハッシュでパスワード検証。
@@ -116,6 +131,7 @@ def check_password():
     with st.form("login_form", clear_on_submit=False):
         username = st.text_input("ユーザー名", key="user_input", autocomplete="username")
         password = st.text_input("パスワード", type="password", key="pw_input", autocomplete="current-password")
+        totp_code = st.text_input("6桁コード（2FA有効ユーザーのみ、未設定なら空欄）", key="totp_input", max_chars=6, autocomplete="one-time-code")
         submitted = st.form_submit_button("ログイン", width="stretch")
     # ユーザー名入力欄に自動フォーカス（ページ読込直後に即入力可能に）
     st.markdown("""
@@ -129,7 +145,9 @@ def check_password():
     </script>
     """, unsafe_allow_html=True)
     if submitted:
-        if _verify_credentials(username, password):
+        pw_ok = _verify_credentials(username, password)
+        totp_ok = _verify_totp(username, totp_code) if pw_ok else False
+        if pw_ok and totp_ok:
             st.session_state["authenticated"] = True
             st.session_state["username"] = username
             st.session_state["login_time"] = time.time()
@@ -175,6 +193,27 @@ with st.sidebar:
     if st.button("🔄 全データ最新化", width="stretch"):
         st.cache_data.clear(); st.rerun()
     st.caption("左上の × で閉じる")
+    st.markdown("---")
+    with st.expander("📜 利用規約・プライバシーポリシー"):
+        st.markdown("""
+**利用規約（β版）**
+
+- 本アプリ（FORCE CAPITAL）は個人投資家向けのポートフォリオ管理ツールの**β版**です
+- 本アプリは**投資助言・勧誘を行うものではありません**。投資判断は自己責任でお願いします
+- 表示される価格情報は yfinance / J-Quants 等の外部サービスから取得しており、**正確性・即時性を保証しません**
+- 本アプリの利用により発生した損害について、運営者は一切の責任を負いません
+- 運営者は予告なくサービスを変更・停止する場合があります
+
+**プライバシーポリシー（β版）**
+
+- 収集する情報: ユーザー名、ログイン時刻、ポートフォリオデータ（銘柄・数量・単価等）、メールアドレス（Google OAuth利用時）
+- 利用目的: 本アプリの機能提供およびサービス改善
+- データ保管: ユーザーデータは Google Sheets に暗号化通信で保存されます
+- 第三者提供: 価格情報取得のため yfinance / J-Quants / Google Sheets / Anthropic API に銘柄コード等を送信します
+- 削除要求: 退会・データ削除の希望は運営者にご連絡ください
+
+*最終更新: 2026-04-06*
+""")
 
 # ═══════════════════ データ取得 ═══════════════════
 df = load_data()
