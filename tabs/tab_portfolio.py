@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, ACCT_BADGE_MAP
 from data import load_data, save_data, load_history, _clear_sheet_cache
-from market import get_ticker_name, get_cached_market_data
+from market import get_ticker_name, get_cached_market_data, get_stock_detail
 from calc import round_up_3, safe_csv_df
 from tabs import card, colored_card, pnl_color, pnl_sign
 
@@ -117,6 +117,34 @@ def render(tab, df, display_df, totals):
                     f"<p class='sv'>取得単価 {buy_price:,.1f}円 · {shares_val:,.4g}株 · {dod_s}"
                     f"{' · 取得日 ' + buy_date_str if buy_date_str else ''}</p>"
                     f"</div>", unsafe_allow_html=True)
+
+                # 指標カード
+                if market_type in ("日本株", "米国株"):
+                    detail = get_stock_detail(code_raw, market_type)
+                    if detail:
+                        def _fv(v, fmt="{:,.2f}"):
+                            return fmt.format(v) if v is not None else "-"
+                        dk = st.columns(4)
+                        with dk[0]:
+                            st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
+                                f"<h4>前日終値</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('前日終値'))}</p>"
+                                f"<h4 style='margin-top:0.4rem'>配当利回り</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('配当利回り(%)'))}%</p>"
+                                f"</div>", unsafe_allow_html=True)
+                        with dk[1]:
+                            st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
+                                f"<h4>1株配当</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('1株配当'))}</p>"
+                                f"<h4 style='margin-top:0.4rem'>PER</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('PER'))}倍</p>"
+                                f"</div>", unsafe_allow_html=True)
+                        with dk[2]:
+                            st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
+                                f"<h4>PBR</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('PBR'))}倍</p>"
+                                f"<h4 style='margin-top:0.4rem'>EPS</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('EPS'))}</p>"
+                                f"</div>", unsafe_allow_html=True)
+                        with dk[3]:
+                            st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
+                                f"<h4>BPS</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('BPS'))}</p>"
+                                f"<h4 style='margin-top:0.4rem'>ROE</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('ROE(%)'))}%</p>"
+                                f"</div>", unsafe_allow_html=True)
 
                 # 株価チャート（取得日〜現在）
                 if market_type in ("日本株", "米国株"):

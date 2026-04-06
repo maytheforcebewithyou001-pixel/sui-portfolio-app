@@ -164,6 +164,32 @@ def get_cached_ticker_info(tickers_tuple):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def get_stock_detail(code, market_type):
+    """銘柄の詳細指標を取得。前日終値,配当利回り,1株配当,PER,PBR,EPS,BPS,ROEを返す。"""
+    if not code or market_type not in ("日本株", "米国株"):
+        return {}
+    t = f"{code}.T" if market_type == "日本株" else code
+    try:
+        info = yf.Ticker(t).info
+        bps = info.get("bookValue") or 0
+        eps = info.get("trailingEps") or 0
+        roe = (eps / bps * 100) if bps and eps else None
+        return {
+            "前日終値": info.get("previousClose") or info.get("regularMarketPreviousClose"),
+            "配当利回り(%)": round((info.get("dividendYield") or 0) * 100, 2),
+            "1株配当": info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0,
+            "PER": info.get("trailingPE"),
+            "PBR": info.get("priceToBook"),
+            "EPS": eps or None,
+            "BPS": bps or None,
+            "ROE(%)": round(roe, 2) if roe else None,
+        }
+    except Exception as e:
+        logger.warning("銘柄詳細取得失敗 %s: %s", t, e)
+        return {}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_ticker_name(code, market_type):
     if not code: return ""
     if market_type in ["投資信託", "その他資産"]: return "手動入力"
