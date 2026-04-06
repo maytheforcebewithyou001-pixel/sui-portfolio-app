@@ -176,7 +176,7 @@ def get_stock_detail(code, market_type):
         roe = (eps / bps * 100) if bps and eps else None
         return {
             "前日終値": info.get("previousClose") or info.get("regularMarketPreviousClose"),
-            "配当利回り(%)": round((info.get("dividendYield") or 0) * 100, 2),
+            "配当利回り(%)": round(_dy * 100 if (_dy := info.get("dividendYield") or 0) < 1 else _dy, 2),
             "1株配当": info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0,
             "PER": info.get("trailingPE"),
             "PBR": info.get("priceToBook"),
