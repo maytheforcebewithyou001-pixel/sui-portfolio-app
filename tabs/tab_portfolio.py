@@ -127,64 +127,65 @@ def render(tab, df, display_df, totals):
                 if market_type in ("日本株", "米国株"):
                     try:
                         detail = get_stock_detail(code_raw, market_type)
-                    except Exception as _e:
+                    except Exception:
                         detail = {}
-                        st.caption(f"指標取得エラー: {_e}")
-                    if detail:
-                        def _fv(v, fmt="{:,.2f}"):
-                            return fmt.format(v) if v is not None else "-"
-                        ccy = "$" if market_type == "米国株" else "¥"
-                        _tip = {
-                            "前日終値": "前営業日の市場終了時の株価",
-                            "配当利回り": "年間配当金 ÷ 株価 × 100。高いほど配当収入が多い",
-                            "1株配当": "1株あたりの年間配当金額",
-                            "PER": "株価収益率（Price Earnings Ratio）。株価 ÷ EPS。低いほど割安の目安",
-                            "PBR": "株価純資産倍率（Price Book-value Ratio）。株価 ÷ BPS。1倍未満は解散価値以下",
-                            "EPS": "1株当たり純利益（Earnings Per Share）。当期純利益 ÷ 発行済株式数",
-                            "BPS": "1株当たり純資産（Book-value Per Share）。純資産 ÷ 発行済株式数",
-                            "ROE": "自己資本利益率（Return On Equity）。当期純利益 ÷ 自己資本 × 100。経営効率の指標",
-                        }
-                        def _h4(label, mt=False):
-                            tip = _tip.get(label, "")
-                            ms = "margin-top:0.4rem;" if mt else ""
-                            return f"<h4 title='{tip}' style='{ms}cursor:help'>{label}</h4>"
-                        dk = st.columns(4)
-                        _prev = _fv(detail.get("前日終値"))
-                        _dy = _fv(detail.get("配当利回り(%)"))
-                        _div = _fv(detail.get("1株配当"))
-                        _per = _fv(detail.get("PER"))
-                        _pbr = _fv(detail.get("PBR"))
-                        _eps = _fv(detail.get("EPS"))
-                        _bps = _fv(detail.get("BPS"))
-                        _roe = _fv(detail.get("ROE(%)"))
-                        _next_e = detail.get("次回決算発表") or "-"
-                        _q_end = detail.get("直近四半期末") or "-"
-                        with dk[0]:
-                            st.markdown(
-                                f"<div class='status-card' style='padding:0.6rem'>"
-                                f"{_h4('前日終値')}<p class='mv' style='font-size:1rem'>{ccy}{_prev}</p>"
-                                f"{_h4('配当利回り', mt=True)}<p class='mv' style='font-size:1rem'>{_dy}%</p>"
-                                f"</div>", unsafe_allow_html=True)
-                        with dk[1]:
-                            st.markdown(
-                                f"<div class='status-card' style='padding:0.6rem'>"
-                                f"{_h4('1株配当')}<p class='mv' style='font-size:1rem'>{ccy}{_div}</p>"
-                                f"{_h4('PER', mt=True)}<p class='mv' style='font-size:1rem'>{_per}倍</p>"
-                                f"</div>", unsafe_allow_html=True)
-                        with dk[2]:
-                            st.markdown(
-                                f"<div class='status-card' style='padding:0.6rem'>"
-                                f"{_h4('PBR')}<p class='mv' style='font-size:1rem'>{_pbr}倍</p>"
-                                f"{_h4('EPS', mt=True)}<p class='mv' style='font-size:1rem'>{ccy}{_eps}</p>"
-                                f"</div>", unsafe_allow_html=True)
-                        with dk[3]:
-                            st.markdown(
-                                f"<div class='status-card' style='padding:0.6rem'>"
-                                f"{_h4('BPS')}<p class='mv' style='font-size:1rem'>{ccy}{_bps}</p>"
-                                f"{_h4('ROE', mt=True)}<p class='mv' style='font-size:1rem'>{_roe}%</p>"
-                                f"<h4 style='margin-top:0.4rem'>次回決算発表</h4><p class='mv' style='font-size:0.9rem'>{_next_e}</p>"
-                                f"<p class='sv'>四半期末 {_q_end}</p>"
-                                f"</div>", unsafe_allow_html=True)
+                    def _fv(v, fmt="{:,.2f}"):
+                        return fmt.format(v) if v is not None else "-"
+                    ccy = "$" if market_type == "米国株" else "¥"
+                    _tip = {
+                        "前日終値": "前営業日の市場終了時の株価",
+                        "配当利回り": "年間配当金 ÷ 株価 x 100。高いほど配当収入が多い",
+                        "1株配当": "1株あたりの年間配当金額",
+                        "PER": "株価収益率(Price Earnings Ratio)。株価 ÷ EPS。低いほど割安の目安",
+                        "PBR": "株価純資産倍率(Price Book-value Ratio)。株価 ÷ BPS。1倍未満は解散価値以下",
+                        "EPS": "1株当たり純利益(Earnings Per Share)。当期純利益 ÷ 発行済株式数",
+                        "BPS": "1株当たり純資産(Book-value Per Share)。純資産 ÷ 発行済株式数",
+                        "ROE": "自己資本利益率(Return On Equity)。当期純利益 ÷ 自己資本 x 100。経営効率の指標",
+                    }
+                    def _h4(label, mt=False):
+                        tip = _tip.get(label, "")
+                        ms = "margin-top:0.4rem;" if mt else ""
+                        return "<h4 title='" + tip + "' style='" + ms + "cursor:help'>" + label + "</h4>"
+                    # detail が空でも display_df から取れる値で埋める
+                    _prev = _fv(detail.get("前日終値") if detail else None)
+                    _dy_val = detail.get("配当利回り(%)") if detail else row.get("実質利回り(%)", None)
+                    _dy = _fv(_dy_val)
+                    _div_val = detail.get("1株配当") if detail else None
+                    _div = _fv(_div_val)
+                    _per = _fv(detail.get("PER") if detail else None)
+                    _pbr = _fv(detail.get("PBR") if detail else None)
+                    _eps = _fv(detail.get("EPS") if detail else None)
+                    _bps = _fv(detail.get("BPS") if detail else None)
+                    _roe = _fv(detail.get("ROE(%)") if detail else None)
+                    _next_e = (detail.get("次回決算発表") if detail else None) or "-"
+                    _q_end = (detail.get("直近四半期末") if detail else None) or "-"
+                    dk = st.columns(4)
+                    with dk[0]:
+                        st.markdown(
+                            "<div class='status-card' style='padding:0.6rem'>"
+                            + _h4("前日終値") + "<p class='mv' style='font-size:1rem'>" + ccy + _prev + "</p>"
+                            + _h4("配当利回り", mt=True) + "<p class='mv' style='font-size:1rem'>" + _dy + "%</p>"
+                            + "</div>", unsafe_allow_html=True)
+                    with dk[1]:
+                        st.markdown(
+                            "<div class='status-card' style='padding:0.6rem'>"
+                            + _h4("1株配当") + "<p class='mv' style='font-size:1rem'>" + ccy + _div + "</p>"
+                            + _h4("PER", mt=True) + "<p class='mv' style='font-size:1rem'>" + _per + "倍</p>"
+                            + "</div>", unsafe_allow_html=True)
+                    with dk[2]:
+                        st.markdown(
+                            "<div class='status-card' style='padding:0.6rem'>"
+                            + _h4("PBR") + "<p class='mv' style='font-size:1rem'>" + _pbr + "倍</p>"
+                            + _h4("EPS", mt=True) + "<p class='mv' style='font-size:1rem'>" + ccy + _eps + "</p>"
+                            + "</div>", unsafe_allow_html=True)
+                    with dk[3]:
+                        st.markdown(
+                            "<div class='status-card' style='padding:0.6rem'>"
+                            + _h4("BPS") + "<p class='mv' style='font-size:1rem'>" + ccy + _bps + "</p>"
+                            + _h4("ROE", mt=True) + "<p class='mv' style='font-size:1rem'>" + _roe + "%</p>"
+                            + "<h4 style='margin-top:0.4rem'>次回決算発表</h4><p class='mv' style='font-size:0.9rem'>" + _next_e + "</p>"
+                            + "<p class='sv'>四半期末 " + _q_end + "</p>"
+                            + "</div>", unsafe_allow_html=True)
 
                 # 株価チャート（取得日〜現在）
                 if market_type in ("日本株", "米国株"):
