@@ -87,16 +87,21 @@ def render(tab, df, display_df, totals):
             ac = [c for c in show if c in display_df.columns]
             fmt = {"保有株数": round_up_3, "取得単価(円)": round_up_3, "現在値(円)": round_up_3, "前日比": fp,
                    "評価額(円)": "{:,.0f}", "税引後損益(円)": "{:,.0f}", "予想配当(円)": "{:,.0f}", "実質利回り(%)": "{:.2f}%"}
-            sdf = display_df[ac].style
-            if "税引後損益(円)" in ac: sdf = sdf.map(cpf, subset=["税引後損益(円)"])
-            if "前日比" in ac: sdf = sdf.map(cpc, subset=["前日比"])
-            sdf = sdf.format({k: v for k, v in fmt.items() if k in ac})
-            st.dataframe(sdf, width='stretch', hide_index=True)
+            show_df = display_df[ac].copy()
+            show_df.index = range(len(show_df))
+            event = st.dataframe(
+                show_df.style
+                    .map(cpf, subset=["税引後損益(円)"] if "税引後損益(円)" in ac else [])
+                    .map(cpc, subset=["前日比"] if "前日比" in ac else [])
+                    .format({k: v for k, v in fmt.items() if k in ac}),
+                width='stretch', hide_index=True,
+                on_select="rerun", selection_mode="single-row", key="stock_table")
 
             # ── 銘柄詳細 ──
             st.markdown("---"); st.markdown("#### 🔎 銘柄詳細")
-            labels = [f"{r['銘柄コード']} {r['銘柄名']}" for _, r in display_df.iterrows()]
-            sel = st.selectbox("銘柄を選択", options=range(len(labels)), format_func=lambda i: labels[i], key="stock_detail")
+            sel_rows = event.selection.rows if event.selection.rows else []
+            sel = sel_rows[0] if sel_rows else None
+            st.caption("↑ テーブルの行をクリックして銘柄を選択")
             if sel is not None:
                 row = display_df.iloc[sel]
                 code_raw = str(row["銘柄コード"])
