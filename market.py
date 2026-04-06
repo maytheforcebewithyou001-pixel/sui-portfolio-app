@@ -171,18 +171,24 @@ def get_stock_detail(code, market_type):
     t = f"{code}.T" if market_type == "日本株" else code
     try:
         info = yf.Ticker(t).info
-        bps = info.get("bookValue") or 0
-        eps = info.get("trailingEps") or 0
-        roe = (eps / bps * 100) if bps and eps else None
+        bps = info.get("bookValue")
+        eps = info.get("trailingEps")
+        roe_raw = info.get("returnOnEquity")
+        # dividendYield: yfinanceは米国株で既に%値(例:0.41=0.41%)、日本株も%値で返す
+        # 0.2未満なら小数(例:0.0041)と判断して×100
+        dy = info.get("dividendYield") or 0
+        if 0 < dy < 0.2:
+            dy = dy * 100
         return {
             "前日終値": info.get("previousClose") or info.get("regularMarketPreviousClose"),
-            "配当利回り(%)": round(_dy * 100 if (_dy := info.get("dividendYield") or 0) < 1 else _dy, 2),
+            "配当利回り(%)": round(dy, 2),
             "1株配当": info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0,
             "PER": info.get("trailingPE"),
             "PBR": info.get("priceToBook"),
-            "EPS": eps or None,
-            "BPS": bps or None,
-            "ROE(%)": round(roe, 2) if roe else None,
+            "EPS": eps,
+            "BPS": bps,
+            "ROE(%)": round(roe_raw * 100, 2) if roe_raw is not None else None,
+            "通貨": "USD" if market_type == "米国株" else "JPY",
         }
     except Exception as e:
         logger.warning("銘柄詳細取得失敗 %s: %s", t, e)

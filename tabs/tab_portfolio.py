@@ -129,25 +129,26 @@ def render(tab, df, display_df, totals):
                     if detail:
                         def _fv(v, fmt="{:,.2f}"):
                             return fmt.format(v) if v is not None else "-"
+                        ccy = "$" if market_type == "米国株" else "¥"
                         dk = st.columns(4)
                         with dk[0]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>前日終値</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('前日終値'))}</p>"
+                                f"<h4>前日終値</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('前日終値'))}</p>"
                                 f"<h4 style='margin-top:0.4rem'>配当利回り</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('配当利回り(%)'))}%</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[1]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>1株配当</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('1株配当'))}</p>"
+                                f"<h4>1株配当</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('1株配当'))}</p>"
                                 f"<h4 style='margin-top:0.4rem'>PER</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('PER'))}倍</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[2]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
                                 f"<h4>PBR</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('PBR'))}倍</p>"
-                                f"<h4 style='margin-top:0.4rem'>EPS</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('EPS'))}</p>"
+                                f"<h4 style='margin-top:0.4rem'>EPS</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('EPS'))}</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[3]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>BPS</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('BPS'))}</p>"
+                                f"<h4>BPS</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('BPS'))}</p>"
                                 f"<h4 style='margin-top:0.4rem'>ROE</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('ROE(%)'))}%</p>"
                                 f"</div>", unsafe_allow_html=True)
 
