@@ -125,7 +125,11 @@ def render(tab, df, display_df, totals):
 
                 # 指標カード
                 if market_type in ("日本株", "米国株"):
-                    detail = get_stock_detail(code_raw, market_type)
+                    try:
+                        detail = get_stock_detail(code_raw, market_type)
+                    except Exception as _e:
+                        detail = {}
+                        st.caption(f"指標取得エラー: {_e}")
                     if detail:
                         def _fv(v, fmt="{:,.2f}"):
                             return fmt.format(v) if v is not None else "-"

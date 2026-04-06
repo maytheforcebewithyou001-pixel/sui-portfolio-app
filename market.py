@@ -7,7 +7,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import logger, SECTOR_MAP
 from data import save_last_prices, load_last_prices
@@ -172,14 +172,18 @@ def get_stock_detail(code, market_type):
     t = f"{code}.T" if market_type == "日本株" else code
     try:
         info = yf.Ticker(t).info
+        if not info or info.get("quoteType") is None:
+            return {}
         bps = info.get("bookValue")
         eps = info.get("trailingEps")
         roe_raw = info.get("returnOnEquity")
-        # dividendYield: yfinanceは米国株で既に%値(例:0.41=0.41%)、日本株も%値で返す
-        # 0.2未満なら小数(例:0.0041)と判断して×100
         dy = info.get("dividendYield") or 0
         if 0 < dy < 0.2:
             dy = dy * 100
+        def _ts(val):
+            if not val: return None
+            try: return datetime.fromtimestamp(val, tz=timezone.utc).strftime("%Y/%m/%d")
+            except Exception: return None
         return {
             "前日終値": info.get("previousClose") or info.get("regularMarketPreviousClose"),
             "配当利回り(%)": round(dy, 2),
@@ -189,8 +193,8 @@ def get_stock_detail(code, market_type):
             "EPS": eps,
             "BPS": bps,
             "ROE(%)": round(roe_raw * 100, 2) if roe_raw is not None else None,
-            "直近四半期末": datetime.utcfromtimestamp(mrq).strftime("%Y/%m/%d") if (mrq := info.get("mostRecentQuarter")) else None,
-            "次回決算発表": datetime.utcfromtimestamp(ets).strftime("%Y/%m/%d") if (ets := info.get("earningsTimestamp")) else None,
+            "直近四半期末": _ts(info.get("mostRecentQuarter")),
+            "次回決算発表": _ts(info.get("earningsTimestamp")),
             "通貨": "USD" if market_type == "米国株" else "JPY",
         }
     except Exception as e:
