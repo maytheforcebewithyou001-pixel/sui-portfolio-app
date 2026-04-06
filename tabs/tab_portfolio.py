@@ -130,28 +130,42 @@ def render(tab, df, display_df, totals):
                         def _fv(v, fmt="{:,.2f}"):
                             return fmt.format(v) if v is not None else "-"
                         ccy = "$" if market_type == "米国株" else "¥"
+                        _tip = {
+                            "前日終値": "前営業日の市場終了時の株価",
+                            "配当利回り": "年間配当金 ÷ 株価 × 100。高いほど配当収入が多い",
+                            "1株配当": "1株あたりの年間配当金額",
+                            "PER": "株価収益率（Price Earnings Ratio）。株価 ÷ EPS。低いほど割安の目安",
+                            "PBR": "株価純資産倍率（Price Book-value Ratio）。株価 ÷ BPS。1倍未満は解散価値以下",
+                            "EPS": "1株当たり純利益（Earnings Per Share）。当期純利益 ÷ 発行済株式数",
+                            "BPS": "1株当たり純資産（Book-value Per Share）。純資産 ÷ 発行済株式数",
+                            "ROE": "自己資本利益率（Return On Equity）。当期純利益 ÷ 自己資本 × 100。経営効率の指標",
+                        }
+                        def _h4(label):
+                            return f"<h4 title='{_tip.get(label, '')}' style='cursor:help'>{label}</h4>"
+                        def _h4m(label):
+                            return f"<h4 title='{_tip.get(label, '')}' style='margin-top:0.4rem;cursor:help'>{label}</h4>"
                         dk = st.columns(4)
                         with dk[0]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>前日終値</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('前日終値'))}</p>"
-                                f"<h4 style='margin-top:0.4rem'>配当利回り</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('配当利回り(%)'))}%</p>"
+                                f"{_h4('前日終値')}<p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('前日終値'))}</p>"
+                                f"{_h4m('配当利回り')}<p class='mv' style='font-size:1rem'>{_fv(detail.get('配当利回り(%)'))}%</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[1]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>1株配当</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('1株配当'))}</p>"
-                                f"<h4 style='margin-top:0.4rem'>PER</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('PER'))}倍</p>"
+                                f"{_h4('1株配当')}<p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('1株配当'))}</p>"
+                                f"{_h4m('PER')}<p class='mv' style='font-size:1rem'>{_fv(detail.get('PER'))}倍</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[2]:
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>PBR</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('PBR'))}倍</p>"
-                                f"<h4 style='margin-top:0.4rem'>EPS</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('EPS'))}</p>"
+                                f"{_h4('PBR')}<p class='mv' style='font-size:1rem'>{_fv(detail.get('PBR'))}倍</p>"
+                                f"{_h4m('EPS')}<p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('EPS'))}</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[3]:
                             _next_e = detail.get("次回決算発表") or "-"
                             _q_end = detail.get("直近四半期末") or "-"
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
-                                f"<h4>BPS</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('BPS'))}</p>"
-                                f"<h4 style='margin-top:0.4rem'>ROE</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('ROE(%)'))}%</p>"
+                                f"{_h4('BPS')}<p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('BPS'))}</p>"
+                                f"{_h4m('ROE')}<p class='mv' style='font-size:1rem'>{_fv(detail.get('ROE(%)'))}%</p>"
                                 f"<h4 style='margin-top:0.4rem'>次回決算発表</h4><p class='mv' style='font-size:0.9rem'>{_next_e}</p>"
                                 f"<p class='sv'>四半期末 {_q_end}</p>"
                                 f"</div>", unsafe_allow_html=True)
