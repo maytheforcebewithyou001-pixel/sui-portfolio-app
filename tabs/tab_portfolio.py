@@ -147,12 +147,13 @@ def render(tab, df, display_df, totals):
                                 f"<h4 style='margin-top:0.4rem'>EPS</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('EPS'))}</p>"
                                 f"</div>", unsafe_allow_html=True)
                         with dk[3]:
-                            _last_e = detail.get("直近決算日") or "-"
-                            _next_e = detail.get("次回決算日") or "-"
+                            _next_e = detail.get("次回決算発表") or "-"
+                            _q_end = detail.get("直近四半期末") or "-"
                             st.markdown(f"<div class='status-card' style='padding:0.6rem'>"
                                 f"<h4>BPS</h4><p class='mv' style='font-size:1rem'>{ccy}{_fv(detail.get('BPS'))}</p>"
                                 f"<h4 style='margin-top:0.4rem'>ROE</h4><p class='mv' style='font-size:1rem'>{_fv(detail.get('ROE(%)'))}%</p>"
-                                f"<h4 style='margin-top:0.4rem'>決算</h4><p class='sv'>直近 {_last_e}　次回 {_next_e}</p>"
+                                f"<h4 style='margin-top:0.4rem'>次回決算発表</h4><p class='mv' style='font-size:0.9rem'>{_next_e}</p>"
+                                f"<p class='sv'>四半期末 {_q_end}</p>"
                                 f"</div>", unsafe_allow_html=True)
 
                 # 株価チャート（取得日〜現在）

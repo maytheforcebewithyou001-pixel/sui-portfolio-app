@@ -189,8 +189,8 @@ def get_stock_detail(code, market_type):
             "EPS": eps,
             "BPS": bps,
             "ROE(%)": round(roe_raw * 100, 2) if roe_raw is not None else None,
-            "直近決算日": datetime.utcfromtimestamp(mrq).strftime("%Y/%m/%d") if (mrq := info.get("mostRecentQuarter")) else None,
-            "次回決算日": datetime.utcfromtimestamp(ets).strftime("%Y/%m/%d") if (ets := info.get("earningsTimestamp")) else None,
+            "直近四半期末": datetime.utcfromtimestamp(mrq).strftime("%Y/%m/%d") if (mrq := info.get("mostRecentQuarter")) else None,
+            "次回決算発表": datetime.utcfromtimestamp(ets).strftime("%Y/%m/%d") if (ets := info.get("earningsTimestamp")) else None,
             "通貨": "USD" if market_type == "米国株" else "JPY",
         }
     except Exception as e:
