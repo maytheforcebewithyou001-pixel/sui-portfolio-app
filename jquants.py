@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from config import logger
@@ -27,6 +28,17 @@ def _get(path, params=None):
     try:
         while url:
             resp = requests.get(url, headers=_headers(), params=params, timeout=15)
+            if resp.status_code == 429:
+                for attempt in range(3):
+                    wait = int(resp.headers.get("Retry-After", 2 ** (attempt + 1)))
+                    logger.warning("J-Quants %s 429 rate limit, retry %d/3 after %ds", path, attempt + 1, wait)
+                    time.sleep(wait)
+                    resp = requests.get(url, headers=_headers(), params=params, timeout=15)
+                    if resp.status_code != 429:
+                        break
+                if resp.status_code == 429:
+                    logger.warning("J-Quants %s 429 retry exhausted", path)
+                    return None
             if resp.status_code != 200:
                 logger.warning("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
                 return None
