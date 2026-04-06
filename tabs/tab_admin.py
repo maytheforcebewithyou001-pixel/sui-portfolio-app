@@ -7,6 +7,7 @@ import io
 import html
 from config import logger
 from data import get_spreadsheet_for, _sheet_name_for
+from calc import safe_csv_df
 
 
 def is_admin(username: str) -> bool:
@@ -125,14 +126,14 @@ def render(tab):
                 uname = st.session_state.get("username", "user")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.download_button("📊 ポートフォリオ", df_pf.to_csv(index=False).encode("utf-8-sig"),
+                    st.download_button("📊 ポートフォリオ", safe_csv_df(df_pf).to_csv(index=False).encode("utf-8-sig"),
                                        f"portfolio_{uname}_{ts}.csv", "text/csv", width="stretch", key="dl_pf")
                 with c2:
-                    st.download_button("📈 資産推移", df_hist.to_csv(index=False).encode("utf-8-sig"),
+                    st.download_button("📈 資産推移", safe_csv_df(df_hist).to_csv(index=False).encode("utf-8-sig"),
                                        f"history_{uname}_{ts}.csv", "text/csv", width="stretch", key="dl_hist",
                                        disabled=df_hist.empty)
                 with c3:
-                    st.download_button("📒 取引履歴", df_tx.to_csv(index=False).encode("utf-8-sig"),
+                    st.download_button("📒 取引履歴", safe_csv_df(df_tx).to_csv(index=False).encode("utf-8-sig"),
                                        f"transactions_{uname}_{ts}.csv", "text/csv", width="stretch", key="dl_tx",
                                        disabled=df_tx.empty)
                 st.success("✓ バックアップファイル生成完了。上のボタンからダウンロードしてください。")

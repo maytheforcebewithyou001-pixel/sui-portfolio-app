@@ -91,9 +91,9 @@ def render(tab, df):
                         tx_sel = st.selectbox("銘柄", tx_options, key="txsel") if tx_options else None
                     with tx_r1c: tx_date = st.date_input("取引日", value=datetime.now().date(), key="txdate")
                     tx_r2a, tx_r2b, tx_r2c, tx_r2d = st.columns(4)
-                    with tx_r2a: tx_qty = st.number_input("数量", min_value=0.0001, value=1.0, step=1.0, key="txqty")
-                    with tx_r2b: tx_price = st.number_input("単価(円)", min_value=0.0, value=0.0, key="txprice")
-                    with tx_r2c: tx_fee = st.number_input("手数料(円)", min_value=0.0, value=0.0, key="txfee")
+                    with tx_r2a: tx_qty = st.number_input("数量", min_value=0.0001, max_value=100_000_000.0, value=1.0, step=1.0, key="txqty")
+                    with tx_r2b: tx_price = st.number_input("単価(円)", min_value=0.0, max_value=100_000_000.0, value=0.0, key="txprice")
+                    with tx_r2c: tx_fee = st.number_input("手数料(円)", min_value=0.0, max_value=10_000_000.0, value=0.0, key="txfee")
                     with tx_r2d:
                         tx_broker = st.selectbox("口座", BROKER_OPTIONS, key="txbroker")
                         tx_tax = st.selectbox("口座区分", TAX_OPTIONS, key="txtax")

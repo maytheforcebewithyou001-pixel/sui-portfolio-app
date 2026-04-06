@@ -43,7 +43,7 @@ def _get(path, params=None):
                 logger.warning("J-Quants %s HTTP %s: %s", path, resp.status_code, resp.text[:300])
                 return None
             data = resp.json()
-            logger.warning("J-Quants %s keys: %s, count=%d", path, list(data.keys()), len(results))
+            logger.debug("J-Quants %s keys: %s, count=%d", path, list(data.keys()), len(results))
             # レスポンスのメインキーを探す（daily_quotes, info, statements等）
             for key in data:
                 if key != "pagination_key" and isinstance(data[key], list):
@@ -68,7 +68,7 @@ def _get(path, params=None):
 def get_daily_quotes(codes, days=5):
     """日本株の直近N日の終値を取得。{銘柄コード: [{Date, Close, AdjClose, Change%}, ...]}"""
     if not _api_key() or not codes:
-        logger.warning("J-Quants: APIキーなし or コードなし. key=%s, codes=%s", bool(_api_key()), codes)
+        logger.debug("J-Quants: APIキーなし or コードなし. key=%s, codes=%s", bool(_api_key()), codes)
         return {}
     today = datetime.now(_JST)
     from_date = (today - timedelta(days=days + 10)).strftime("%Y%m%d")
@@ -81,7 +81,7 @@ def get_daily_quotes(codes, days=5):
         data = _get("/equities/bars/daily", {"code": c, "from": from_date, "to": to_date})
         if data:
             df = pd.DataFrame(data)
-            logger.warning("J-Quants OK %s: %d rows, cols=%s", c, len(df), list(df.columns)[:8])
+            logger.debug("J-Quants OK %s: %d rows", c, len(df))
             if not df.empty and ("Date" in df.columns):
                 df["Date"] = pd.to_datetime(df["Date"])
                 df = df.sort_values("Date")
@@ -105,8 +105,8 @@ def get_daily_quotes(codes, days=5):
                     })
                 result[c] = entries
         else:
-            logger.warning("J-Quants FAIL %s: data=None", c)
-    logger.warning("J-Quants get_daily_quotes result keys: %s", list(result.keys()))
+            logger.debug("J-Quants FAIL %s: data=None", c)
+    logger.debug("J-Quants get_daily_quotes: %d codes fetched", len(result))
     return result
 
 
@@ -138,7 +138,7 @@ def get_listed_info(code=None):
     if not data:
         return {}
     if data:
-        logger.warning("J-Quants master sample keys: %s", list(data[0].keys()) if data else "empty")
+        logger.debug("J-Quants master: %d items", len(data))
     result = {}
     for item in data:
         c = str(item.get("Code", ""))[:4]

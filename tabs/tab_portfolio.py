@@ -6,7 +6,7 @@ from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, ACCT_BADGE_MAP
 from data import load_data, save_data, load_history, _clear_sheet_cache
 from market import get_ticker_name
-from calc import round_up_3
+from calc import round_up_3, safe_csv_df
 from tabs import card, colored_card, pnl_color, pnl_sign
 
 
@@ -21,15 +21,15 @@ def render(tab, df, display_df, totals):
             with r1b: code = st.text_input("証券コード", placeholder="例: 7203", key="fc")
             with r1c: manual_name = st.text_input("銘柄名", key="fn", placeholder="自動取得 or 手動入力")
             r2a, r2b, r2c, r2d, r2e = st.columns(5)
-            with r2a: shares = st.number_input("保有数", min_value=0.0001, value=100.0, key="fs")
-            with r2b: avg_price = st.number_input("取得単価", min_value=0.0, value=0.0, key="fp")
-            with r2c: annual_div = st.number_input("年間配当金(円/株)", min_value=0.0, value=0.0, step=1.0, key="fd")
+            with r2a: shares = st.number_input("保有数", min_value=0.0001, max_value=100_000_000.0, value=100.0, key="fs")
+            with r2b: avg_price = st.number_input("取得単価", min_value=0.0, max_value=100_000_000.0, value=0.0, key="fp")
+            with r2c: annual_div = st.number_input("年間配当金(円/株)", min_value=0.0, max_value=1_000_000.0, value=0.0, step=1.0, key="fd")
             with r2d: broker = st.selectbox("口座", BROKER_OPTIONS, key="fb")
             with r2e: tax = st.selectbox("口座区分", TAX_OPTIONS, key="ft")
             r3a, r3b, _ = st.columns([1.5, 1.5, 2])
             with r3a: div_month_sel = st.multiselect("配当月", options=list(range(1, 13)),
                                                       format_func=lambda x: f"{x}月", key="fdm")
-            with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, value=0.0, step=0.1, key="ffx")
+            with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, max_value=1000.0, value=0.0, step=0.1, key="ffx")
             submitted = st.form_submit_button("＋ 追加", width="stretch")
 
         if submitted and code:
@@ -96,13 +96,13 @@ def render(tab, df, display_df, totals):
             ec1, ec2, ec3 = st.columns(3)
             with ec1:
                 csv_c = ["銘柄コード", "銘柄名", "市場", "口座", "口座区分", "保有株数", "取得単価(円)", "現在値(円)", "評価額(円)", "含み損益(円)", "税引後損益(円)", "予想配当(円)", "税引後配当(円)", "セクター"]
-                st.download_button("📋 保有銘柄一覧", display_df[[c for c in csv_c if c in display_df.columns]].to_csv(index=False).encode("utf-8-sig"),
+                st.download_button("📋 保有銘柄一覧", safe_csv_df(display_df[[c for c in csv_c if c in display_df.columns]]).to_csv(index=False).encode("utf-8-sig"),
                                    f"portfolio_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
             with ec2:
                 dr = [{"銘柄コード": r["銘柄コード"], "銘柄名": r["銘柄名"], "口座": r.get("口座", ""), "口座区分": r.get("口座区分", ""),
                        "予想配当(税引前)": round(r["予想配当(円)"]), "税引後配当": round(r.get("税引後配当(円)", 0)), "配当月": r.get("配当月", "")}
                       for _, r in display_df.iterrows() if r.get("予想配当(円)", 0) > 0]
-                if dr: st.download_button("💰 配当明細", pd.DataFrame(dr).to_csv(index=False).encode("utf-8-sig"), f"dividends_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
+                if dr: st.download_button("💰 配当明細", safe_csv_df(pd.DataFrame(dr)).to_csv(index=False).encode("utf-8-sig"), f"dividends_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
                 else: st.button("💰 配当明細", disabled=True, width="stretch")
             with ec3:
                 hdf = load_history()

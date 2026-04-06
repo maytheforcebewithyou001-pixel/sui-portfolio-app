@@ -146,7 +146,7 @@ def check_password():
     """, unsafe_allow_html=True)
     if submitted:
         pw_ok = _verify_credentials(username, password)
-        totp_ok = _verify_totp(username, totp_code) if pw_ok else False
+        totp_ok = _verify_totp(username, totp_code)  # 常に検証（タイミング攻撃対策）
         if pw_ok and totp_ok:
             st.session_state["authenticated"] = True
             st.session_state["username"] = username

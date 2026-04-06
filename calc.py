@@ -187,6 +187,16 @@ def get_future_simulation(current_asset: float, annual_rate: float, years: int, 
         cp += monthly_add
     return pd.DataFrame({"日時": dates, "予測評価額(円)": values, "積立元本(円)": principals, "運用益(円)": gains})
 
+def safe_csv_df(df: pd.DataFrame) -> pd.DataFrame:
+    """CSV数式インジェクション対策: 先頭が=,+,-,@のセルにシングルクォートを付与"""
+    def _escape(val):
+        s = str(val)
+        if s and s[0] in ("=", "+", "-", "@"):
+            return "'" + s
+        return val
+    return df.apply(lambda col: col.map(_escape) if col.dtype == object else col)
+
+
 def round_up_3(val):
     try:
         val = float(val)
