@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, ACCT_BADGE_MAP
 from data import load_data, save_data, load_history, _clear_sheet_cache
-from market import get_ticker_name
+from market import get_ticker_name, get_cached_market_data
 from calc import round_up_3, safe_csv_df
 from tabs import card, colored_card, pnl_color, pnl_sign
 
@@ -26,10 +26,11 @@ def render(tab, df, display_df, totals):
             with r2c: annual_div = st.number_input("年間配当金(円/株)", min_value=0.0, max_value=1_000_000.0, value=0.0, step=1.0, key="fd")
             with r2d: broker = st.selectbox("口座", BROKER_OPTIONS, key="fb")
             with r2e: tax = st.selectbox("口座区分", TAX_OPTIONS, key="ft")
-            r3a, r3b, _ = st.columns([1.5, 1.5, 2])
+            r3a, r3b, r3c = st.columns([1.5, 1.5, 1.5])
             with r3a: div_month_sel = st.multiselect("配当月", options=list(range(1, 13)),
                                                       format_func=lambda x: f"{x}月", key="fdm")
             with r3b: buy_fx = st.number_input("取得時為替 (米国株)", min_value=0.0, max_value=1000.0, value=0.0, step=0.1, key="ffx")
+            with r3c: buy_date = st.date_input("取得日", value=None, key="fbd")
             submitted = st.form_submit_button("＋ 追加", width="stretch")
 
         if submitted and code:
@@ -39,10 +40,11 @@ def render(tab, df, display_df, totals):
                     auto_name = get_ticker_name(code, market)
             final_name = manual_name or auto_name or code
             div_months_str = ",".join(str(m) for m in sorted(div_month_sel))
+            buy_date_str = buy_date.strftime("%Y/%m/%d") if buy_date else ""
             new = pd.DataFrame({"銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
                 "保有株数": [shares], "取得単価": [avg_price], "口座": [broker], "口座区分": [tax],
                 "手動配当利回り(%)": [0.0], "配当月": [div_months_str], "年間配当金(円/株)": [annual_div],
-                "取得時為替": [buy_fx], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
+                "取得時為替": [buy_fx], "取得日": [buy_date_str], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
             save_data(pd.concat([df, new], ignore_index=True))
             _clear_sheet_cache(); st.success(f"✓ {final_name} を追加"); st.rerun()
 
@@ -91,6 +93,106 @@ def render(tab, df, display_df, totals):
             sdf = sdf.format({k: v for k, v in fmt.items() if k in ac})
             st.dataframe(sdf, width='stretch', hide_index=True)
 
+            # ── 銘柄詳細 ──
+            st.markdown("---"); st.markdown("#### 🔎 銘柄詳細")
+            labels = [f"{r['銘柄コード']} {r['銘柄名']}" for _, r in display_df.iterrows()]
+            sel = st.selectbox("銘柄を選択", options=range(len(labels)), format_func=lambda i: labels[i], key="stock_detail")
+            if sel is not None:
+                row = display_df.iloc[sel]
+                code_raw = str(row["銘柄コード"])
+                market_type = row["市場"]
+                shares_val = float(row["保有株数"])
+                buy_price = float(row.get("取得単価(円)", row.get("取得単価", 0)))
+                buy_date_str = str(row.get("取得日", "")) if "取得日" in row.index else ""
+
+                # 銘柄サマリーカード
+                pc = pnl_color(row.get("税引後損益(円)", 0)); ps = pnl_sign(row.get("税引後損益(円)", 0))
+                dod = row.get("前日比", None)
+                dod_s = f"前日比 {dod:+.2f}%" if pd.notna(dod) else ""
+                st.markdown(
+                    f"<div class='status-card' style='padding:1rem;border-left:3px solid #00D2FF'>"
+                    f"<h4>{code_raw} {row['銘柄名']} [{market_type}]</h4>"
+                    f"<p class='mv'>現在値 {row.get('現在値(円)', 0):,.1f}<span>円</span>　"
+                    f"<span style='font-size:0.9rem;color:{pc}'>{ps}{row.get('税引後損益(円)', 0):,.0f}円</span></p>"
+                    f"<p class='sv'>取得単価 {buy_price:,.1f}円 · {shares_val:,.4g}株 · {dod_s}"
+                    f"{' · 取得日 ' + buy_date_str if buy_date_str else ''}</p>"
+                    f"</div>", unsafe_allow_html=True)
+
+                # 株価チャート（取得日〜現在）
+                if market_type in ("日本株", "米国株"):
+                    ticker = f"{code_raw}.T" if market_type == "日本株" else code_raw
+                    # 取得日からの期間を計算
+                    chart_period = "1y"
+                    if buy_date_str:
+                        try:
+                            bd = pd.to_datetime(buy_date_str)
+                            days_held = (pd.Timestamp.now() - bd).days
+                            if days_held > 1800: chart_period = "max"
+                            elif days_held > 365: chart_period = f"{min(days_held + 30, 3650)}d"
+                        except Exception:
+                            pass
+                    # 株価データ取得
+                    try:
+                        chart_closes = get_cached_market_data(tuple(sorted([ticker, "JPY=X"])), period=chart_period)
+                        if ticker in chart_closes.columns:
+                            cs = chart_closes[ticker].dropna()
+                            # 取得日でフィルタ
+                            if buy_date_str:
+                                try:
+                                    bd = pd.to_datetime(buy_date_str)
+                                    cs = cs[cs.index >= bd]
+                                except Exception:
+                                    pass
+                            if len(cs) >= 2:
+                                cost_total = buy_price * shares_val
+                                eval_series = cs * shares_val
+                                if market_type == "米国株" and "JPY=X" in chart_closes.columns:
+                                    fx = chart_closes["JPY=X"].reindex(cs.index, method="ffill").fillna(150)
+                                    eval_series = cs * shares_val * fx
+                                    cost_total = buy_price * shares_val  # 取得単価(円)は既に円建て
+
+                                fig_d = go.Figure()
+                                fig_d.add_trace(go.Scatter(
+                                    x=cs.index, y=eval_series, mode="lines",
+                                    name="評価額", line=dict(color="#00D2FF", width=2),
+                                    fill="tonexty" if False else None))
+                                fig_d.add_trace(go.Scatter(
+                                    x=[cs.index[0], cs.index[-1]], y=[cost_total, cost_total],
+                                    mode="lines", name="元本",
+                                    line=dict(color="#FFD54F", width=1.5, dash="dash")))
+                                # 元本との差を塗りつぶし
+                                fig_d.add_trace(go.Scatter(
+                                    x=cs.index, y=[cost_total] * len(cs), mode="lines",
+                                    line=dict(width=0), showlegend=False))
+                                fig_d.add_trace(go.Scatter(
+                                    x=cs.index, y=eval_series, mode="lines",
+                                    line=dict(width=0), showlegend=False,
+                                    fill="tonexty",
+                                    fillcolor="rgba(0,210,255,0.08)"))
+
+                                latest_eval = eval_series.iloc[-1]
+                                pnl_val = latest_eval - cost_total
+                                pnl_pct = (pnl_val / cost_total * 100) if cost_total > 0 else 0
+                                pc2 = pnl_color(pnl_val); ps2 = pnl_sign(pnl_val)
+
+                                fig_d.update_layout(
+                                    plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                                    margin=dict(t=30, b=10, l=10, r=10), height=350,
+                                    title=dict(text=f"損益 {ps2}{pnl_val:,.0f}円 ({ps2}{pnl_pct:.1f}%)",
+                                               font=dict(color=pc2, size=14)),
+                                    xaxis=dict(showgrid=True, gridcolor="#1E232F"),
+                                    yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
+                                st.plotly_chart(fig_d, use_container_width=True)
+                            else:
+                                st.info("株価データが不足しています。")
+                        else:
+                            st.info("この銘柄の株価データを取得できませんでした。")
+                    except Exception as e:
+                        st.warning(f"チャート生成エラー: {e}")
+                else:
+                    st.caption("投資信託・その他資産は株価チャート非対応です。")
+
             # CSV出力
             st.markdown("---"); st.markdown("#### 📥 データエクスポート")
             ec1, ec2, ec3 = st.columns(3)
@@ -122,6 +224,7 @@ def render(tab, df, display_df, totals):
                     "手動配当利回り(%)": st.column_config.NumberColumn("手動利回り(%)", min_value=0, format="%.2f"),
                     "年間配当金(円/株)": st.column_config.NumberColumn("年間配当(円/株)", min_value=0, format="%.2f"),
                     "取得時為替": st.column_config.NumberColumn("取得時為替($/¥)", min_value=0, format="%.1f"),
+                    "取得日": st.column_config.TextColumn("取得日"),
                     "削除": st.column_config.CheckboxColumn("削除", default=False)})
                 if st.button("💾 変更を保存", key="sv"):
                     save_data(edited[edited["削除"] == False].drop(columns=["削除"]))
