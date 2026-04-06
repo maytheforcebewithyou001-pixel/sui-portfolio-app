@@ -3,11 +3,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS
-from data import load_data, save_data, load_history
+from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, ACCT_BADGE_MAP
+from data import load_data, save_data, load_history, _clear_sheet_cache
 from market import get_ticker_name
 from calc import round_up_3
-from style import ACCT_BADGE_MAP
 from tabs import card, colored_card, pnl_color, pnl_sign
 
 
@@ -45,7 +44,7 @@ def render(tab, df, display_df, totals):
                 "手動配当利回り(%)": [0.0], "配当月": [div_months_str], "年間配当金(円/株)": [annual_div],
                 "取得時為替": [buy_fx], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
             save_data(pd.concat([df, new], ignore_index=True))
-            st.cache_data.clear(); st.success(f"✓ {final_name} を追加"); st.rerun()
+            _clear_sheet_cache(); st.success(f"✓ {final_name} を追加"); st.rerun()
 
         # ── 口座別サマリー ──
         if not df.empty and not display_df.empty:
@@ -126,7 +125,7 @@ def render(tab, df, display_df, totals):
                     "削除": st.column_config.CheckboxColumn("削除", default=False)})
                 if st.button("💾 変更を保存", key="sv"):
                     save_data(edited[edited["削除"] == False].drop(columns=["削除"]))
-                    st.cache_data.clear(); st.success("更新しました！"); st.rerun()
+                    _clear_sheet_cache(); st.success("更新しました！"); st.rerun()
 
         # ── 資産推移チャート ──
         if TA > 0:

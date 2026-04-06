@@ -25,6 +25,8 @@ NISA_TSUMITATE_ANNUAL = 1_200_000   # 積立投資枠 年間上限
 NISA_TSUMITATE_LIFETIME = 6_000_000 # 積立投資枠 生涯上限
 NISA_TOTAL_LIFETIME = 18_000_000    # 合計生涯上限
 
+ACCT_BADGE_MAP = {"SBI証券": "acct-sbi", "楽天証券": "acct-rakuten", "持ち株会(野村證券)": "acct-nomura"}
+
 SECTOR_MAP = {
     "Technology": "テクノロジー", "Financial Services": "金融", "Healthcare": "ヘルスケア",
     "Consumer Cyclical": "一般消費財", "Industrials": "資本財", "Communication Services": "通信",

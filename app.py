@@ -224,7 +224,7 @@ gas_last_updated = get_gas_last_updated()
 
 if not df.empty:
     with st.spinner("市場データを取得中..."):
-        tickers = ["JPY=X"]
+        tickers = ["JPY=X", "^N225", "^GSPC", "^VIX"]
         for _, row in df.iterrows():
             c, m = str(row["銘柄コード"]), row["市場"]
             if m == "日本株": tickers.append(f"{c}.T")
@@ -279,10 +279,10 @@ _us_open = _is_market_open(_now_est, 9, 30, 16, 0)   # NYSE/NASDAQ 9:30-16:00
 _jp_status = "<span class='mkt-open'>● 東証 開場中</span>" if _jp_open else "<span class='mkt-closed'>○ 東証 閉場</span>"
 _us_status = "<span class='mkt-open'>● 米国 開場中</span>" if _us_open else "<span class='mkt-closed'>○ 米国 閉場</span>"
 
-# ティッカーバー
+# ティッカーバー（ポートフォリオ用closes_dfが無い場合のみ別途取得）
 ticker_bar_html = ""
 try:
-    idx_closes = get_cached_market_data(tuple(sorted(["^N225", "^GSPC", "JPY=X", "^VIX"])), period="5d")
+    idx_closes = closes_df if not display_df.empty else get_cached_market_data(tuple(sorted(["^N225", "^GSPC", "JPY=X", "^VIX"])), period="5d")
     for sym, tk in [("N225", "^N225"), ("SPX", "^GSPC"), ("USD/JPY", "JPY=X"), ("VIX", "^VIX")]:
         if tk in idx_closes.columns:
             _s = idx_closes[tk].dropna()

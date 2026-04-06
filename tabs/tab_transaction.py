@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS
-from data import save_data, save_transaction, save_transactions_batch, load_transactions
+from data import save_data, save_transaction, save_transactions_batch, load_transactions, _clear_sheet_cache
 from tabs import pnl_color, pnl_sign
 
 
@@ -118,7 +118,7 @@ def render(tab, df):
                                           "取引種別": tx_type, "数量": tx_qty, "単価(円)": tx_price,
                                           "手数料": tx_fee, "損益確定(円)": round(pnl_realized, 0),
                                           "口座": tx_broker, "口座区分": tx_tax})
-                        st.cache_data.clear(); st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
+                        _clear_sheet_cache(); st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
                         if tx_type == "売却" and pnl_realized != 0:
                             c_ = pnl_color(pnl_realized); s_ = pnl_sign(pnl_realized)
                             cls = "alert-up" if pnl_realized >= 0 else "alert-down"
@@ -170,7 +170,7 @@ def render(tab, df):
                             df.at[idx[0], "保有株数"] = new_t
                         upd_count += 1
                     save_data(df)
-                st.cache_data.clear()
+                _clear_sheet_cache()
                 msgs = []
                 if tx_count > 0: msgs.append(f"取引履歴: {tx_count}件登録")
                 if upd_count > 0: msgs.append(f"保有銘柄: {upd_count}件更新")

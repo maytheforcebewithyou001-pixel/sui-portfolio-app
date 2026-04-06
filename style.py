@@ -71,6 +71,10 @@ html, body, .stApp { overflow-y: auto !important; }
 .acct-sbi { background: rgba(0,210,255,0.12); color: #00D2FF; }
 .acct-rakuten { background: rgba(245,200,66,0.12); color: #FFD54F; }
 .acct-nomura { background: rgba(189,147,249,0.12); color: #BD93F9; }
+.acct-nisa-growth { background: rgba(0,230,118,0.12); color: #69F0AE; }
+.acct-nisa-tsumitate { background: rgba(77,208,225,0.12); color: #4DD0E1; }
+.acct-other { background: rgba(189,189,189,0.12); color: #BDBDBD; }
+.div-month-active { background: rgba(255,213,79,0.1); border: 1px solid rgba(255,213,79,0.3); }
 .div-month { text-align: center; padding: 8px 4px; border-radius: 8px; font-size: 0.75rem; }
 .div-month-empty { background: #12161E; border: 1px solid #1E232F; color: #4A5060; }
 .div-month .month-label { display: block; color: #B0B8C0; margin-bottom: 2px; font-weight: 600; }
@@ -94,4 +98,3 @@ th { background-color: #1E232F !important; color: #FFFFFF !important; }
 </style>
 """
 
-ACCT_BADGE_MAP = {"SBI証券": "acct-sbi", "楽天証券": "acct-rakuten", "持ち株会(野村證券)": "acct-nomura"}
