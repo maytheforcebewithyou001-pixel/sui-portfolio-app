@@ -22,6 +22,7 @@ def render(tab):
     with tab:
         st.markdown("### 👑 ユーザー管理（管理者専用）")
         st.caption("Streamlit Cloud の Secrets 編集は手動で行う必要があります。このツールは補助のみです。")
+        st.caption("💡 スニペットはそのまま Secrets に貼れる形式です。既に存在するテーブルヘッダー (`[users]` 等) を重複して貼らないでください。")
 
         # ── 現在のユーザー一覧 ──
         st.markdown("#### 登録済みユーザー")
@@ -52,19 +53,21 @@ def render(tab):
                 st.warning("パスワードは8文字以上を推奨します")
             else:
                 hashed = bcrypt.hashpw(new_pw.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
-                st.success("✓ ハッシュ生成完了。以下を Streamlit Cloud の Secrets に追加してください:")
-                admin_snippet = ""
+                st.success("✓ ハッシュ生成完了")
                 if make_admin:
                     existing_admins = list(st.secrets.get("admin_users", ["admin"]))
                     if isinstance(existing_admins, str): existing_admins = [existing_admins]
                     if new_user not in existing_admins:
                         existing_admins.append(new_user)
-                    admin_snippet = f'admin_users = {existing_admins}\n\n'
-                toml_snippet = f'''{admin_snippet}[users]
-# 既存ユーザーは残したまま以下を追記
-{new_user} = "{hashed}"'''
-                st.code(toml_snippet, language="toml")
-                st.caption("⚠ Secrets 更新後、アプリは自動再起動します。数秒後にログインをお試しください。")
+                    st.markdown("**① `admin_users` 行を以下に置き換え:**")
+                    st.code(f'admin_users = {existing_admins}', language="toml")
+                st.markdown(f"**{'② ' if make_admin else ''}`[users]` セクション内に以下の1行を追記:**")
+                st.code(f'{new_user} = "{hashed}"', language="toml")
+                st.warning(
+                    "⚠ `[users]` ヘッダー行を重複して貼らないでください。"
+                    "Secrets の既存 `[users]` セクション末尾にこの1行だけを追加します。"
+                    "\n\nSecrets 更新後、アプリは自動再起動します。"
+                )
                 logger.info("管理者が新規ユーザーハッシュを生成: user=%s admin=%s", new_user, make_admin)
 
         st.markdown("---")
@@ -81,6 +84,13 @@ def render(tab):
                 sh = get_spreadsheet_for(pre_user)
                 if sh is not None:
                     st.success(f"✓ シート '{_sheet_name_for(pre_user)}' を確認/作成しました")
+                    has_section = bool(st.secrets.get("sheet_ids"))
+                    if has_section:
+                        st.markdown("**Secrets `[sheet_ids]` セクションに以下の1行を追記:**")
+                    else:
+                        st.markdown("**Secrets 末尾に以下を追加（`[sheet_ids]` セクションごと）:**")
+                    snippet = f'{pre_user} = "{sh.id}"' if has_section else f'[sheet_ids]\n{pre_user} = "{sh.id}"'
+                    st.code(snippet, language="toml")
                 else:
                     st.error("シート作成に失敗しました。ログを確認してください。")
 
@@ -103,9 +113,13 @@ def render(tab):
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
                 st.image(buf.getvalue(), caption="Google Authenticator 等でスキャン", width=240)
-                st.code(f'''[users_totp]
-{totp_user} = "{secret}"''', language="toml")
-                st.caption("⚠ このシークレットは Streamlit Cloud Secrets に追加してください。スキャン後、ユーザーは6桁コードでログインが必要になります。")
+                st.markdown("**`[users_totp]` セクション内に以下の1行を追記:**")
+                st.code(f'{totp_user} = "{secret}"', language="toml")
+                st.warning(
+                    "⚠ `[users_totp]` ヘッダー行を重複して貼らないでください。"
+                    "既存の `[users_totp]` セクション末尾にこの1行だけを追加します。"
+                    "\n\n`[users_totp]` セクションがまだ無い場合のみ、先にヘッダー行 `[users_totp]` を追加してから貼ってください。"
+                )
                 st.caption(f"手動登録用シークレット: `{secret}`")
                 logger.info("管理者がTOTPシークレットを生成: user=%s", totp_user)
 

@@ -42,14 +42,54 @@ def _sheet_name_for(user: str) -> str:
     """ユーザー別スプレッドシート名（default は従来互換で PortfolioData）"""
     return "PortfolioData" if user == "default" else f"PortfolioData_{user}"
 
+def _get_sheet_id_for(user: str) -> Optional[str]:
+    """secrets の [sheet_ids] セクションからスプレッドシートIDを取得（なければNone）"""
+    try:
+        sheet_ids = st.secrets.get("sheet_ids", {})
+        return sheet_ids.get(user)
+    except Exception:
+        return None
+
 @st.cache_resource
 def get_spreadsheet_for(user: str):
-    """ユーザー別にスプレッドシートを開く。存在しない場合は自動作成（ヘッダー含む）"""
+    """ユーザー別にスプレッドシートを開く。存在しない場合は自動作成（ヘッダー含む）
+
+    優先順位:
+      1. secrets [sheet_ids] にIDがあればIDで開く（確実）
+      2. なければ名前で開くが、同名重複を検出してエラーにする
+    """
     gc = init_gspread()
     if gc is None: return None
     name = _sheet_name_for(user)
+
+    # ── ID指定があればIDで開く ──
+    sheet_id = _get_sheet_id_for(user)
+    if sheet_id:
+        try:
+            return gc.open_by_key(sheet_id)
+        except Exception as e:
+            logger.error("スプレッドシートID '%s' (user=%s) を開けません: %s", sheet_id, user, e)
+            st.error(f"スプレッドシート (ID: {sheet_id}) を開けません: {e}")
+            return None
+
+    # ── 名前で開く（同名重複チェック付き） ──
     try:
-        return gc.open(name)
+        matches = gc.openall(name)
+        if len(matches) > 1:
+            ids = [s.id for s in matches]
+            logger.error("同名スプレッドシートが %d 件あります: name='%s', ids=%s", len(matches), name, ids)
+            st.error(
+                f"⚠ '{name}' という名前のスプレッドシートが {len(matches)} 件見つかりました。"
+                f"誤ったシートを開く可能性があるため停止します。\n\n"
+                f"**対処法**: Secrets に `[sheet_ids]` セクションを追加し、"
+                f"`{user} = \"<正しいスプレッドシートID>\"` を設定してください。\n\n"
+                f"候補ID: {', '.join(ids)}"
+            )
+            return None
+        if len(matches) == 1:
+            return matches[0]
+        # 0件 → SpreadsheetNotFound と同等
+        raise gspread.exceptions.SpreadsheetNotFound(name)
     except gspread.exceptions.SpreadsheetNotFound:
         # 初回ログイン: 新規作成
         try:
@@ -60,6 +100,10 @@ def get_spreadsheet_for(user: str):
             ws.update_title("PortfolioData")
             ws.update("A1", [EXPECTED_COLS], value_input_option="RAW")
             st.success(f"✓ 新規ユーザー用スプレッドシート '{name}' を作成しました")
+            st.info(
+                f"💡 安全のため Secrets の `[sheet_ids]` に以下を追加することを推奨します:\n\n"
+                f'`{user} = "{sh.id}"`'
+            )
             return sh
         except Exception as e:
             logger.error("スプレッドシート作成失敗 (%s): %s", name, e)

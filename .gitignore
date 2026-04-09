@@ -23,6 +23,12 @@ Thumbs.db
 # Misc
 gradle.properties
 
+# バックアップCSV（管理画面ダウンロード）
+backups/
+portfolio_*.csv
+history_*.csv
+transactions_*.csv
+
 # 旧バージョン（ローカルバックアップのみ）
 旧/
 ポートフォリオ旧/
