@@ -13,7 +13,7 @@ import bcrypt
 import pyotp
 from datetime import datetime
 
-from config import WORLD_INDICES, logger
+from config import WORLD_INDICES, SESSION_TTL_SEC, logger
 from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, get_gas_last_updated
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
@@ -24,7 +24,6 @@ st.set_page_config(page_title="FORCE CAPITAL", layout="wide", initial_sidebar_st
 st.markdown(MAIN_CSS, unsafe_allow_html=True)
 
 # ═══════════════════ 認証 ═══════════════════
-SESSION_TTL_SEC = 2 * 3600  # 2時間でセッション失効
 
 def _verify_totp(username: str, code: str) -> bool:
     """TOTP検証。ユーザーが users_totp にシークレット登録されていなければスキップ（True）。"""

@@ -15,6 +15,9 @@ MARKET_OPTIONS = ["日本株", "米国株", "投資信託", "その他資産"]
 MONTH_OPTIONS = [f"{m}月" for m in range(1, 13)]
 TAX_RATE = 0.20315
 
+# セッション有効期限（秒）— ログイン後この時間で自動ログアウト
+SESSION_TTL_SEC = 8 * 3600  # 8時間
+
 # AI モデル（変更時はここだけ修正）
 AI_MODEL = "claude-sonnet-4-20250514"
 
