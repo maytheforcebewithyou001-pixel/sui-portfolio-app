@@ -25,6 +25,9 @@ def classify_sector(row, info_sector):
         if "国債" in name: return "国債"
         if "金" in name or "ゴールド" in name: return "コモディティ"
         return "その他資産"
+    if market == "暗号資産": return "暗号資産"
+    if market == "債券/国債": return "債券/国債"
+    if market == "コモディティ": return "コモディティ"
     return "ETF/その他"
 
 def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices=None):
@@ -57,12 +60,12 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
     # 3. 手動現在値（ユーザー手入力）
     # 4. 取得単価フォールバック（最終手段）
 
-    if market_type in ("日本株", "米国株") and t in closes_df.columns:
+    if market_type in ("日本株", "米国株", "暗号資産") and t in closes_df.columns:
         series = closes_df[t].dropna()
         if not series.empty:
             latest_price = series.iloc[-1]
             fetch_success = True
-            if market_type == "日本株":
+            if market_type in ("日本株", "暗号資産"):
                 price_jpy, buy_jpy = latest_price, buy_price_raw
             else:
                 price_jpy = latest_price * jpy_usd_rate
@@ -109,8 +112,8 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
     div_rate = info.get("div_rate", 0.0)
     div_yield = info.get("div_yield", 0.0)
 
-    # 投信・その他資産は配当0（再投資型インデックスの分配金利回りは実質0%）
-    if market_type in ("投資信託", "その他資産"):
+    # 投信・その他・暗号・コモディティは配当0（債券は手動利回りで対応可）
+    if market_type in ("投資信託", "その他資産", "暗号資産", "コモディティ"):
         dividend = 0.0
         effective_yield = 0.0
     # 優先順位: ①年間配当金(円/株)手入力 → ②yfinance div_rate → ③手動利回り(%) → ④yfinance div_yield

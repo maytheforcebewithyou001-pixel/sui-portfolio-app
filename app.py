@@ -227,7 +227,7 @@ if not df.empty:
         for _, row in df.iterrows():
             c, m = str(row["銘柄コード"]), row["市場"]
             if m == "日本株": tickers.append(f"{c}.T")
-            elif m == "米国株": tickers.append(c)
+            elif m in ("米国株", "暗号資産"): tickers.append(c)
         unique_tickers = tuple(sorted(set(tickers)))
         closes_df = get_cached_market_data(unique_tickers, period="1y")
         info_dict = get_cached_ticker_info(unique_tickers)

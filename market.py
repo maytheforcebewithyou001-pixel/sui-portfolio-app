@@ -205,7 +205,7 @@ def get_stock_detail(code, market_type):
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_ticker_name(code, market_type):
     if not code: return ""
-    if market_type in ["投資信託", "その他資産"]: return "手動入力"
+    if market_type in ["投資信託", "その他資産", "債券/国債", "コモディティ"]: return "手動入力"
 
     # 日本株 → J-Quants優先
     if market_type == "日本株" and jquants.is_available():

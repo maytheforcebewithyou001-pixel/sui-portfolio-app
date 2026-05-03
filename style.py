@@ -71,6 +71,13 @@ html, body, .stApp { overflow-y: auto !important; }
 .acct-sbi { background: rgba(0,210,255,0.12); color: #00D2FF; }
 .acct-rakuten { background: rgba(245,200,66,0.12); color: #FFD54F; }
 .acct-nomura { background: rgba(189,147,249,0.12); color: #BD93F9; }
+.acct-mufj { background: rgba(220,50,50,0.12); color: #EF5350; }
+.acct-monex { background: rgba(0,150,255,0.12); color: #42A5F5; }
+.acct-matsui { background: rgba(100,200,100,0.12); color: #66BB6A; }
+.acct-au { background: rgba(255,120,0,0.12); color: #FF9800; }
+.acct-daiwa { background: rgba(200,160,255,0.12); color: #CE93D8; }
+.acct-smbc { background: rgba(0,200,150,0.12); color: #26A69A; }
+.acct-paypay { background: rgba(255,0,80,0.12); color: #FF5252; }
 .acct-nisa-growth { background: rgba(0,230,118,0.12); color: #69F0AE; }
 .acct-nisa-tsumitate { background: rgba(77,208,225,0.12); color: #4DD0E1; }
 .acct-other { background: rgba(189,189,189,0.12); color: #BDBDBD; }
