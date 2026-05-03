@@ -9,7 +9,7 @@ EXPECTED_COLS = [
     "口座", "口座区分", "手動配当利回り(%)", "配当月",
     "年間配当金(円/株)", "取得時為替", "手動現在値", "取得日", "最新更新日",
 ]
-BROKER_OPTIONS = ["SBI証券", "楽天証券", "持ち株会(野村證券)"]
+BROKER_OPTIONS = ["SBI証券", "楽天証券", "三菱UFJeスマート証券", "持ち株会(野村證券)"]
 TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
 MARKET_OPTIONS = ["日本株", "米国株", "投資信託", "その他資産"]
 MONTH_OPTIONS = [f"{m}月" for m in range(1, 13)]
@@ -25,7 +25,7 @@ NISA_TSUMITATE_ANNUAL = 1_200_000   # 積立投資枠 年間上限
 NISA_TSUMITATE_LIFETIME = 6_000_000 # 積立投資枠 生涯上限
 NISA_TOTAL_LIFETIME = 18_000_000    # 合計生涯上限
 
-ACCT_BADGE_MAP = {"SBI証券": "acct-sbi", "楽天証券": "acct-rakuten", "持ち株会(野村證券)": "acct-nomura"}
+ACCT_BADGE_MAP = {"SBI証券": "acct-sbi", "楽天証券": "acct-rakuten", "三菱UFJeスマート証券": "acct-mufj", "持ち株会(野村證券)": "acct-nomura"}
 
 SECTOR_MAP = {
     "Technology": "テクノロジー", "Financial Services": "金融", "Healthcare": "ヘルスケア",
@@ -47,6 +47,7 @@ def get_tax_rate(tax_category: str) -> float:
 def normalize_broker(val: str) -> str:
     val = str(val)
     if "楽天" in val: return "楽天証券"
+    if "三菱" in val or "UFJ" in val or "eスマート" in val: return "三菱UFJeスマート証券"
     if "野村" in val or "持ち株" in val: return "持ち株会(野村證券)"
     if "SBI" in val: return "SBI証券"
     return val.strip() if val.strip() else "SBI証券"

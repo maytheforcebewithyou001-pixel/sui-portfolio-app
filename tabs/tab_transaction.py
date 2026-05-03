@@ -20,7 +20,7 @@ def _parse_broker_csv(csv_file):
     lines = csv_text.splitlines()
     header_idx = None
     for i, line in enumerate(lines):
-        if "約定日" in line and "銘柄" in line: header_idx = i; break
+        if "約定日" in line and ("銘柄" in line or "ファンド名" in line): header_idx = i; break
     if header_idx is None: return None, None, "ヘッダー行が見つかりませんでした。"
 
     body_text = "\n".join(lines[header_idx:])
@@ -35,9 +35,27 @@ def _parse_broker_csv(csv_file):
 
     # ── 証券会社を自動判別 ──
     is_rakuten = "売買区分" in csv_df.columns
-    broker = "楽天証券" if is_rakuten else "SBI証券"
+    is_mufj = "ファンド名" in csv_df.columns
+    broker = "三菱UFJeスマート証券" if is_mufj else ("楽天証券" if is_rakuten else "SBI証券")
 
-    if is_rakuten:
+    if is_mufj:
+        # 三菱UFJeスマート証券フォーマット（投信）
+        csv_df["_取引種別"] = csv_df["売買"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
+        def _tax_mufj(v):
+            v = str(v)
+            if "つみたて" in v or "積立" in v: return "NISA(積立投資枠)"
+            if "NISA" in v or "成長" in v: return "NISA(成長投資枠)"
+            return "特定口座"
+        csv_df["_口座区分"] = csv_df["課税区分"].apply(_tax_mufj)
+        for nc in ["数量", "約定単価", "受渡金額", "手数料(税込)", "売買損益"]:
+            if nc in csv_df.columns:
+                csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("-", "0")
+                csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
+        csv_df = csv_df.rename(columns={"ファンド名": "_name", "数量": "_qty",
+                                         "約定単価": "_price", "手数料(税込)": "_fee"})
+        csv_df["_code"] = ""
+        csv_df["_market"] = "投資信託"
+    elif is_rakuten:
         # 楽天証券フォーマット
         csv_df["_取引種別"] = csv_df["売買区分"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
         def _tax_rakuten(v):
@@ -127,7 +145,7 @@ def render(tab, df):
 
         # ── CSVインポート ──
         st.markdown("---"); st.markdown("#### 📂 証券会社 約定履歴CSVから取込")
-        st.caption("SBI証券・楽天証券の約定履歴CSVを自動判別して取り込みます。")
+        st.caption("SBI証券・楽天証券・三菱UFJeスマート証券の約定履歴CSVを自動判別して取り込みます。")
         csv_file = st.file_uploader("CSVファイルを選択", type=["csv"], key="csvup")
         if csv_file:
             csv_df, broker, err = _parse_broker_csv(csv_file)
