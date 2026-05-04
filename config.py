@@ -50,6 +50,30 @@ WORLD_INDICES = {
     "ドル円": "JPY=X", "米国10年債利回り": "^TNX", "VIX": "^VIX", "金(GOLD)": "GC=F",
 }
 
+# ランクティア（資産額トロフィー）
+RANK_TIERS = [
+    (1_000_000,   "CADET",     "#8899AA"),
+    (5_000_000,   "OPERATOR",  "#00D2FF"),
+    (10_000_000,  "COMMANDER", "#00E676"),
+    (30_000_000,  "GENERAL",   "#FFD54F"),
+    (50_000_000,  "MARSHAL",   "#BD93F9"),
+    (100_000_000, "SOVEREIGN", "#FF6EC7"),
+]
+
+def get_rank(total_asset: float):
+    """資産額に応じたランク情報を返す。100万未満はNone。"""
+    level = 0
+    for threshold, _, _ in RANK_TIERS:
+        if total_asset >= threshold:
+            level += 1
+        else:
+            break
+    if level == 0:
+        return None
+    _, name, color = RANK_TIERS[level - 1]
+    return name, color, level, len(RANK_TIERS)
+
+
 def is_nisa(tax_category: str) -> bool:
     return "NISA" in str(tax_category)
 

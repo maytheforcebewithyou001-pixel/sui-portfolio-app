@@ -102,6 +102,12 @@ th { background-color: #1E232F !important; color: #FFFFFF !important; }
     .status-card { padding: 0.7rem; }
     .logo-text { font-size: 1.5rem; }
 }
+/* Rank badge */
+.rank-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 3px; font-family: 'Courier New', monospace; margin-left: 8px; line-height: 1; }
+.rank-bars { font-size: 10px; letter-spacing: 1px; }
+.rank-name { font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+@keyframes rankPulse { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
+.rank-max { animation: rankPulse 2.5s ease-in-out infinite; }
 </style>
 """
 

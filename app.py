@@ -13,7 +13,7 @@ import bcrypt
 import pyotp
 from datetime import datetime
 
-from config import WORLD_INDICES, SESSION_TTL_SEC, logger
+from config import WORLD_INDICES, SESSION_TTL_SEC, logger, get_rank
 from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, get_gas_last_updated
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
@@ -299,6 +299,21 @@ if prev_asset > 0:
     _pc, _ps = pnl_color(prev_diff), pnl_sign(prev_diff)
     prev_html = f"<span class='val-sm' style='color:{_pc};margin-left:8px'>{_ps}{prev_diff:,.0f} ({_ps}{prev_diff_pct:.1f}%) vs {prev_date_str}</span>"
 
+# ランクバッジ
+rank_html = ""
+_rank = get_rank(TA)
+if _rank:
+    _rn, _rc, _rl, _rm = _rank
+    _bars_on = "\u25B0" * _rl
+    _bars_off = "\u25B1" * (_rm - _rl)
+    _rcls = " rank-max" if _rl == _rm else ""
+    _r, _g, _b = int(_rc[1:3], 16), int(_rc[3:5], 16), int(_rc[5:7], 16)
+    rank_html = (f"<span class='rank-badge{_rcls}' style='border:1px solid rgba({_r},{_g},{_b},0.3);"
+                 f"background:rgba({_r},{_g},{_b},0.08);box-shadow:0 0 10px rgba({_r},{_g},{_b},0.15)'>"
+                 f"<span class='rank-bars' style='color:{_rc}'>{_bars_on}</span>"
+                 f"<span class='rank-bars' style='color:rgba(255,255,255,0.15)'>{_bars_off}</span>"
+                 f"<span class='rank-name' style='color:{_rc}'>{_rn}</span></span>")
+
 st.markdown(f"""
 <div class='term-header'>
   <div class='term-top'>
@@ -307,7 +322,7 @@ st.markdown(f"""
     <div class='term-time'><div class='mkt-row'>{_jp_status} {_us_status}</div><div class='dt'>{now_str} JST</div></div>
   </div>
   <div class='term-bottom'>
-    <div class='term-metric'><span class='label'>評価額</span><span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>{prev_html}</div>
+    <div class='term-metric'><span class='label'>評価額</span><span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>{prev_html}{rank_html}</div>
     <div class='term-vsep'></div>
     <div class='term-metric'><span class='label'>損益</span><span class='val-md' style='color:{pc}'>{ps}¥{abs(tgp):,.0f}</span><span class='val-sm' style='color:{pnl_color(tnp)}'>({pnl_sign(tnp)}¥{abs(tnp):,.0f})</span><span class='val-sm' style='color:{pc}'> {ps}{pnl_pct:.1f}%</span></div>
     <div class='term-vsep'></div>
