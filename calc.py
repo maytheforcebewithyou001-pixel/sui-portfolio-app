@@ -30,7 +30,7 @@ def classify_sector(row, info_sector):
     if market == "コモディティ": return "コモディティ"
     return "ETF/その他"
 
-def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices=None):
+def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices=None, prev_fund_prices=None):
     ticker_code = str(row["銘柄コード"])
     market_type = row["市場"]
     shares = float(row["保有株数"])
@@ -42,6 +42,8 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
     manual_price = float(row.get("手動現在値", 0.0))
     if gas_prices is None:
         gas_prices = {}
+    if prev_fund_prices is None:
+        prev_fund_prices = {}
 
     t = f"{ticker_code}.T" if market_type == "日本株" else ticker_code
     info = info_dict.get(t, {})
@@ -103,6 +105,9 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
     if not fetch_success:
         if market_type == "投資信託" and ticker_code in fund_prices:
             price_jpy, buy_jpy, fetch_success = fund_prices[ticker_code], buy_price_raw, True
+            prev_price = prev_fund_prices.get(ticker_code)
+            if prev_price and prev_price > 0:
+                dod_pct = ((price_jpy / prev_price) - 1) * 100
         else:
             price_jpy, buy_jpy, fetch_success = buy_price_raw, buy_price_raw, True
 
@@ -144,11 +149,11 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
         "株価損益(円)": stock_gain, "為替損益(円)": fx_gain, "fetch_success": fetch_success,
     }
 
-def calculate_portfolio(df: pd.DataFrame, closes_df: pd.DataFrame, info_dict: dict, fund_prices: dict, jpy_usd_rate: float, gas_prices: Optional[dict] = None) -> pd.DataFrame:
+def calculate_portfolio(df: pd.DataFrame, closes_df: pd.DataFrame, info_dict: dict, fund_prices: dict, jpy_usd_rate: float, gas_prices: Optional[dict] = None, prev_fund_prices: Optional[dict] = None) -> pd.DataFrame:
     now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
     results = []
     for _, row in df.iterrows():
-        r = calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices)
+        r = calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices, prev_fund_prices)
         r["手動配当利回り(%)"] = float(row.get("手動配当利回り(%)", 0.0))
         r["配当月"] = str(row.get("配当月", ""))
         r["最新更新日"] = now_str if r["fetch_success"] else str(row.get("最新更新日", "-"))

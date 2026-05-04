@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 import json
 import gspread
+from datetime import datetime
 from typing import Optional
 from google.oauth2.service_account import Credentials
 from config import logger, EXPECTED_COLS, normalize_broker, normalize_tax
@@ -349,6 +350,55 @@ def save_history(date_str: str, total_asset: float) -> None:
         _clear_sheet_cache()
     except Exception as e:
         logger.error("履歴保存エラー: %s", e)
+
+# ══════════════════════════════════════════
+# 投信価格履歴 (記録ボタン連動)
+# ══════════════════════════════════════════
+def save_fund_history(fund_prices: dict) -> None:
+    """記録ボタン押下時に投信の個別価格を FundHistory シートに追記"""
+    sh = get_spreadsheet()
+    if sh is None or not fund_prices:
+        return
+    try:
+        try:
+            ws = sh.worksheet("FundHistory")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="FundHistory", rows="1000", cols="3")
+            ws.append_row(["日付", "銘柄コード", "基準価額"])
+        date_str = datetime.now().strftime("%Y/%m/%d")
+        rows = [[date_str, code, price] for code, price in fund_prices.items()]
+        ws.append_rows(rows)
+        _clear_sheet_cache()
+    except Exception as e:
+        logger.error("投信価格履歴保存エラー: %s", e)
+
+def load_prev_fund_prices() -> dict:
+    """FundHistory シートから前回記録分の投信価格を返す。
+    「前回」= 今日と異なる最新の日付のレコード群。"""
+    try:
+        all_values = _get_sheet_values("FundHistory")
+        if not all_values or len(all_values) < 2:
+            return {}
+        rows = [r for r in all_values[1:] if len(r) >= 3 and r[0].strip()]
+        if not rows:
+            return {}
+        today = datetime.now().strftime("%Y/%m/%d")
+        # 今日以外の最新日付を探す
+        dates = sorted(set(r[0].strip() for r in rows if r[0].strip() != today), reverse=True)
+        if not dates:
+            return {}
+        prev_date = dates[0]
+        prev_prices = {}
+        for r in rows:
+            if r[0].strip() == prev_date:
+                try:
+                    prev_prices[r[1].strip()] = float(str(r[2]).replace(",", ""))
+                except (ValueError, TypeError):
+                    pass
+        return prev_prices
+    except Exception as e:
+        logger.error("投信価格履歴読み込みエラー: %s", e)
+        return {}
 
 # ══════════════════════════════════════════
 # AI総評 (履歴蓄積型)

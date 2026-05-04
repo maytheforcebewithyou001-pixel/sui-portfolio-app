@@ -14,7 +14,7 @@ import pyotp
 from datetime import datetime
 
 from config import WORLD_INDICES, SESSION_TTL_SEC, logger, get_rank
-from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, get_gas_last_updated
+from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, save_fund_history, load_prev_fund_prices, get_gas_last_updated
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
 from style import MAIN_CSS
@@ -220,6 +220,7 @@ fund_prices = load_fund_prices()
 gas_prices = load_gas_prices()
 
 gas_last_updated = get_gas_last_updated()
+prev_fund_prices = load_prev_fund_prices()
 
 if not df.empty:
     with st.spinner("市場データを取得中..."):
@@ -233,7 +234,7 @@ if not df.empty:
         info_dict = get_cached_ticker_info(unique_tickers)
         s = closes_df["JPY=X"].dropna() if "JPY=X" in closes_df.columns else pd.Series()
         jpy_usd_rate = s.iloc[-1] if not s.empty else 150.0
-        display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices)
+        display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices, prev_fund_prices)
         totals = get_portfolio_totals(display_df)
 else:
     totals = dict(total_asset=0, total_net_profit=0, total_gross_profit=0, total_dividend=0, total_dividend_after_tax=0,
@@ -339,7 +340,9 @@ st.markdown(f"""
 _rec1, _rec2 = st.columns([5, 1])
 with _rec2:
     if st.button("💾 記録", width="stretch") and TA > 0:
-        save_history(datetime.now().strftime("%Y/%m/%d"), TA); st.toast("✓ 記録しました"); st.rerun()
+        save_history(datetime.now().strftime("%Y/%m/%d"), TA)
+        save_fund_history(fund_prices)
+        st.toast("✓ 記録しました"); st.rerun()
 
 # GASバナー
 if gas_prices and gas_last_updated:
