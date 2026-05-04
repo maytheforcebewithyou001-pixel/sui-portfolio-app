@@ -52,12 +52,30 @@ WORLD_INDICES = {
 
 # ランクティア（資産額トロフィー）
 RANK_TIERS = [
-    (1_000_000,   "CADET",     "#8899AA"),
-    (5_000_000,   "OPERATOR",  "#00D2FF"),
-    (10_000_000,  "COMMANDER", "#00E676"),
-    (30_000_000,  "GENERAL",   "#FFD54F"),
-    (50_000_000,  "MARSHAL",   "#BD93F9"),
-    (100_000_000, "SOVEREIGN", "#FF6EC7"),
+    # 〜1000万: 100万単位
+    (1_000_000,   "CADET",      "#6B7D8D"),
+    (2_000_000,   "PRIVATE",    "#7B8D9D"),
+    (3_000_000,   "CORPORAL",   "#8B9DAD"),
+    (4_000_000,   "SERGEANT",   "#5AAFC8"),
+    (5_000_000,   "OFFICER",    "#3CBDD8"),
+    (6_000_000,   "LIEUTENANT", "#20C8E0"),
+    (7_000_000,   "CAPTAIN",    "#10CCE8"),
+    (8_000_000,   "MAJOR",      "#00D0F0"),
+    (9_000_000,   "COLONEL",    "#00D2FF"),
+    (10_000_000,  "COMMANDER",  "#00E676"),
+    # 1000万〜3000万: 500万単位
+    (15_000_000,  "STRATEGIST", "#55DD55"),
+    (20_000_000,  "EXECUTOR",   "#99DD33"),
+    (25_000_000,  "DIRECTOR",   "#CCDD22"),
+    (30_000_000,  "GENERAL",    "#FFD54F"),
+    # 3000万〜1億: 1000万単位
+    (40_000_000,  "ADMIRAL",    "#FFB830"),
+    (50_000_000,  "MARSHAL",    "#FF9020"),
+    (60_000_000,  "TITAN",      "#E070B0"),
+    (70_000_000,  "MOGUL",      "#CC55CC"),
+    (80_000_000,  "SOVEREIGN",  "#BB44DD"),
+    (90_000_000,  "EMPEROR",    "#CC33EE"),
+    (100_000_000, "LEGEND",     "#FF6EC7"),
 ]
 
 def get_rank(total_asset: float):

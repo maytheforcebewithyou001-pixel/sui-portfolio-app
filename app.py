@@ -304,8 +304,9 @@ rank_html = ""
 _rank = get_rank(TA)
 if _rank:
     _rn, _rc, _rl, _rm = _rank
-    _bars_on = "\u25B0" * _rl
-    _bars_off = "\u25B1" * (_rm - _rl)
+    _fill = round(_rl / _rm * 10)
+    _bars_on = "\u25B0" * _fill
+    _bars_off = "\u25B1" * (10 - _fill)
     _rcls = " rank-max" if _rl == _rm else ""
     _r, _g, _b = int(_rc[1:3], 16), int(_rc[3:5], 16), int(_rc[5:7], 16)
     rank_html = (f"<span class='rank-badge{_rcls}' style='border:1px solid rgba({_r},{_g},{_b},0.3);"
