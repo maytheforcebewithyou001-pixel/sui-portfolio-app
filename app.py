@@ -130,7 +130,7 @@ def check_password():
     with st.form("login_form", clear_on_submit=False):
         username = st.text_input("ユーザー名", key="user_input", autocomplete="username")
         password = st.text_input("パスワード", type="password", key="pw_input", autocomplete="current-password")
-        totp_code = st.text_input("6桁コード（2FA有効ユーザーのみ、未設定なら空欄）", key="totp_input", max_chars=6, autocomplete="one-time-code")
+        totp_code = ""  # 2FA は一般公開時に有効化予定
         submitted = st.form_submit_button("ログイン", width="stretch")
     # ユーザー名入力欄に自動フォーカス（ページ読込直後に即入力可能に）
     st.markdown("""
