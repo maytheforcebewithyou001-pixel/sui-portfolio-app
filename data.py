@@ -195,7 +195,11 @@ def _fill_missing_columns(df):
                 "年間配当金(円/株)": 0.0, "取得時為替": 0.0, "手動現在値": 0.0, "配当月": "", "取得日": ""}
     for col in EXPECTED_COLS:
         if col not in df.columns:
-            df[col] = defaults.get(col, "-")
+            if col == "通貨" and "市場" in df.columns:
+                df["通貨"] = df["市場"].apply(
+                    lambda m: "USD" if m in ("米国株", "暗号資産", "コモディティ") else "JPY")
+            else:
+                df[col] = defaults.get(col, "-")
     return df
 
 def _cast_numeric_columns(df):

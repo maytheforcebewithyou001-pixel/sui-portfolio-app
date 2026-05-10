@@ -5,10 +5,11 @@ logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(levelname)s] %
 logger = logging.getLogger("portfolio")
 
 EXPECTED_COLS = [
-    "銘柄コード", "銘柄名", "市場", "保有株数", "取得単価",
+    "銘柄コード", "銘柄名", "市場", "通貨", "保有株数", "取得単価",
     "口座", "口座区分", "手動配当利回り(%)", "配当月",
     "年間配当金(円/株)", "取得時為替", "手動現在値", "取得日", "最新更新日",
 ]
+CURRENCY_OPTIONS = ["JPY", "USD"]
 BROKER_OPTIONS = ["SBI証券", "楽天証券", "三菱UFJeスマート証券", "持ち株会(野村證券)",
                   "マネックス証券", "松井証券", "auカブコム証券", "野村證券",
                   "大和証券", "SMBC日興証券", "PayPay証券"]

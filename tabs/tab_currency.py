@@ -8,29 +8,6 @@ from tabs import colored_card, pnl_color, pnl_sign
 CCY_COLORS = {"JPY": "#00D2FF", "USD": "#FFD54F", "その他": "#B0B8C0"}
 
 
-def _classify_currency(row):
-    """市場・銘柄名から主要通貨エクスポージャーを判定"""
-    market = row["市場"]
-    name = str(row.get("銘柄名", ""))
-    if market == "米国株":
-        return "USD"
-    if market == "暗号資産":
-        return "USD"
-    if market == "コモディティ":
-        return "USD"
-    if market == "投資信託":
-        if any(k in name for k in [
-            "全世界", "オール・カントリー", "オルカン",
-            "S&P", "米国", "500", "NASDAQ", "ナスダック",
-            "先進国", "新興国", "エマージング", "ダウ",
-            "グローバル", "海外", "外国",
-        ]):
-            return "USD"
-        return "JPY"
-    # 日本株, 債券/国債, その他資産 → JPY
-    return "JPY"
-
-
 def render(tab, df, display_df, totals, jpy_usd_rate):
     TA = totals["total_asset"]
     with tab:
@@ -39,7 +16,9 @@ def render(tab, df, display_df, totals, jpy_usd_rate):
             return
 
         cdf = display_df.copy()
-        cdf["通貨"] = cdf.apply(_classify_currency, axis=1)
+        if "通貨" not in cdf.columns:
+            cdf["通貨"] = "JPY"
+        cdf.loc[cdf["通貨"].isin(["", "-", "nan"]), "通貨"] = "JPY"
 
         ccy_agg = cdf.groupby("通貨").agg(
             評価額=("評価額(円)", "sum"),

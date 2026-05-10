@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, ACCT_BADGE_MAP
+from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP
 from data import load_data, save_data, load_history, _clear_sheet_cache
 from market import get_ticker_name, get_cached_market_data, get_stock_detail
 from calc import round_up_3, safe_csv_df
@@ -16,10 +16,11 @@ def render(tab, df, display_df, totals):
         # ── 銘柄追加フォーム ──
         st.markdown("#### ➕ 銘柄を追加")
         with st.form("add_stock_form", clear_on_submit=True):
-            r1a, r1b, r1c = st.columns([1, 1, 2])
+            r1a, r1b, r1c, r1d = st.columns([1, 0.6, 1, 2])
             with r1a: market = st.selectbox("市場", MARKET_OPTIONS, key="fm")
-            with r1b: code = st.text_input("証券コード", placeholder="例: 7203", key="fc")
-            with r1c: manual_name = st.text_input("銘柄名", key="fn", placeholder="自動取得 or 手動入力")
+            with r1b: currency = st.selectbox("通貨", CURRENCY_OPTIONS, key="fcy")
+            with r1c: code = st.text_input("証券コード", placeholder="例: 7203", key="fc")
+            with r1d: manual_name = st.text_input("銘柄名", key="fn", placeholder="自動取得 or 手動入力")
             r2a, r2b, r2c, r2d, r2e = st.columns(5)
             with r2a: shares = st.number_input("保有数", min_value=0.0001, max_value=100_000_000.0, value=100.0, key="fs")
             with r2b: avg_price = st.number_input("取得単価", min_value=0.0, max_value=100_000_000.0, value=0.0, key="fp")
@@ -67,7 +68,7 @@ def render(tab, df, display_df, totals):
                 st.rerun()
             else:
                 # 別口座/口座区分 or 新規銘柄 → 別立てで追加
-                new = pd.DataFrame({"銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
+                new = pd.DataFrame({"銘柄コード": [code], "銘柄名": [final_name], "市場": [market], "通貨": [currency],
                     "保有株数": [shares], "取得単価": [avg_price], "口座": [broker], "口座区分": [tax],
                     "手動配当利回り(%)": [0.0], "配当月": [div_months_str], "年間配当金(円/株)": [annual_div],
                     "取得時為替": [buy_fx], "取得日": [buy_date_str], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
@@ -314,6 +315,7 @@ def render(tab, df, display_df, totals):
                     "口座": st.column_config.SelectboxColumn("口座", options=BROKER_OPTIONS, required=True),
                     "口座区分": st.column_config.SelectboxColumn("口座区分", options=TAX_OPTIONS, required=True),
                     "市場": st.column_config.SelectboxColumn("市場", options=MARKET_OPTIONS, required=True),
+                    "通貨": st.column_config.SelectboxColumn("通貨", options=CURRENCY_OPTIONS, required=True),
                     "保有株数": st.column_config.NumberColumn("保有株数", min_value=0, format="%.4f"),
                     "取得単価": st.column_config.NumberColumn("取得単価", min_value=0, format="%.2f"),
                     "手動配当利回り(%)": st.column_config.NumberColumn("手動利回り(%)", min_value=0, format="%.2f"),
