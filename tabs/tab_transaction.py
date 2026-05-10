@@ -105,8 +105,12 @@ def render(tab, df):
                     tx_r1a, tx_r1b, tx_r1c = st.columns([1, 2, 1])
                     with tx_r1a: tx_type = st.selectbox("取引種別", ["買い増し", "売却", "新規購入"], key="txtype")
                     with tx_r1b:
-                        tx_options = [f"{row['銘柄コード']} {row['銘柄名']}" for _, row in df.iterrows()]
-                        tx_sel = st.selectbox("銘柄", tx_options, key="txsel") if tx_options else None
+                        tx_idx_list = list(df.index)
+                        tx_labels = {i: f"{row['銘柄コード']} {row['銘柄名']} [{row.get('口座', '')} / {row.get('口座区分', '')}]"
+                                     for i, row in df.iterrows()}
+                        tx_sel_idx = st.selectbox("銘柄", tx_idx_list,
+                                                  format_func=lambda x: tx_labels[x],
+                                                  key="txsel") if tx_idx_list else None
                     with tx_r1c: tx_date = st.date_input("取引日", value=datetime.now().date(), key="txdate")
                     tx_r2a, tx_r2b, tx_r2c, tx_r2d = st.columns(4)
                     with tx_r2a: tx_qty = st.number_input("数量", min_value=0.0001, max_value=100_000_000.0, value=1.0, step=1.0, key="txqty")
@@ -117,31 +121,31 @@ def render(tab, df):
                         tx_tax = st.selectbox("口座区分", TAX_OPTIONS, key="txtax")
                     tx_submitted = st.form_submit_button("記録する", width="stretch")
 
-                if tx_submitted and tx_sel:
-                    tx_code = tx_sel.split(" ")[0]; tx_name = " ".join(tx_sel.split(" ")[1:])
-                    idx = df[df["銘柄コード"].astype(str) == str(tx_code)].index
-                    if len(idx) > 0:
-                        cur_shares = float(df.at[idx[0], "保有株数"]); cur_price = float(df.at[idx[0], "取得単価"])
-                        pnl_realized = 0.0
-                        if tx_type == "売却":
-                            df.at[idx[0], "保有株数"] = max(cur_shares - tx_qty, 0)
-                            pnl_realized = (tx_price - cur_price) * tx_qty
-                        else:
-                            new_total = cur_shares + tx_qty
-                            df.at[idx[0], "取得単価"] = (cur_shares * cur_price + tx_qty * tx_price) / new_total if new_total > 0 else tx_price
-                            df.at[idx[0], "保有株数"] = new_total
-                        save_data(df)
-                        save_transaction({"日付": tx_date.strftime("%Y/%m/%d"), "銘柄コード": tx_code, "銘柄名": tx_name,
-                                          "市場": df.at[idx[0], "市場"] if "市場" in df.columns else "-",
-                                          "取引種別": tx_type, "数量": tx_qty, "単価(円)": tx_price,
-                                          "手数料": tx_fee, "損益確定(円)": round(pnl_realized, 0),
-                                          "口座": tx_broker, "口座区分": tx_tax})
-                        _clear_sheet_cache(); st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
-                        if tx_type == "売却" and pnl_realized != 0:
-                            c_ = pnl_color(pnl_realized); s_ = pnl_sign(pnl_realized)
-                            cls = "alert-up" if pnl_realized >= 0 else "alert-down"
-                            st.markdown(f"<div class='alert-bar {cls}'>確定損益: <b style='color:{c_}'>{s_}{pnl_realized:,.0f}円</b></div>", unsafe_allow_html=True)
-                        st.rerun()
+                if tx_submitted and tx_sel_idx is not None:
+                    i = tx_sel_idx
+                    tx_code = str(df.at[i, "銘柄コード"])
+                    tx_name = str(df.at[i, "銘柄名"])
+                    cur_shares = float(df.at[i, "保有株数"]); cur_price = float(df.at[i, "取得単価"])
+                    pnl_realized = 0.0
+                    if tx_type == "売却":
+                        df.at[i, "保有株数"] = max(cur_shares - tx_qty, 0)
+                        pnl_realized = (tx_price - cur_price) * tx_qty
+                    else:
+                        new_total = cur_shares + tx_qty
+                        df.at[i, "取得単価"] = (cur_shares * cur_price + tx_qty * tx_price) / new_total if new_total > 0 else tx_price
+                        df.at[i, "保有株数"] = new_total
+                    save_data(df)
+                    save_transaction({"日付": tx_date.strftime("%Y/%m/%d"), "銘柄コード": tx_code, "銘柄名": tx_name,
+                                      "市場": df.at[i, "市場"] if "市場" in df.columns else "-",
+                                      "取引種別": tx_type, "数量": tx_qty, "単価(円)": tx_price,
+                                      "手数料": tx_fee, "損益確定(円)": round(pnl_realized, 0),
+                                      "口座": tx_broker, "口座区分": tx_tax})
+                    _clear_sheet_cache(); st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
+                    if tx_type == "売却" and pnl_realized != 0:
+                        c_ = pnl_color(pnl_realized); s_ = pnl_sign(pnl_realized)
+                        cls = "alert-up" if pnl_realized >= 0 else "alert-down"
+                        st.markdown(f"<div class='alert-bar {cls}'>確定損益: <b style='color:{c_}'>{s_}{pnl_realized:,.0f}円</b></div>", unsafe_allow_html=True)
+                    st.rerun()
 
         # ── CSVインポート ──
         st.markdown("---"); st.markdown("#### 📂 証券会社 約定履歴CSVから取込")

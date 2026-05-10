@@ -41,12 +41,38 @@ def render(tab, df, display_df, totals):
             final_name = manual_name or auto_name or code
             div_months_str = ",".join(str(m) for m in sorted(div_month_sel))
             buy_date_str = buy_date.strftime("%Y/%m/%d") if buy_date else ""
-            new = pd.DataFrame({"銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
-                "保有株数": [shares], "取得単価": [avg_price], "口座": [broker], "口座区分": [tax],
-                "手動配当利回り(%)": [0.0], "配当月": [div_months_str], "年間配当金(円/株)": [annual_div],
-                "取得時為替": [buy_fx], "取得日": [buy_date_str], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
-            save_data(pd.concat([df, new], ignore_index=True))
-            _clear_sheet_cache(); st.success(f"✓ {final_name} を追加"); st.rerun()
+            # 同一銘柄 + 同一口座 + 同一口座区分 → 合算（平均取得単価を再計算）
+            match_idx = df[
+                (df["銘柄コード"].astype(str) == str(code))
+                & (df["口座"] == broker)
+                & (df["口座区分"] == tax)
+            ].index
+            if len(match_idx) > 0:
+                i = match_idx[0]
+                cur_shares = float(df.at[i, "保有株数"])
+                cur_price = float(df.at[i, "取得単価"])
+                new_total = cur_shares + shares
+                df.at[i, "取得単価"] = (cur_shares * cur_price + shares * avg_price) / new_total if new_total > 0 else avg_price
+                df.at[i, "保有株数"] = new_total
+                if annual_div > 0:
+                    df.at[i, "年間配当金(円/株)"] = annual_div
+                if div_months_str:
+                    df.at[i, "配当月"] = div_months_str
+                if buy_fx > 0:
+                    df.at[i, "取得時為替"] = buy_fx
+                df.at[i, "最新更新日"] = datetime.now().strftime("%Y/%m/%d %H:%M")
+                save_data(df)
+                _clear_sheet_cache()
+                st.success(f"✓ {final_name} を既存保有に合算（{cur_shares:,.4g} + {shares:,.4g} = {new_total:,.4g}株）")
+                st.rerun()
+            else:
+                # 別口座/口座区分 or 新規銘柄 → 別立てで追加
+                new = pd.DataFrame({"銘柄コード": [code], "銘柄名": [final_name], "市場": [market],
+                    "保有株数": [shares], "取得単価": [avg_price], "口座": [broker], "口座区分": [tax],
+                    "手動配当利回り(%)": [0.0], "配当月": [div_months_str], "年間配当金(円/株)": [annual_div],
+                    "取得時為替": [buy_fx], "取得日": [buy_date_str], "最新更新日": [datetime.now().strftime("%Y/%m/%d %H:%M")]})
+                save_data(pd.concat([df, new], ignore_index=True))
+                _clear_sheet_cache(); st.success(f"✓ {final_name} を追加"); st.rerun()
 
         # ── 口座別サマリー ──
         if not df.empty and not display_df.empty:
