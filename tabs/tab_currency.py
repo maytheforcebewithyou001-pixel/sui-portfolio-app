@@ -8,7 +8,7 @@ from tabs import colored_card, pnl_color, pnl_sign
 CCY_COLORS = {"JPY": "#00D2FF", "USD": "#FFD54F", "その他": "#B0B8C0"}
 
 
-def render(tab, df, display_df, totals, jpy_usd_rate):
+def render(tab, df, display_df, totals, jpy_usd_rate, target_jpy_pct=50.0, target_usd_pct=50.0):
     TA = totals["total_asset"]
     with tab:
         if df.empty or TA <= 0 or display_df.empty:
@@ -26,6 +26,40 @@ def render(tab, df, display_df, totals, jpy_usd_rate):
             配当=("予想配当(円)", "sum"),
             銘柄数=("銘柄コード", "count"),
         ).reset_index().sort_values("評価額", ascending=False)
+
+        # ── 目標バランスとの差分 ──
+        jpy_actual = ccy_agg.loc[ccy_agg["通貨"] == "JPY", "評価額"].sum()
+        usd_actual_jpy = ccy_agg.loc[ccy_agg["通貨"] == "USD", "評価額"].sum()
+        jpy_target_amt = TA * target_jpy_pct / 100
+        usd_target_amt_jpy = TA * target_usd_pct / 100
+        jpy_diff = jpy_actual - jpy_target_amt
+        usd_diff_jpy = usd_actual_jpy - usd_target_amt_jpy
+        usd_diff_usd = usd_diff_jpy / jpy_usd_rate if jpy_usd_rate > 0 else 0
+
+        st.markdown("#### 📐 目標バランスとの差分")
+        st.caption("目標%はサイドバー「🎯 目標通貨配分」で調整できるわ")
+        d1, d2 = st.columns(2)
+        with d1:
+            sign = "過剰" if jpy_diff > 0 else "不足" if jpy_diff < 0 else "一致"
+            color = "#FFD54F" if jpy_diff > 0 else "#FF5252" if jpy_diff < 0 else "#9E9E9E"
+            st.markdown(
+                f"<div class='status-card' style='padding:0.8rem;border-left:3px solid #00D2FF'>"
+                f"<h4>JPY {sign} (目標 {target_jpy_pct:.0f}%)</h4>"
+                f"<p class='mv' style='font-size:1.3rem;color:{color}'>"
+                f"{jpy_diff:+,.0f}<span>円</span></p>"
+                f"<p class='sv'>実 {jpy_actual / TA * 100:.1f}% / 目標 {target_jpy_pct:.0f}%</p>"
+                f"</div>", unsafe_allow_html=True)
+        with d2:
+            sign = "過剰" if usd_diff_jpy > 0 else "不足" if usd_diff_jpy < 0 else "一致"
+            color = "#FFD54F" if usd_diff_jpy > 0 else "#FF5252" if usd_diff_jpy < 0 else "#9E9E9E"
+            st.markdown(
+                f"<div class='status-card' style='padding:0.8rem;border-left:3px solid #FFD54F'>"
+                f"<h4>USD {sign} (目標 {target_usd_pct:.0f}%)</h4>"
+                f"<p class='mv' style='font-size:1.3rem;color:{color}'>"
+                f"{usd_diff_jpy:+,.0f}<span>円</span> / {usd_diff_usd:+,.2f}<span>$</span></p>"
+                f"<p class='sv'>実 {usd_actual_jpy / TA * 100:.1f}% / 目標 {target_usd_pct:.0f}%</p>"
+                f"</div>", unsafe_allow_html=True)
+        st.markdown("---")
 
         # ── 通貨別サマリー ──
         st.markdown("#### 💱 通貨配分サマリー")

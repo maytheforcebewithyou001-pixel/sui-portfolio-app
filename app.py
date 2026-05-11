@@ -14,7 +14,7 @@ import pyotp
 from datetime import datetime
 
 from config import WORLD_INDICES, SESSION_TTL_SEC, logger, get_rank
-from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, save_fund_history, load_prev_fund_prices, get_gas_last_updated
+from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, save_fund_history, load_prev_fund_prices, get_gas_last_updated, load_settings, save_settings
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
 from style import MAIN_CSS
@@ -188,6 +188,30 @@ with st.sidebar:
     interest_rate = interest_rate_pct / 100.0
     yearly_add_man = st.number_input("💰 年間積立額 (万円)", min_value=0, value=120, step=10)
     yearly_add = yearly_add_man * 10000
+
+    # ── 目標通貨配分 ──
+    _settings = load_settings()
+    try:
+        _tgt_jpy_default = float(_settings.get("target_jpy_pct", 50))
+        _tgt_usd_default = float(_settings.get("target_usd_pct", 50))
+    except (ValueError, TypeError):
+        _tgt_jpy_default, _tgt_usd_default = 50.0, 50.0
+    with st.expander("🎯 目標通貨配分", expanded=False):
+        target_jpy_pct = st.number_input(
+            "JPY 目標 (%)", 0.0, 100.0, _tgt_jpy_default, step=5.0, key="tgt_jpy")
+        target_usd_pct = st.number_input(
+            "USD 目標 (%)", 0.0, 100.0, _tgt_usd_default, step=5.0, key="tgt_usd")
+        _total_pct = target_jpy_pct + target_usd_pct
+        st.caption(
+            f"合計: {_total_pct:.1f}%"
+            + ("" if _total_pct == 100 else f"（目標差 {_total_pct - 100:+.1f}%）"))
+        if st.button("💾 保存", width="stretch", disabled=(_total_pct != 100)):
+            save_settings({"target_jpy_pct": target_jpy_pct, "target_usd_pct": target_usd_pct})
+            st.success("保存したわ。")
+            st.rerun()
+        if _total_pct != 100:
+            st.caption("⚠️ 合計を100%にしてね")
+
     st.markdown("---")
     if st.button("🔄 全データ最新化", width="stretch"):
         st.cache_data.clear(); st.rerun()
@@ -385,7 +409,7 @@ tab_pf, tab_an, tab_ccy, tab_div, tab_sim, tab_mkt, tab_tx, tab_ai_tab, tab_rk =
 
 tab_portfolio.render(tab_pf, df, display_df, totals)
 tab_analysis.render(tab_an, df, display_df, totals)
-tab_currency.render(tab_ccy, df, display_df, totals, jpy_usd_rate)
+tab_currency.render(tab_ccy, df, display_df, totals, jpy_usd_rate, target_jpy_pct, target_usd_pct)
 tab_dividend.render(tab_div, df, display_df, totals)
 tab_simulation.render(tab_sim, df, totals, goal_amount, goal_oku, interest_rate, interest_rate_pct, yearly_add)
 tab_market.render(tab_mkt)

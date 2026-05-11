@@ -531,3 +531,48 @@ def load_last_prices():
         return prices
     except Exception:
         return {}
+
+# ══════════════════════════════════════════
+# ユーザー設定 (Settings シート)
+# 列: 設定キー | 値
+# 用途: 目標通貨配分など、ユーザー単位の永続パラメータ
+# ══════════════════════════════════════════
+SETTINGS_COLS = ["設定キー", "値"]
+
+def load_settings() -> dict:
+    """Settingsシートを読み込み、key→value(str) の辞書を返す"""
+    try:
+        vals = _get_sheet_values("Settings")
+        if not vals or len(vals) < 2:
+            return {}
+        result = {}
+        for row in vals[1:]:
+            if len(row) >= 2 and row[0].strip():
+                result[row[0].strip()] = row[1].strip() if len(row) >= 2 else ""
+        return result
+    except Exception as e:
+        logger.warning("設定読み込みエラー: %s", e)
+        return {}
+
+def save_settings(updates: dict) -> None:
+    """設定を upsert 保存（既存キーは上書き、新規キーは追加）"""
+    if not updates:
+        return
+    sh = get_spreadsheet()
+    if sh is None:
+        return
+    try:
+        try:
+            ws = sh.worksheet("Settings")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="Settings", rows="100", cols=str(len(SETTINGS_COLS)))
+            ws.append_row(SETTINGS_COLS)
+        existing = load_settings()
+        existing.update({k: str(v) for k, v in updates.items()})
+        rows = [SETTINGS_COLS] + [[k, v] for k, v in existing.items()]
+        ws.clear()
+        ws.update(rows, value_input_option="RAW")
+        _clear_sheet_cache()
+    except Exception as e:
+        logger.error("設定保存エラー: %s", e)
+        st.error(f"設定保存エラー: {e}")
