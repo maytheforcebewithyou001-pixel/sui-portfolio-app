@@ -1,0 +1,233 @@
+{
+  "updated_at": "2026-05-12T00:03:29",
+  "period": {
+    "start": "2023-07-01",
+    "end": "2026-04-27",
+    "years": 2.75
+  },
+  "initial": 2500000.0,
+  "strategy": {
+    "total_return": 0.17740343999999975,
+    "cagr": 0.06121225574126665,
+    "max_dd": -0.0552708449059254,
+    "sharpe": 1.1919644331818857
+  },
+  "orcam": {
+    "total_return": 0.7873102491792121,
+    "cagr": 0.2352334223069419,
+    "max_dd": -0.2122641312128331,
+    "sharpe": 1.2593172839154905
+  },
+  "sp500": {
+    "total_return": 0.8189552829012361,
+    "cagr": 0.24314533933933014,
+    "max_dd": -0.25415977692754826,
+    "sharpe": 1.1662619340386717
+  },
+  "monthly_nav": [
+    {
+      "month": "2023-07",
+      "strategy_nav": 2488235,
+      "orcam_nav": 2528348,
+      "sp500_nav": 2523693
+    },
+    {
+      "month": "2023-08",
+      "strategy_nav": 2466929,
+      "orcam_nav": 2536009,
+      "sp500_nav": 2568372
+    },
+    {
+      "month": "2023-09",
+      "strategy_nav": 2470919,
+      "orcam_nav": 2502298,
+      "sp500_nav": 2502708
+    },
+    {
+      "month": "2023-10",
+      "strategy_nav": 2426256,
+      "orcam_nav": 2411124,
+      "sp500_nav": 2432981
+    },
+    {
+      "month": "2023-11",
+      "strategy_nav": 2438826,
+      "orcam_nav": 2588875,
+      "sp500_nav": 2620498
+    },
+    {
+      "month": "2023-12",
+      "strategy_nav": 2499811,
+      "orcam_nav": 2643320,
+      "sp500_nav": 2649039
+    },
+    {
+      "month": "2024-01",
+      "strategy_nav": 2559780,
+      "orcam_nav": 2757576,
+      "sp500_nav": 2836407
+    },
+    {
+      "month": "2024-02",
+      "strategy_nav": 2613443,
+      "orcam_nav": 2889587,
+      "sp500_nav": 2980850
+    },
+    {
+      "month": "2024-03",
+      "strategy_nav": 2671587,
+      "orcam_nav": 3015423,
+      "sp500_nav": 3117799
+    },
+    {
+      "month": "2024-04",
+      "strategy_nav": 2675148,
+      "orcam_nav": 3050934,
+      "sp500_nav": 3145734
+    },
+    {
+      "month": "2024-05",
+      "strategy_nav": 2660418,
+      "orcam_nav": 3131994,
+      "sp500_nav": 3222044
+    },
+    {
+      "month": "2024-06",
+      "strategy_nav": 2711506,
+      "orcam_nav": 3311287,
+      "sp500_nav": 3476972
+    },
+    {
+      "month": "2024-07",
+      "strategy_nav": 2710128,
+      "orcam_nav": 3167351,
+      "sp500_nav": 3293469
+    },
+    {
+      "month": "2024-08",
+      "strategy_nav": 2634052,
+      "orcam_nav": 3080991,
+      "sp500_nav": 3204456
+    },
+    {
+      "month": "2024-09",
+      "strategy_nav": 2704990,
+      "orcam_nav": 3098885,
+      "sp500_nav": 3203087
+    },
+    {
+      "month": "2024-10",
+      "strategy_nav": 2675619,
+      "orcam_nav": 3291058,
+      "sp500_nav": 3491351
+    },
+    {
+      "month": "2024-11",
+      "strategy_nav": 2677451,
+      "orcam_nav": 3315177,
+      "sp500_nav": 3565300
+    },
+    {
+      "month": "2024-12",
+      "strategy_nav": 2704525,
+      "orcam_nav": 3451171,
+      "sp500_nav": 3727763
+    },
+    {
+      "month": "2025-01",
+      "strategy_nav": 2671298,
+      "orcam_nav": 3487202,
+      "sp500_nav": 3723635
+    },
+    {
+      "month": "2025-02",
+      "strategy_nav": 2666649,
+      "orcam_nav": 3305479,
+      "sp500_nav": 3486952
+    },
+    {
+      "month": "2025-03",
+      "strategy_nav": 2695609,
+      "orcam_nav": 3155871,
+      "sp500_nav": 3268157
+    },
+    {
+      "month": "2025-04",
+      "strategy_nav": 2625075,
+      "orcam_nav": 3069709,
+      "sp500_nav": 3137431
+    },
+    {
+      "month": "2025-05",
+      "strategy_nav": 2644487,
+      "orcam_nav": 3278064,
+      "sp500_nav": 3374114
+    },
+    {
+      "month": "2025-06",
+      "strategy_nav": 2694634,
+      "orcam_nav": 3418960,
+      "sp500_nav": 3544188
+    },
+    {
+      "month": "2025-07",
+      "strategy_nav": 2721039,
+      "orcam_nav": 3625140,
+      "sp500_nav": 3796653
+    },
+    {
+      "month": "2025-08",
+      "strategy_nav": 2796956,
+      "orcam_nav": 3646469,
+      "sp500_nav": 3796653
+    },
+    {
+      "month": "2025-09",
+      "strategy_nav": 2832279,
+      "orcam_nav": 3791822,
+      "sp500_nav": 3941906
+    },
+    {
+      "month": "2025-10",
+      "strategy_nav": 2789419,
+      "orcam_nav": 4044610,
+      "sp500_nav": 4216505
+    },
+    {
+      "month": "2025-11",
+      "strategy_nav": 2744577,
+      "orcam_nav": 4085689,
+      "sp500_nav": 4262156
+    },
+    {
+      "month": "2025-12",
+      "strategy_nav": 2793234,
+      "orcam_nav": 4163981,
+      "sp500_nav": 4301395
+    },
+    {
+      "month": "2026-01",
+      "strategy_nav": 2869560,
+      "orcam_nav": 4192583,
+      "sp500_nav": 4254142
+    },
+    {
+      "month": "2026-02",
+      "strategy_nav": 2997339,
+      "orcam_nav": 4299046,
+      "sp500_nav": 4288887
+    },
+    {
+      "month": "2026-03",
+      "strategy_nav": 2943499,
+      "orcam_nav": 4020971,
+      "sp500_nav": 4076944
+    },
+    {
+      "month": "2026-04",
+      "strategy_nav": 2943508,
+      "orcam_nav": 4468275,
+      "sp500_nav": 4547388
+    }
+  ]
+}
