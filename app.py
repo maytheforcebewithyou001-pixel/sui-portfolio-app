@@ -396,25 +396,26 @@ if not display_df.empty and "前日比" in display_df.columns:
         _name = html.escape(str(mv['銘柄名'])); _code = html.escape(str(mv['銘柄コード']))
         st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
 
-# 決算カレンダーアラート (大幅変動±3%以上 かつ 1週間以内に決算)
-if not display_df.empty and "前日比" in display_df.columns and "銘柄コード" in display_df.columns:
+# 決算カレンダーアラート (保有日本株の1週間以内決算予定をすべて表示)
+if not df.empty and "銘柄コード" in df.columns:
     try:
         import jquants
-        _moved = display_df[display_df["前日比"].apply(
-            lambda x: abs(x) >= 3.0 if pd.notna(x) else False)]
-        _moved_jp = _moved[_moved["市場"] == "日本株"] if "市場" in _moved.columns else _moved
-        _moved_codes = [str(c).strip() for c in _moved_jp["銘柄コード"].dropna().unique()
-                        if str(c).strip() and len(str(c).strip()) >= 3]
-        if _moved_codes:
-            _upcoming = jquants.get_upcoming_earnings(_moved_codes, days_ahead=7)
-            _name_map = dict(zip(display_df["銘柄コード"].astype(str), display_df["銘柄名"].astype(str)))
-            _move_map = dict(zip(_moved_jp["銘柄コード"].astype(str), _moved_jp["前日比"]))
+        _jp_codes = [str(c).strip() for c in df[df["市場"] == "日本株"]["銘柄コード"].dropna().unique()
+                     if str(c).strip() and len(str(c).strip()) >= 3]
+        if _jp_codes:
+            _upcoming = jquants.get_upcoming_earnings(_jp_codes, days_ahead=7)
+            _name_map = dict(zip(df["銘柄コード"].astype(str), df["銘柄名"].astype(str)))
+            # 前日比も併記 (display_dfから)
+            _move_map = {}
+            if not display_df.empty and "前日比" in display_df.columns:
+                _move_map = dict(zip(display_df["銘柄コード"].astype(str), display_df["前日比"]))
             for _e in _upcoming:
                 _c = _e["code"]; _d = _e["date"]; _du = _e["days_until"]
                 _name = html.escape(_name_map.get(_c, ""))
                 _date_str = _d.strftime("%m/%d (%a)")
                 _mv = _move_map.get(_c)
-                _mv_txt = f" / 前日比 {_mv:+.2f}%" if _mv is not None else ""
+                _mv_txt = f" / 前日比 {_mv:+.2f}%" if _mv is not None and pd.notna(_mv) else ""
+                # 当日 or 翌日は警戒色、それ以外は通常色
                 _cls = "alert-down" if _du <= 1 else "alert-up"
                 _label = "本日決算" if _du == 0 else f"あと{_du}日"
                 st.markdown(
