@@ -315,7 +315,7 @@ def get_investor_types(weeks=12, section="TSEPrime"):
     params = {"section": section,
               "from": from_date.replace("-", ""),
               "to": to_date.replace("-", "")}
-    data = _http_get("/markets/investor-types", params)
+    data = _http_get("/equities/investor-types", params)
 
     if not data:
         return pd.DataFrame()
