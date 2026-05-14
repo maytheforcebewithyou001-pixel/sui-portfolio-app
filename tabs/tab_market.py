@@ -1,8 +1,121 @@
 """TAB 5: 世界指標"""
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
 from config import WORLD_INDICES
 from market import get_cached_market_data
+import jquants
+
+
+# 投資部門 (J-Quants v2 投資部門別売買のBalカラム表示名マップ)
+_INVESTOR_LABELS = {
+    "FrgnBal": "海外投資家",
+    "IndBal": "個人",
+    "TrstBnkBal": "信託銀行",
+    "InvTrBal": "投資信託",
+    "BusCoBal": "事業法人",
+    "InsCoBal": "生損保",
+    "BankBal": "都銀・地銀",
+    "PropBal": "自己",
+}
+_INVESTOR_COLORS = {
+    "FrgnBal": "#00D2FF",
+    "IndBal": "#FFD54F",
+    "TrstBnkBal": "#B388FF",
+    "InvTrBal": "#69F0AE",
+    "BusCoBal": "#FF7043",
+    "InsCoBal": "#90A4AE",
+    "BankBal": "#7986CB",
+    "PropBal": "#A1887F",
+}
+
+
+def _render_investor_flow():
+    """投資部門別売買フロー (TSEPrime直近12週)"""
+    st.markdown("---")
+    st.markdown("### 📡 投資部門別 売買フロー (TSEPrime)")
+    st.caption("海外投資家・個人・信託銀行などの週次ネット買越額。需給転換シグナルの確認に使用。")
+
+    df = jquants.get_investor_types(weeks=12)
+    if df is None or df.empty:
+        st.info("J-Quants 投資部門別売買データが取得できなかったわ。プラン契約範囲を確認して。")
+        return
+
+    available_cols = [c for c in _INVESTOR_LABELS.keys() if c in df.columns]
+    if "EnDate" not in df.columns or not available_cols:
+        st.info("投資部門データのカラム構造が想定と違う。スキップ。")
+        return
+
+    default_picks = [c for c in ["FrgnBal", "IndBal", "TrstBnkBal", "InvTrBal"] if c in available_cols]
+    picked = st.multiselect(
+        "表示する投資部門を選択",
+        options=available_cols,
+        format_func=lambda c: _INVESTOR_LABELS.get(c, c),
+        default=default_picks,
+        key="investor_types_pick",
+    )
+    if not picked:
+        st.caption("部門を1つ以上選択してね")
+        return
+
+    chart_df = df[["EnDate"] + picked].copy()
+
+    fig = go.Figure()
+    for col in picked:
+        fig.add_trace(go.Bar(
+            x=chart_df["EnDate"],
+            y=chart_df[col] / 1e8,  # 億円単位
+            name=_INVESTOR_LABELS.get(col, col),
+            marker_color=_INVESTOR_COLORS.get(col, "#888"),
+        ))
+    fig.add_hline(y=0, line_color="#777", line_width=1)
+    fig.update_layout(
+        plot_bgcolor="#12161E", paper_bgcolor="#12161E",
+        margin=dict(l=50, r=10, t=10, b=40), height=360,
+        barmode="group",
+        xaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
+                   tickformat="%m/%d", tickfont=dict(color="#9E9E9E", size=10)),
+        yaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
+                   tickformat=",.0f", tickfont=dict(color="#9E9E9E", size=10),
+                   title=dict(text="ネット買越額 (億円)", font=dict(color="#9E9E9E", size=11))),
+        legend=dict(orientation="h", x=0, y=-0.15, font=dict(color="#B0B8C0", size=11)),
+    )
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+    # 直近4週の数値テーブル
+    st.markdown("**直近4週 ネット買越額 (億円)**")
+    latest4 = chart_df.tail(4).copy()
+    latest4["EnDate"] = latest4["EnDate"].dt.strftime("%Y-%m-%d")
+    for col in picked:
+        latest4[col] = (latest4[col] / 1e8).round(0).astype("Int64")
+    latest4 = latest4.rename(columns={"EnDate": "週末日", **{c: _INVESTOR_LABELS.get(c, c) for c in picked}})
+    st.dataframe(latest4, hide_index=True, width="stretch")
+
+    # 簡易シグナル検出
+    signals = []
+    if "FrgnBal" in df.columns:
+        f = df["FrgnBal"].dropna()
+        if len(f) >= 2:
+            prev, curr = f.iloc[-2], f.iloc[-1]
+            if prev < 0 and curr > 0:
+                signals.append(f"🟢 海外投資家がネット買越転換 ({prev/1e8:+,.0f}億 → {curr/1e8:+,.0f}億) — 買い好機")
+            elif prev > 0 and curr < 0:
+                signals.append(f"🔴 海外投資家がネット売越転換 ({prev/1e8:+,.0f}億 → {curr/1e8:+,.0f}億) — 警戒")
+    if "IndBal" in df.columns:
+        ind = df["IndBal"].dropna()
+        if len(ind) >= 8:
+            mean_, std_ = ind.iloc[:-1].mean(), ind.iloc[:-1].std()
+            latest = ind.iloc[-1]
+            if std_ and std_ > 0:
+                z = (latest - mean_) / std_
+                if z > 1.5:
+                    signals.append(f"⚠️ 個人ネット買越過熱 (Z={z:+.2f}) — 戻り売り圧力警戒")
+                elif z < -1.5:
+                    signals.append(f"⚠️ 個人ネット売越過熱 (Z={z:+.2f}) — 逆張り好機の可能性")
+    if signals:
+        st.markdown("**フロー検出シグナル**")
+        for s in signals:
+            st.markdown(f"- {s}")
 
 
 def render(tab):
@@ -50,3 +163,6 @@ def render(tab):
                         else:
                             with tc_: st.markdown(f"<p style='color:#B0B8C0;font-weight:bold'>{iname}</p><p style='color:#FF5252'>取得失敗</p>", unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
+
+        # 投資部門別フロー (J-Quants)
+        _render_investor_flow()

@@ -293,6 +293,96 @@ def get_fin_statements(code):
 
 
 # ══════════════════════════════════════════
+# 投資部門別売買 (TSEPrime)
+# ══════════════════════════════════════════
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_investor_types(weeks=12, section="TSEPrime"):
+    """投資部門別売買代金を取得。海外/個人/信託銀行等のネット買越額。
+
+    Returns: pd.DataFrame
+        週末日(EnDate) と 各部門の Bal カラム
+        FrgnBal=海外, IndBal=個人, TrstBnkBal=信託銀行, InvTrBal=投信, BusCoBal=事業法人 等
+    """
+    if not _api_key() and not _USE_CLI:
+        return pd.DataFrame()
+
+    today = datetime.now(_JST)
+    from_date = (today - timedelta(days=weeks * 7 + 14)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    data = None
+    # ── HTTP fallback ──
+    params = {"section": section,
+              "from": from_date.replace("-", ""),
+              "to": to_date.replace("-", "")}
+    data = _http_get("/markets/investor-types", params)
+
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+    if df.empty:
+        return df
+
+    # 日付変換
+    for col in ["PubDate", "StDate", "EnDate"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    # 数値変換
+    skip = {"Section", "StDate", "EnDate", "PubDate"}
+    for col in df.columns:
+        if col not in skip:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if "EnDate" in df.columns:
+        df = df.sort_values("EnDate").reset_index(drop=True)
+    return df
+
+
+# ══════════════════════════════════════════
+# 決算カレンダー (yfinance + J-Quants当日分)
+# ══════════════════════════════════════════
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_upcoming_earnings(codes, days_ahead=7):
+    """保有銘柄の今後N日以内の決算発表予定を返す。
+
+    yfinance Ticker.calendar の Earnings Date を使用。
+    Args:
+        codes: 日本株コードのリスト (4桁、例 ["8593", "2498"])
+        days_ahead: 先読み日数 (デフォルト7日)
+    Returns:
+        list[dict]: [{code, date, days_until}, ...] (日付昇順)
+    """
+    import yfinance as yf
+    today = datetime.now(_JST).date()
+    cutoff = today + timedelta(days=days_ahead)
+    result = []
+    for code in codes:
+        c = str(code).replace(".T", "").strip()
+        if not c or len(c) < 3:
+            continue
+        try:
+            t = yf.Ticker(f"{c}.T")
+            cal = t.calendar
+            if not cal:
+                continue
+            dates = cal.get("Earnings Date", []) or []
+            for d in dates:
+                if d and today <= d <= cutoff:
+                    result.append({
+                        "code": c,
+                        "date": d,
+                        "days_until": (d - today).days,
+                    })
+        except Exception as e:
+            logger.debug("yfinance earnings %s: %s", c, e)
+            continue
+    result.sort(key=lambda x: x["date"])
+    return result
+
+
+# ══════════════════════════════════════════
 # ユーティリティ
 # ══════════════════════════════════════════
 def is_available():

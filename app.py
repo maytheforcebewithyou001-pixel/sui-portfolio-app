@@ -396,6 +396,34 @@ if not display_df.empty and "前日比" in display_df.columns:
         _name = html.escape(str(mv['銘柄名'])); _code = html.escape(str(mv['銘柄コード']))
         st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
 
+# 決算カレンダーアラート (大幅変動±3%以上 かつ 1週間以内に決算)
+if not display_df.empty and "前日比" in display_df.columns and "銘柄コード" in display_df.columns:
+    try:
+        import jquants
+        _moved = display_df[display_df["前日比"].apply(
+            lambda x: abs(x) >= 3.0 if pd.notna(x) else False)]
+        _moved_jp = _moved[_moved["市場"] == "日本株"] if "市場" in _moved.columns else _moved
+        _moved_codes = [str(c).strip() for c in _moved_jp["銘柄コード"].dropna().unique()
+                        if str(c).strip() and len(str(c).strip()) >= 3]
+        if _moved_codes:
+            _upcoming = jquants.get_upcoming_earnings(_moved_codes, days_ahead=7)
+            _name_map = dict(zip(display_df["銘柄コード"].astype(str), display_df["銘柄名"].astype(str)))
+            _move_map = dict(zip(_moved_jp["銘柄コード"].astype(str), _moved_jp["前日比"]))
+            for _e in _upcoming:
+                _c = _e["code"]; _d = _e["date"]; _du = _e["days_until"]
+                _name = html.escape(_name_map.get(_c, ""))
+                _date_str = _d.strftime("%m/%d (%a)")
+                _mv = _move_map.get(_c)
+                _mv_txt = f" / 前日比 {_mv:+.2f}%" if _mv is not None else ""
+                _cls = "alert-down" if _du <= 1 else "alert-up"
+                _label = "本日決算" if _du == 0 else f"あと{_du}日"
+                st.markdown(
+                    f"<div class='alert-bar {_cls}'>📊 <b>{_name}</b>（{html.escape(_c)}）"
+                    f"決算発表 {_date_str} — {_label}{_mv_txt}</div>",
+                    unsafe_allow_html=True)
+    except Exception as _e:
+        logger.warning("決算カレンダーアラート取得失敗: %s", _e)
+
 # ═══════════════════ タブ ═══════════════════
 from tabs import tab_portfolio, tab_analysis, tab_currency, tab_dividend, tab_simulation, tab_market, tab_transaction, tab_ai, tab_rank, tab_strategy, tab_admin
 
