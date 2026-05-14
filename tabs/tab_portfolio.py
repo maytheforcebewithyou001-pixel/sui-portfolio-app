@@ -6,8 +6,9 @@ from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP
 from data import load_data, save_data, load_history, _clear_sheet_cache
 from market import get_ticker_name, get_cached_market_data, get_stock_detail
-from calc import round_up_3, safe_csv_df
+from calc import round_up_3, safe_csv_df, calc_risk_metrics
 from tabs import card, colored_card, pnl_color, pnl_sign
+import jquants
 
 
 def render(tab, df, display_df, totals):
@@ -214,6 +215,47 @@ def render(tab, df, display_df, totals):
                             + "<p class='sv'>四半期末 " + _q_end + "</p>"
                             + "</div>", unsafe_allow_html=True)
 
+                # リスク指標ダッシュボード（日本株のみ、TOPIX対比）
+                if market_type == "日本株":
+                    try:
+                        ticker_jp = f"{code_raw}.T"
+                        risk_closes = get_cached_market_data(tuple(sorted([ticker_jp])), period="1y")
+                        topix_df = jquants.get_topix_ohlc(period_days=400)
+                        asset_series = risk_closes[ticker_jp].dropna() if ticker_jp in risk_closes.columns else pd.Series(dtype=float)
+                        topix_series = topix_df.set_index("Date")["Close"] if not topix_df.empty else None
+                        rm = calc_risk_metrics(asset_series, topix_series)
+                        if any(v is not None for v in rm.values()):
+                            st.markdown("##### 📐 リスク指標（1年）")
+                            def _rv(v, suffix="", fmt="{:+.2f}"):
+                                return f"{fmt.format(v)}{suffix}" if v is not None else "-"
+                            _tip_risk = {
+                                "HV20": "20日ヒストリカルボラティリティ。日次リターン標準偏差の年率換算(%)",
+                                "HV60": "60日ヒストリカルボラティリティ。長めの値動きの大きさ",
+                                "β (vs TOPIX)": "TOPIX変動1%に対する銘柄変動率。1.0=同等、>1.3=高ベータ",
+                                "MDD": "最大ドローダウン。期間中の高値からの最大下落幅(%)",
+                                "シャープ": "シャープレシオ(年率)。リターン÷リスク、1.0超で優秀",
+                                "TOPIX相対": "期間始点から見たTOPIX対比の超過リターン(ppt)",
+                            }
+                            _vals = [
+                                ("HV20", _rv(rm.get("HV20"), "%", "{:.1f}")),
+                                ("HV60", _rv(rm.get("HV60"), "%", "{:.1f}")),
+                                ("β (vs TOPIX)", _rv(rm.get("beta"), "", "{:.2f}")),
+                                ("MDD", _rv(rm.get("MDD"), "%", "{:.1f}")),
+                                ("シャープ", _rv(rm.get("Sharpe"), "", "{:.2f}")),
+                                ("TOPIX相対", _rv(rm.get("relative_perf"), "ppt", "{:+.1f}")),
+                            ]
+                            rcols = st.columns(6)
+                            for ci, (lbl, val) in enumerate(_vals):
+                                with rcols[ci]:
+                                    tip = _tip_risk.get(lbl, "")
+                                    st.markdown(
+                                        f"<div class='status-card' style='padding:0.6rem'>"
+                                        f"<h4 title='{tip}' style='cursor:help'>{lbl}</h4>"
+                                        f"<p class='mv' style='font-size:1rem'>{val}</p>"
+                                        f"</div>", unsafe_allow_html=True)
+                    except Exception as e:
+                        st.caption(f"リスク指標の計算でエラー: {e}")
+
                 # 株価チャート（取得日〜現在）
                 if market_type in ("日本株", "米国株"):
                     ticker = f"{code_raw}.T" if market_type == "日本株" else code_raw
@@ -288,6 +330,75 @@ def render(tab, df, display_df, totals):
                         st.warning(f"チャート生成エラー: {e}")
                 else:
                     st.caption("投資信託・その他資産は株価チャート非対応です。")
+
+                # 業績推移（日本株のみ、J-Quants財務サマリ時系列）
+                if market_type == "日本株":
+                    try:
+                        fin_hist = jquants.get_fin_statements_history(code_raw, limit=8)
+                        if fin_hist is not None and not fin_hist.empty:
+                            st.markdown("##### 📈 業績推移（過去8期分）")
+                            date_col = "DiscDate" if "DiscDate" in fin_hist.columns else "DisclosedDate"
+                            period_col = "TypeOfCurrentPeriod" if "TypeOfCurrentPeriod" in fin_hist.columns else None
+                            metric_map = {
+                                "NetSales": "売上",
+                                "OperatingProfit": "営業利益",
+                                "Profit": "純利益",
+                                "EarningsPerShare": "EPS",
+                            }
+                            available_metrics = [(k, v) for k, v in metric_map.items() if k in fin_hist.columns]
+                            if available_metrics:
+                                for k, _ in available_metrics:
+                                    fin_hist[k] = pd.to_numeric(fin_hist[k], errors="coerce")
+                                xlabel = fin_hist[date_col].dt.strftime("%Y/%m")
+                                if period_col:
+                                    xlabel = xlabel + " (" + fin_hist[period_col].astype(str) + ")"
+                                fig_e = go.Figure()
+                                colors_e = ["#00D2FF", "#69F0AE", "#FFD54F", "#FF8F00"]
+                                for ci, (k, label) in enumerate(available_metrics):
+                                    yvals = fin_hist[k]
+                                    if k == "EarningsPerShare":
+                                        fig_e.add_trace(go.Scatter(
+                                            x=xlabel, y=yvals, mode="lines+markers",
+                                            name=label, yaxis="y2",
+                                            line=dict(color=colors_e[ci], width=2, dash="dot"),
+                                            marker=dict(size=7)))
+                                    else:
+                                        fig_e.add_trace(go.Bar(
+                                            x=xlabel, y=yvals / 1e8,
+                                            name=label, marker_color=colors_e[ci]))
+                                fig_e.update_layout(
+                                    plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                                    margin=dict(t=10, b=10, l=10, r=10), height=320, barmode="group",
+                                    xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                                    yaxis=dict(title=dict(text="売上/利益 (億円)", font=dict(size=11)),
+                                               showgrid=True, gridcolor="#1E232F"),
+                                    yaxis2=dict(title=dict(text="EPS (円)", font=dict(size=11)),
+                                                overlaying="y", side="right", showgrid=False),
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
+                                st.plotly_chart(fig_e, width="stretch", config={"displayModeBar": False})
+
+                                # 業績修正検出：予想 vs 実績、もしくは予想の更新
+                                rev_msgs = []
+                                if "ForecastNetSales" in fin_hist.columns and "NetSales" in fin_hist.columns:
+                                    last = fin_hist.iloc[-1]
+                                    fc, ac = pd.to_numeric(last.get("ForecastNetSales"), errors="coerce"), pd.to_numeric(last.get("NetSales"), errors="coerce")
+                                    if pd.notna(fc) and pd.notna(ac) and fc > 0:
+                                        diff = (ac / fc - 1) * 100
+                                        if abs(diff) >= 3:
+                                            rev_msgs.append(f"{'🟢 上振れ' if diff > 0 else '🔴 下振れ'}：直近期の売上が予想比 {diff:+.1f}%")
+                                if "ForecastProfit" in fin_hist.columns and len(fin_hist) >= 2:
+                                    prev_fc = pd.to_numeric(fin_hist.iloc[-2].get("ForecastProfit"), errors="coerce")
+                                    curr_fc = pd.to_numeric(fin_hist.iloc[-1].get("ForecastProfit"), errors="coerce")
+                                    if pd.notna(prev_fc) and pd.notna(curr_fc) and prev_fc != 0:
+                                        rev = (curr_fc / abs(prev_fc) - (1 if prev_fc > 0 else -1)) * 100
+                                        if abs(rev) >= 5:
+                                            rev_msgs.append(f"{'🟢 通期純利益予想を上方修正' if rev > 0 else '🔴 通期純利益予想を下方修正'}：前回比 {rev:+.1f}%")
+                                if rev_msgs:
+                                    st.markdown("**業績修正検出**")
+                                    for m in rev_msgs:
+                                        st.markdown(f"- {m}")
+                    except Exception as e:
+                        st.caption(f"業績推移の取得でエラー: {e}")
 
             # CSV出力
             st.markdown("---"); st.markdown("#### 📥 データエクスポート")

@@ -341,6 +341,60 @@ def get_investor_types(weeks=12, section="TSEPrime"):
 
 
 # ══════════════════════════════════════════
+# TOPIX OHLC
+# ══════════════════════════════════════════
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_topix_ohlc(period_days=400):
+    """TOPIX 日足を取得。
+    Returns: pd.DataFrame with columns [Date, Open, High, Low, Close]
+    """
+    if not _api_key() and not _USE_CLI:
+        return pd.DataFrame()
+
+    today = datetime.now(_JST)
+    from_date = (today - timedelta(days=period_days)).strftime("%Y%m%d")
+    to_date = today.strftime("%Y%m%d")
+    data = _http_get("/indices/bars/daily/topix", {"from": from_date, "to": to_date})
+
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+    if df.empty or "Date" not in df.columns:
+        return pd.DataFrame()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    for col in ("Open", "High", "Low", "Close"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+
+
+# ══════════════════════════════════════════
+# 財務サマリ時系列（過去N四半期）
+# ══════════════════════════════════════════
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_fin_statements_history(code, limit=8):
+    """直近N件分の財務サマリーを開示日昇順で返す。"""
+    c = str(code).replace(".T", "").strip()
+    data = None
+    if _USE_CLI:
+        data = _cli(["fins", "summary", "--code", c])
+    if data is None:
+        data = _http_get("/fins/summary", {"code": c})
+    if not data:
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    if df.empty:
+        return pd.DataFrame()
+    date_col = "DiscDate" if "DiscDate" in df.columns else "DisclosedDate"
+    if date_col not in df.columns:
+        return df
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.sort_values(date_col, ascending=False).head(limit).sort_values(date_col).reset_index(drop=True)
+    return df
+
+
+# ══════════════════════════════════════════
 # 決算カレンダー (yfinance + J-Quants当日分)
 # ══════════════════════════════════════════
 @st.cache_data(ttl=3600, show_spinner=False)

@@ -31,12 +31,17 @@ _INVESTOR_COLORS = {
 
 
 def _render_investor_flow():
-    """投資部門別売買フロー (TSEPrime直近12週)"""
+    """投資部門別売買フロー (TSEPrime)"""
     st.markdown("---")
     st.markdown("### 📡 投資部門別 売買フロー (TSEPrime)")
     st.caption("海外投資家・個人・信託銀行などの週次ネット買越額。需給転換シグナルの確認に使用。")
 
-    df = jquants.get_investor_types(weeks=12)
+    pc1, pc2 = st.columns([1, 3])
+    with pc1:
+        period_label = st.selectbox("期間", ["12週", "26週", "52週"], index=0, key="investor_period")
+    weeks = {"12週": 12, "26週": 26, "52週": 52}[period_label]
+
+    df = jquants.get_investor_types(weeks=weeks)
     if df is None or df.empty:
         st.info("J-Quants 投資部門別売買データが取得できなかったわ。プラン契約範囲を確認して。")
         return
@@ -58,6 +63,8 @@ def _render_investor_flow():
         st.caption("部門を1つ以上選択してね")
         return
 
+    show_cumulative = st.checkbox("累積買越額グラフを表示（マネー流入の中長期トレンド）", value=False, key="investor_cumulative")
+
     chart_df = df[["EnDate"] + picked].copy()
 
     fig = go.Figure()
@@ -74,13 +81,35 @@ def _render_investor_flow():
         margin=dict(l=50, r=10, t=10, b=40), height=360,
         barmode="group",
         xaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
-                   tickformat="%m/%d", tickfont=dict(color="#9E9E9E", size=10)),
+                   tickformat="%Y/%m" if weeks > 26 else "%m/%d", tickfont=dict(color="#9E9E9E", size=10)),
         yaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
                    tickformat=",.0f", tickfont=dict(color="#9E9E9E", size=10),
                    title=dict(text="ネット買越額 (億円)", font=dict(color="#9E9E9E", size=11))),
         legend=dict(orientation="h", x=0, y=-0.15, font=dict(color="#B0B8C0", size=11)),
     )
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+    if show_cumulative:
+        fig_c = go.Figure()
+        for col in picked:
+            cum = (chart_df[col].fillna(0) / 1e8).cumsum()
+            fig_c.add_trace(go.Scatter(
+                x=chart_df["EnDate"], y=cum, mode="lines",
+                name=_INVESTOR_LABELS.get(col, col),
+                line=dict(color=_INVESTOR_COLORS.get(col, "#888"), width=2),
+            ))
+        fig_c.add_hline(y=0, line_color="#777", line_width=1)
+        fig_c.update_layout(
+            plot_bgcolor="#12161E", paper_bgcolor="#12161E",
+            margin=dict(l=50, r=10, t=10, b=40), height=320,
+            xaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
+                       tickformat="%Y/%m", tickfont=dict(color="#9E9E9E", size=10)),
+            yaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
+                       tickformat=",.0f", tickfont=dict(color="#9E9E9E", size=10),
+                       title=dict(text="累積買越額 (億円)", font=dict(color="#9E9E9E", size=11))),
+            legend=dict(orientation="h", x=0, y=-0.15, font=dict(color="#B0B8C0", size=11)),
+        )
+        st.plotly_chart(fig_c, width="stretch", config={"displayModeBar": False})
 
     # 直近4週の数値テーブル
     st.markdown("**直近4週 ネット買越額 (億円)**")

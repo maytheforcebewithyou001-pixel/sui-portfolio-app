@@ -199,6 +199,53 @@ def get_future_simulation(current_asset: float, annual_rate: float, years: int, 
         cp += monthly_add
     return pd.DataFrame({"日時": dates, "予測評価額(円)": values, "積立元本(円)": principals, "運用益(円)": gains})
 
+def calc_risk_metrics(prices: pd.Series, market_prices: Optional[pd.Series] = None) -> dict:
+    """価格時系列からリスク指標を計算。
+    Args:
+        prices: 銘柄の終値時系列 (index=Date)
+        market_prices: ベンチマーク終値時系列 (β計算用、任意)
+    Returns:
+        dict with HV20, HV60, MDD, Sharpe, beta, alpha, relative_perf
+    """
+    out = {"HV20": None, "HV60": None, "MDD": None, "Sharpe": None,
+           "beta": None, "alpha": None, "relative_perf": None}
+    if prices is None or len(prices) < 2:
+        return out
+    prices = pd.Series(prices).dropna()
+    if len(prices) < 2:
+        return out
+    returns = prices.pct_change().dropna()
+    if len(returns) >= 20:
+        out["HV20"] = float(returns.tail(20).std() * (252 ** 0.5) * 100)
+    if len(returns) >= 60:
+        out["HV60"] = float(returns.tail(60).std() * (252 ** 0.5) * 100)
+    cummax = prices.cummax()
+    dd = (prices / cummax - 1)
+    if len(dd) > 0:
+        out["MDD"] = float(dd.min() * 100)
+    if len(returns) >= 20 and returns.std() > 0:
+        out["Sharpe"] = float((returns.mean() * 252) / (returns.std() * (252 ** 0.5)))
+    if market_prices is not None:
+        mp = pd.Series(market_prices).dropna()
+        if len(mp) >= 2:
+            mr = mp.pct_change().dropna()
+            joined = pd.concat([returns, mr], axis=1, join="inner").dropna()
+            if len(joined) >= 20:
+                a_ret, m_ret = joined.iloc[:, 0], joined.iloc[:, 1]
+                var_m = m_ret.var()
+                if var_m > 0:
+                    beta = a_ret.cov(m_ret) / var_m
+                    out["beta"] = float(beta)
+                    out["alpha"] = float((a_ret.mean() - beta * m_ret.mean()) * 252 * 100)
+            # 相対パフォーマンス: 期間始点を1とした倍率の差
+            ap = prices.reindex(mp.index, method="nearest").dropna()
+            if len(ap) >= 2 and len(mp) >= 2:
+                a0, m0 = ap.iloc[0], mp.iloc[0]
+                if a0 > 0 and m0 > 0:
+                    out["relative_perf"] = float(((ap.iloc[-1] / a0) - (mp.iloc[-1] / m0)) * 100)
+    return out
+
+
 def safe_csv_df(df: pd.DataFrame) -> pd.DataFrame:
     """CSV数式インジェクション対策: 先頭が=,+,-,@のセルにシングルクォートを付与"""
     def _escape(val):
