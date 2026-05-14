@@ -347,6 +347,7 @@ def get_investor_types(weeks=12, section="TSEPrime"):
 def get_topix_ohlc(period_days=400):
     """TOPIX 日足を取得。
     Returns: pd.DataFrame with columns [Date, Open, High, Low, Close]
+    (V2の短縮カラム名 O/H/L/C も自動で長名へ正規化)
     """
     if not _api_key() and not _USE_CLI:
         return pd.DataFrame()
@@ -363,6 +364,9 @@ def get_topix_ohlc(period_days=400):
     if df.empty or "Date" not in df.columns:
         return pd.DataFrame()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    # V2 短縮名 → 長名 へ正規化
+    rename_map = {"O": "Open", "H": "High", "L": "Low", "C": "Close"}
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns and v not in df.columns})
     for col in ("Open", "High", "Low", "Close"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")

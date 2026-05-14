@@ -222,7 +222,7 @@ def render(tab, df, display_df, totals):
                         risk_closes = get_cached_market_data(tuple(sorted([ticker_jp])), period="1y")
                         topix_df = jquants.get_topix_ohlc(period_days=400)
                         asset_series = risk_closes[ticker_jp].dropna() if ticker_jp in risk_closes.columns else pd.Series(dtype=float)
-                        topix_series = topix_df.set_index("Date")["Close"] if not topix_df.empty else None
+                        topix_series = topix_df.set_index("Date")["Close"] if (not topix_df.empty and "Close" in topix_df.columns) else None
                         rm = calc_risk_metrics(asset_series, topix_series)
                         if any(v is not None for v in rm.values()):
                             st.markdown("##### 📐 リスク指標（1年）")
