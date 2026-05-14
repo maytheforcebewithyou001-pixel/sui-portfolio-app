@@ -165,6 +165,10 @@ def calculate_portfolio(df: pd.DataFrame, closes_df: pd.DataFrame, info_dict: di
                 "含み損益(円)", "税引後損益(円)", "予想配当(円)", "税引後配当(円)",
                 "実質利回り(%)", "株価損益(円)", "為替損益(円)", "手動配当利回り(%)", "配当月"]:
         display_df[col] = result_df[col].values
+    _market_order = {"日本株": 0, "米国株": 1, "投資信託": 2}
+    display_df = display_df.assign(
+        _market_sort=display_df["市場"].map(lambda m: _market_order.get(m, 3))
+    ).sort_values("_market_sort", kind="stable").drop(columns=["_market_sort"]).reset_index(drop=True)
     return display_df
 
 def get_portfolio_totals(display_df: pd.DataFrame) -> dict:
