@@ -215,9 +215,6 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🔄 全データ最新化", width="stretch"):
         st.cache_data.clear(); st.rerun()
-    # デバッグ: 決算アラートの中身を可視化
-    st.session_state["debug_earnings"] = st.checkbox(
-        "🐞 決算アラート デバッグ表示", value=st.session_state.get("debug_earnings", False))
     st.caption("左上の × で閉じる")
     st.markdown("---")
     with st.expander("📜 利用規約・プライバシーポリシー"):
@@ -400,11 +397,10 @@ if not display_df.empty and "前日比" in display_df.columns:
         st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
 
 # 決算カレンダーアラート (保有日本株の1週間以内決算予定をすべて表示)
-_debug_earnings = st.session_state.get("debug_earnings", False)
 if not df.empty and "銘柄コード" in df.columns:
     try:
         import jquants
-        # 日本株のみ抽出 (柔軟に正規化)
+        # 日本株のみ抽出
         _jp_codes = []
         for _, _r in df.iterrows():
             _c = str(_r.get("銘柄コード", "")).strip()
@@ -413,13 +409,8 @@ if not df.empty and "銘柄コード" in df.columns:
                 _jp_codes.append(_c)
         _jp_codes = sorted(set(_jp_codes))
 
-        if _debug_earnings:
-            st.info(f"🐞 DEBUG: df行数={len(df)}, jp_codes={_jp_codes}")
-
         if _jp_codes:
             _upcoming = jquants.get_upcoming_earnings(_jp_codes, days_ahead=7)
-            if _debug_earnings:
-                st.info(f"🐞 DEBUG: upcoming={_upcoming}")
             _name_map = dict(zip(df["銘柄コード"].astype(str), df["銘柄名"].astype(str)))
             _move_map = {}
             if not display_df.empty and "前日比" in display_df.columns:
@@ -438,8 +429,6 @@ if not df.empty and "銘柄コード" in df.columns:
                     unsafe_allow_html=True)
     except Exception as _e:
         logger.warning("決算カレンダーアラート取得失敗: %s", _e)
-        if _debug_earnings:
-            st.error(f"🐞 DEBUG例外: {_e}")
 
 # ═══════════════════ タブ ═══════════════════
 from tabs import tab_portfolio, tab_analysis, tab_currency, tab_dividend, tab_simulation, tab_market, tab_transaction, tab_ai, tab_rank, tab_strategy, tab_admin
