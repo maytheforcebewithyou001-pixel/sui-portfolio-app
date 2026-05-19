@@ -199,6 +199,39 @@ def get_future_simulation(current_asset: float, annual_rate: float, years: int, 
         cp += monthly_add
     return pd.DataFrame({"日時": dates, "予測評価額(円)": values, "積立元本(円)": principals, "運用益(円)": gains})
 
+def simulate_withdrawal(initial_asset: float, annual_rate: float, mode: str,
+                        annual_withdrawal: float = 0.0, withdrawal_rate: float = 0.0,
+                        inflation_rate: float = 0.0, max_years: int = 60) -> pd.DataFrame:
+    """取り崩しシミュレーション。
+
+    mode:
+        "fixed"     : 毎年annual_withdrawal円を取り崩し（インフレ調整なし）
+        "rate"      : 毎年残高のwithdrawal_rate(0-1)を取り崩し
+        "inflation" : 初年度annual_withdrawal円、毎年(1+inflation_rate)で増額
+    """
+    rows = [{"年": 0, "残高(円)": initial_asset, "取り崩し額(円)": 0.0, "累計取崩(円)": 0.0}]
+    balance = initial_asset
+    cumulative = 0.0
+    current_w = annual_withdrawal
+    for year in range(1, max_years + 1):
+        if mode == "rate":
+            withdrawal = balance * withdrawal_rate
+        elif mode == "inflation":
+            withdrawal = current_w
+        else:
+            withdrawal = annual_withdrawal
+        if balance < withdrawal:
+            withdrawal = balance
+        balance -= withdrawal
+        cumulative += withdrawal
+        balance = balance * (1 + annual_rate)
+        rows.append({"年": year, "残高(円)": max(balance, 0.0), "取り崩し額(円)": withdrawal, "累計取崩(円)": cumulative})
+        if mode == "inflation":
+            current_w *= (1 + inflation_rate)
+        if balance <= 0 and mode != "rate":
+            break
+    return pd.DataFrame(rows)
+
 def calc_risk_metrics(prices: pd.Series, market_prices: Optional[pd.Series] = None) -> dict:
     """価格時系列からリスク指標を計算。
     Args:
