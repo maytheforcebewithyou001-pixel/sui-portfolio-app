@@ -265,7 +265,11 @@ def save_data(df: pd.DataFrame) -> None:
         n_rows = len(rows)
         n_cols = len(rows[0]) if rows else 0
         # 1. まず上書き（clearしない → 万一失敗してもデータ残る）
-        end_col = chr(ord("A") + n_cols - 1) if n_cols <= 26 else "Z"
+        # 列番号→A1表記（27列以上でもAA,AB...と正しく変換）
+        _c, end_col = n_cols, ""
+        while _c > 0:
+            _c, _r = divmod(_c - 1, 26)
+            end_col = chr(65 + _r) + end_col
         ws.update(f"A1:{end_col}{n_rows}", rows, value_input_option="RAW")
         # 2. 余剰行があれば削除
         if ws.row_count > n_rows:

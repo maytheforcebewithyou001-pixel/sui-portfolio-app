@@ -4,12 +4,13 @@ CSS は style.py に一本化。ここではHTML生成関数のみ定義。
 """
 import streamlit as st
 import pandas as pd
+import html
 
 
 def status_card(title, value_html, sub_html="", card_class="", delay_class=""):
     sub_part = f"<p class='sv'>{sub_html}</p>" if sub_html else ""
     st.markdown(
-        f"<div class='status-card {card_class} {delay_class}'><h4>{title}</h4>"
+        f"<div class='status-card {card_class} {delay_class}'><h4>{html.escape(str(title))}</h4>"
         f"<p class='mv'>{value_html}</p>{sub_part}</div>",
         unsafe_allow_html=True,
     )

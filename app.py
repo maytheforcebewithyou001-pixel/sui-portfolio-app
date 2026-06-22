@@ -257,7 +257,11 @@ if not df.empty:
         closes_df = get_cached_market_data(unique_tickers, period="1y")
         info_dict = get_cached_ticker_info(unique_tickers)
         s = closes_df["JPY=X"].dropna() if "JPY=X" in closes_df.columns else pd.Series()
-        jpy_usd_rate = s.iloc[-1] if not s.empty else 150.0
+        if not s.empty:
+            jpy_usd_rate = s.iloc[-1]
+        else:
+            jpy_usd_rate = 150.0
+            st.warning("⚠ USD/JPYの最新レートを取得できませんでした。概算値（150.0円）で表示しています — USD建て資産の評価額・損益・為替損益は不正確な可能性があります。")
         display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices, prev_fund_prices)
         totals = get_portfolio_totals(display_df)
 else:

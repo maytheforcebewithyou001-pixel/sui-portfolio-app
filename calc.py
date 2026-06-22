@@ -187,7 +187,7 @@ def get_portfolio_totals(display_df: pd.DataFrame) -> dict:
 
 def get_future_simulation(current_asset: float, annual_rate: float, years: int, yearly_addition: float) -> pd.DataFrame:
     months = years * 12
-    monthly_rate = annual_rate / 12
+    monthly_rate = (1 + annual_rate) ** (1 / 12) - 1  # 年利の複利等価な月利（単純割りだと過大評価）
     monthly_add = yearly_addition / 12
     today = datetime.now()
     dates, values, principals, gains = [], [], [], []

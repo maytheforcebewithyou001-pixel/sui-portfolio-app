@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import html
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP
 from data import load_data, save_data, load_history, _clear_sheet_cache
@@ -87,7 +88,7 @@ def render(tab, df, display_df, totals):
                 with cols[i % len(cols)]:
                     bc = ACCT_BADGE_MAP.get(r["口座"], "acct-other")
                     pc = pnl_color(r["税引後損益(円)"]); ps = pnl_sign(r["税引後損益(円)"])
-                    st.markdown(f"<div class='status-card' style='padding:0.8rem'><h4><span class='acct-badge {bc}'>{r['口座']}</span> {int(r['銘柄コード'])}銘柄</h4>"
+                    st.markdown(f"<div class='status-card' style='padding:0.8rem'><h4><span class='acct-badge {bc}'>{html.escape(str(r['口座']))}</span> {int(r['銘柄コード'])}銘柄</h4>"
                                 f"<p class='mv' style='font-size:1.2rem'>{r['評価額(円)']:,.0f}<span>円</span></p>"
                                 f"<p class='sv' style='color:{pc}'>{ps}{r['税引後損益(円)']:,.0f}円 · 配当 {r['予想配当(円)']:,.0f}円</p></div>", unsafe_allow_html=True)
 
@@ -144,7 +145,7 @@ def render(tab, df, display_df, totals):
                 dod_s = f"前日比 {dod:+.2f}%" if pd.notna(dod) else ""
                 st.markdown(
                     f"<div class='status-card' style='padding:1rem;border-left:3px solid #00D2FF'>"
-                    f"<h4>{code_raw} {row['銘柄名']} [{market_type}]</h4>"
+                    f"<h4>{html.escape(code_raw)} {html.escape(str(row['銘柄名']))} [{html.escape(str(market_type))}]</h4>"
                     f"<p class='mv'>現在値 {row.get('現在値(円)', 0):,.1f}<span>円</span>　"
                     f"<span style='font-size:0.9rem;color:{pc}'>{ps}{row.get('税引後損益(円)', 0):,.0f}円</span></p>"
                     f"<p class='sv'>取得単価 {buy_price:,.1f}円 · {shares_val:,.4g}株 · {dod_s}"

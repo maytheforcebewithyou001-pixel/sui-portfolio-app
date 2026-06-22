@@ -14,6 +14,23 @@ from data import save_last_prices, load_last_prices
 import jquants
 
 
+def _yf_close_df(tickers, period):
+    """yfinanceから終値(Close)のDataFrameを取得。失敗・空なら空DFを返す。"""
+    try:
+        data = yf.download(tickers, period=period, progress=False, threads=True)
+        if data.empty:
+            return pd.DataFrame()
+        if isinstance(data.columns, pd.MultiIndex):
+            out = data["Close"]
+        else:
+            out = data[["Close"]]
+            out.columns = [tickers[0]]
+        return out
+    except Exception as e:
+        logger.warning("yfinance取得失敗 (%s): %s", tickers, e)
+        return pd.DataFrame()
+
+
 # ══════════════════════════════════════════
 # 株価データ（日足終値）
 # ══════════════════════════════════════════
@@ -31,17 +48,9 @@ def get_cached_market_data(tickers_tuple, period="1y"):
 
     # ── 米国株・為替・指数 → yfinance ──
     if other_tickers:
-        try:
-            data = yf.download(other_tickers, period=period, progress=False, threads=True)
-            if not data.empty:
-                if isinstance(data.columns, pd.MultiIndex):
-                    closes = data["Close"]
-                else:
-                    closes = data[["Close"]]
-                    closes.columns = [other_tickers[0]]
-                closes = closes.ffill().bfill()
-        except Exception as e:
-            logger.warning("yfinance取得失敗（米国株等）: %s", e)
+        df_other = _yf_close_df(other_tickers, period)
+        if not df_other.empty:
+            closes = df_other.ffill().bfill()
 
     # ── 日本株 → J-Quants優先 ──
     if jp_tickers and jquants.is_available():
@@ -63,18 +72,9 @@ def get_cached_market_data(tickers_tuple, period="1y"):
     # J-Quantsで取れなかった日本株 → yfinanceフォールバック
     missing_jp = [t for t in jp_tickers if t not in closes.columns]
     if missing_jp:
-        try:
-            data = yf.download(missing_jp, period=period, progress=False, threads=True)
-            if not data.empty:
-                if isinstance(data.columns, pd.MultiIndex):
-                    fb = data["Close"]
-                else:
-                    fb = data[["Close"]]
-                    fb.columns = [missing_jp[0]]
-                for col in fb.columns:
-                    closes[col] = fb[col]
-        except Exception as e:
-            logger.warning("yfinance日本株フォールバック失敗: %s", e)
+        fb = _yf_close_df(missing_jp, period)
+        for col in fb.columns:
+            closes[col] = fb[col]
 
     if not closes.empty:
         closes = closes.ffill().bfill()
@@ -111,7 +111,10 @@ def _fetch_single_info(t):
     try:
         info = yf.Ticker(t).info
         div_rate = info.get("dividendRate") or info.get("trailingAnnualDividendRate") or 0.0
-        div_yield = info.get("trailingAnnualDividendYield") or info.get("dividendYield") or 0.0
+        div_yield = float(info.get("trailingAnnualDividendYield") or info.get("dividendYield") or 0.0)
+        # yfinanceはdividendYieldをパーセント形式(例:3.5)で返すことがある → 小数に正規化
+        if div_yield > 1: div_yield = div_yield / 100.0
+        # それでも>20%なら誤データとみなし無視
         if div_yield > 0.2: div_yield = 0.0
         sec = info.get("sector") or "ETF/その他"
         return t, {"sector": SECTOR_MAP.get(sec, sec), "div_rate": float(div_rate),
