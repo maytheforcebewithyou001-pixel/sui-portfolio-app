@@ -400,6 +400,19 @@ if not display_df.empty and "前日比" in display_df.columns:
         _name = html.escape(str(mv['銘柄名'])); _code = html.escape(str(mv['銘柄コード']))
         st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
 
+# 集中リスクアラート (単一銘柄が閾値超 or HHI高水準)
+_CONC_PCT = 30.0  # 単一銘柄の総資産比 推奨上限
+if not display_df.empty and "評価額(円)" in display_df.columns and TA > 0:
+    _shares = display_df["評価額(円)"] / TA
+    _hhi = float((_shares ** 2).sum() * 10000)  # ハーフィンダール指数(0-10000)
+    _pos = int(_shares.values.argmax())
+    _top_pct = float(_shares.iloc[_pos] * 100)
+    _top_name = html.escape(str(display_df.iloc[_pos]["銘柄名"]))
+    if _top_pct >= _CONC_PCT:
+        st.markdown(f"<div class='alert-bar alert-down'>⚠ 集中リスク: <b>{_top_name}</b> が総資産の {_top_pct:.1f}% を占めています（推奨上限 {_CONC_PCT:.0f}%）。HHI={_hhi:,.0f}（2500超で高集中）</div>", unsafe_allow_html=True)
+    elif _hhi >= 2500:
+        st.markdown(f"<div class='alert-bar alert-down'>⚠ ポートフォリオ集中度が高め（HHI={_hhi:,.0f}・2500超）。分散を検討してください。</div>", unsafe_allow_html=True)
+
 # 決算カレンダーアラート (保有日本株の1週間以内決算予定をすべて表示)
 if not df.empty and "銘柄コード" in df.columns:
     try:
