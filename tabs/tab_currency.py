@@ -1,6 +1,7 @@
 """TAB: 通貨配分ダッシュボード"""
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from tabs import colored_card, pnl_color, pnl_sign
@@ -59,6 +60,54 @@ def render(tab, df, display_df, totals, jpy_usd_rate, target_jpy_pct=50.0, targe
                 f"{usd_diff_jpy:+,.0f}<span>円</span> / {usd_diff_usd:+,.2f}<span>$</span></p>"
                 f"<p class='sv'>実 {usd_actual_jpy / TA * 100:.1f}% / 目標 {target_usd_pct:.0f}%</p>"
                 f"</div>", unsafe_allow_html=True)
+        st.markdown("---")
+
+        # ── リバランス実行プラン ──
+        st.markdown("#### 🔄 リバランス実行プラン")
+        shift = jpy_diff  # JPY過剰(+)ならUSDへ、不足(-)ならJPYへ
+        thresh = TA * 0.01
+        if abs(shift) <= thresh:
+            st.success(f"✅ 目標配分の達成圏内（誤差 {abs(shift):,.0f}円・{abs(shift)/TA*100:.1f}%）。今は行動不要よ。")
+        else:
+            if shift > 0:
+                frm, to, amt = "JPY", "USD", shift
+                st.info(f"JPY建てが目標より **{amt:,.0f}円 過剰**（実 {jpy_actual/TA*100:.1f}% → 目標 {target_jpy_pct:.0f}%）。**{amt:,.0f}円分を USD建てへ**移すと目標に届くわ。")
+            else:
+                frm, to, amt = "USD", "JPY", -shift
+                st.info(f"JPY建てが目標より **{amt:,.0f}円 不足**。**USD建てから {amt:,.0f}円分を JPY建てへ**移す必要があるわ。")
+
+            a1, a2 = st.tabs(["📈 積立で調整（売らない）", "⚡ 即時売却で調整"])
+            with a1:
+                st.caption("配当ベースの売却ルールを守り、新規資金の積立だけで目標へ寄せるアプローチ")
+                m_invest = st.number_input(f"毎月の {to} 新規投資額（万円/月）", 0.0, 1000.0, 7.0, step=1.0, key="rb_minvest")
+                m_yen = m_invest * 10000
+                if m_yen > 0:
+                    months = amt / m_yen
+                    eta = datetime.now() + pd.DateOffset(months=int(round(months)))
+                    st.markdown(f"- 必要移動額: **{amt:,.0f}円**")
+                    st.markdown(f"- 月 **{m_invest:,.0f}万円** の {to} 積立なら **約 {months:.1f}ヶ月**（{eta.strftime('%Y年%m月')}頃）で目標到達")
+                    st.caption("※ 既存資産の評価額・為替変動は考慮しない、新規資金フローのみの単純試算よ。")
+                else:
+                    st.warning("月次投資額を入力してちょうだい。")
+            with a2:
+                st.caption(f"{frm}建て資産を売却して {to}建て資産へ即時に組み替えるアプローチ")
+                st.markdown(f"- 必要組み替え額: **{amt:,.0f}円**")
+                st.warning("⚠ 特定口座での売却は譲渡益に20.315%課税。NISA枠の活用や、含み益の小さい銘柄からの売却を優先して。配当目的の保有は配当方針が変わらない限り売却対象外にすべきよ。")
+                sell_cand = cdf[cdf["通貨"] == frm].sort_values("評価額(円)", ascending=False)
+                if not sell_cand.empty:
+                    st.markdown(f"**{frm}建て 保有上位（売却候補の検討材料）**")
+                    sc_cols = [c for c in ["銘柄コード", "銘柄名", "評価額(円)", "税引後損益(円)"] if c in sell_cand.columns]
+                    st.dataframe(sell_cand[sc_cols].head(8).style.format(
+                        {k: v for k, v in {"評価額(円)": "{:,.0f}", "税引後損益(円)": "{:+,.0f}"}.items() if k in sc_cols}),
+                        width="stretch", hide_index=True)
+                buy_cand = cdf[cdf["通貨"] == to].sort_values("評価額(円)", ascending=False)
+                if not buy_cand.empty:
+                    st.markdown(f"**{to}建て 保有銘柄（買い増し候補）**")
+                    bc_cols = [c for c in ["銘柄コード", "銘柄名", "評価額(円)"] if c in buy_cand.columns]
+                    st.dataframe(buy_cand[bc_cols].head(8).style.format(
+                        {k: v for k, v in {"評価額(円)": "{:,.0f}"}.items() if k in bc_cols}),
+                        width="stretch", hide_index=True)
+        st.caption("※ 外国株投信（オルカン等）を実質USD扱いにしたい場合は、各銘柄の「通貨」設定をUSDにしてちょうだい。本プランは設定値に従うわ。")
         st.markdown("---")
 
         # ── 通貨別サマリー ──
