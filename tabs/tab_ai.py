@@ -5,8 +5,40 @@ from zoneinfo import ZoneInfo
 from config import AI_MODEL
 from data import load_ai_review, load_ai_review_history, save_ai_review, load_history
 from calc import build_portfolio_summary_text
+import re as _re
 
 _JST = ZoneInfo("Asia/Tokyo")
+
+_MODELS_URL = "https://api.anthropic.com/v1/models"
+# 例: claude-sonnet-4-6 / claude-sonnet-4-5-20250929 にマッチ（旧式 4.0 のclaude-sonnet-4-20250514は除外）
+_SONNET_RE = _re.compile(r"^claude-sonnet-(\d+)-(\d{1,2})(?:-\d{8})?$")
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _resolve_sonnet_model(_api_key, fallback):
+    """利用可能な最新Sonnetを /v1/models から動的解決（退役モデルの自己修復用）。
+
+    取得失敗・該当なしなら fallback（config.AI_MODEL）を返す。結果は24時間キャッシュ。
+    404発生時は呼び出し側で .clear() してから再解決する。
+    """
+    try:
+        import requests as _rq
+        r = _rq.get(_MODELS_URL,
+                    headers={"x-api-key": _api_key, "anthropic-version": "2023-06-01"},
+                    timeout=15)
+        if r.status_code != 200:
+            return fallback
+        best, best_key = None, None
+        for m in r.json().get("data", []):
+            mm = _SONNET_RE.match(m.get("id", ""))
+            if not mm:
+                continue
+            key = (int(mm.group(1)), int(mm.group(2)))  # (major, minor) で最新を選択
+            if best_key is None or key > best_key:
+                best, best_key = m["id"], key
+        return best or fallback
+    except Exception:
+        return fallback
 
 
 def _build_history_context(history):
@@ -111,13 +143,23 @@ def render(tab, df, display_df, totals, jpy_usd_rate):
                         )
                         user_content = f"以下のポートフォリオデータを分析してください。\n\n{ptxt}\n{history_context}"
 
-                        MAX_RETRIES, resp = 3, None
+                        # 利用可能な最新Sonnetを動的解決（失敗時はconfig.AI_MODEL）
+                        model_id = _resolve_sonnet_model(api_key, AI_MODEL)
+
+                        MAX_RETRIES, resp, reresolved = 3, None, False
                         for attempt in range(MAX_RETRIES):
                             resp = req.post("https://api.anthropic.com/v1/messages",
                                             headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                                            json={"model": AI_MODEL, "max_tokens": 2000, "system": system_prompt,
+                                            json={"model": model_id, "max_tokens": 2000, "system": system_prompt,
                                                   "messages": [{"role": "user", "content": user_content}]}, timeout=60)
                             if resp.status_code == 200: break
+                            # モデル退役(404): キャッシュを捨てて最新を再解決し1度だけ乗り換え
+                            if resp.status_code == 404 and not reresolved:
+                                reresolved = True
+                                _resolve_sonnet_model.clear()
+                                new_id = _resolve_sonnet_model(api_key, AI_MODEL)
+                                if new_id != model_id:
+                                    model_id = new_id; continue
                             if resp.status_code in (429, 529, 500, 502, 503) and attempt < MAX_RETRIES - 1:
                                 _time.sleep(2 ** attempt * 2); continue
                             break
