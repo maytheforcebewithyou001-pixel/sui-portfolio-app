@@ -451,6 +451,35 @@ def save_ai_review(dt_str, text):
         st.warning(f"保存エラー: {e}")
 
 # ══════════════════════════════════════════
+# AIライフプラン試算 (履歴蓄積型)
+# ══════════════════════════════════════════
+def load_lifeplan_history(n=10):
+    """直近n件のライフプラン試算を返す [(日時, 入力条件JSON, レポート), ...]"""
+    try:
+        vals = _get_sheet_values("AIライフプラン")
+        if not vals or len(vals) < 2:
+            return []
+        rows = [(r[0], r[1], r[2]) for r in vals[1:] if len(r) >= 3 and r[0].strip()]
+        return rows[-n:]
+    except Exception:
+        return []
+
+def save_lifeplan(dt_str, inputs_json, text):
+    """ライフプラン試算結果を追記保存（履歴蓄積）"""
+    sh = get_spreadsheet()
+    if sh is None: return
+    try:
+        try: ws = sh.worksheet("AIライフプラン")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="AIライフプラン", rows="200", cols="3")
+            ws.append_row(["生成日時", "入力条件", "試算レポート"])
+        ws.append_row([dt_str, inputs_json, text], value_input_option="RAW")
+        _clear_sheet_cache()
+    except Exception as e:
+        logger.error("ライフプラン保存エラー: %s", e)
+        st.warning(f"保存エラー: {e}")
+
+# ══════════════════════════════════════════
 # #3 yfinance障害用フォールバック: 最終取得価格を保存・復元
 # ══════════════════════════════════════════
 # ══════════════════════════════════════════
