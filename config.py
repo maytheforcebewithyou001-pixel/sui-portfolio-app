@@ -22,7 +22,7 @@ TAX_RATE = 0.20315
 SESSION_TTL_SEC = 8 * 3600  # 8時間
 
 # AI モデル（変更時はここだけ修正）
-AI_MODEL = "claude-sonnet-4-20250514"
+AI_MODEL = "claude-sonnet-4-6"
 
 # NISA 年間・生涯枠（2024年新NISA）
 NISA_GROWTH_ANNUAL = 2_400_000      # 成長投資枠 年間上限
