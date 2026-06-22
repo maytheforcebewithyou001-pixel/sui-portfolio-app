@@ -70,21 +70,42 @@ def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
     戻り値: (ok: bool, text_or_error: str, stop_reason: str|None)
     stop_reason が "max_tokens" の場合は出力が上限で打ち切られている。
     """
-    import requests as req, time as _time
+    import requests as req, time as _time, json as _json
     model_id = _resolve_sonnet_model(api_key, AI_MODEL)
     MAX_RETRIES, resp, reresolved = 3, None, False
     for attempt in range(MAX_RETRIES):
         try:
+            # stream=Trueでトークンを逐次受信 → 長文でもread timeout(チャンク間)に掛からない
             resp = req.post("https://api.anthropic.com/v1/messages",
                             headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
                             json={"model": model_id, "max_tokens": max_tokens, "system": system_prompt,
-                                  "messages": [{"role": "user", "content": user_content}]}, timeout=120)
+                                  "messages": [{"role": "user", "content": user_content}], "stream": True},
+                            timeout=(15, 120), stream=True)
         except Exception as e:
             return False, f"通信エラー: {e}", None
         if resp.status_code == 200:
-            data = resp.json()
-            ai_text = "".join(b["text"] for b in data["content"] if b["type"] == "text")
-            return True, _sanitize(ai_text), data.get("stop_reason")
+            try:
+                parts, stop_reason = [], None
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload:
+                        continue
+                    ev = _json.loads(payload)
+                    et = ev.get("type")
+                    if et == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
+                        parts.append(ev["delta"].get("text", ""))
+                    elif et == "message_delta":
+                        sr = ev.get("delta", {}).get("stop_reason")
+                        if sr: stop_reason = sr
+                    elif et == "error":
+                        return False, f"APIエラー: {ev.get('error', {}).get('message', '不明')}", None
+                return True, _sanitize("".join(parts)), stop_reason
+            except Exception as e:
+                return False, f"ストリーム処理エラー: {e}", None
+            finally:
+                resp.close()
         # モデル退役(404): キャッシュを捨てて最新を再解決し1度だけ乗り換え
         if resp.status_code == 404 and not reresolved:
             reresolved = True
