@@ -31,6 +31,16 @@ def _yf_close_df(tickers, period):
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_benchmark_history(tickers_tuple, period="2y"):
+    """ベンチマーク指数の終値履歴をyfinanceから取得（Sheets書込等の副作用なし・1hキャッシュ）。"""
+    tickers = list(tickers_tuple)
+    if not tickers:
+        return pd.DataFrame()
+    df = _yf_close_df(tickers, period)
+    return df.ffill().bfill() if not df.empty else df
+
+
 # ══════════════════════════════════════════
 # 株価データ（日足終値）
 # ══════════════════════════════════════════

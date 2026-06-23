@@ -6,7 +6,7 @@ import html
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL
 from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
-from market import get_ticker_name, get_cached_market_data, get_stock_detail
+from market import get_ticker_name, get_cached_market_data, get_stock_detail, get_benchmark_history
 from calc import round_up_3, safe_csv_df, calc_risk_metrics
 from tabs import card, colored_card, pnl_color, pnl_sign
 import jquants
@@ -513,5 +513,52 @@ def render(tab, df, display_df, totals):
                                         yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
                                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
                     st.plotly_chart(fig_h, width='stretch')
+
+                    # ── ベンチマーク比較（指数化・円換算でαを可視化） ──
+                    if len(hdf_f) >= 2:
+                        _tmap = {"オルカン(ACWI)": "ACWI", "S&P 500": "^GSPC"}
+                        bsel = st.multiselect("📊 ベンチマーク比較（期間開始=100に指数化）",
+                                              list(_tmap.keys()), default=["オルカン(ACWI)"], key="hbench")
+                        if bsel:
+                            need = tuple([_tmap[b] for b in bsel] + ["JPY=X"])
+                            bdf = get_benchmark_history(need, "2y")
+                            if not bdf.empty and "JPY=X" in bdf.columns:
+                                bdf = bdf.copy(); bdf.index = pd.to_datetime(bdf.index)
+                                start_d, end_d = hdf_f["日付_dt"].iloc[0], hdf_f["日付_dt"].iloc[-1]
+                                win = bdf[(bdf.index >= start_d) & (bdf.index <= end_d)]
+                                pf0 = hdf_f["総資産額(円)"].iloc[0]
+                                figc = go.Figure()
+                                figc.add_trace(go.Scatter(x=hdf_f["日付_dt"], y=hdf_f["総資産額(円)"] / pf0 * 100,
+                                                          mode="lines+markers", name="あなたの評価額",
+                                                          line=dict(color="#00E676", width=2)))
+                                alphas = []
+                                _bcolors = {"オルカン(ACWI)": "#FFD54F", "S&P 500": "#00D2FF"}
+                                for b in bsel:
+                                    tk = _tmap[b]
+                                    if tk not in win.columns:
+                                        continue
+                                    jpy = (win[tk] * win["JPY=X"]).dropna()
+                                    if len(jpy) < 2:
+                                        continue
+                                    norm = jpy / jpy.iloc[0] * 100
+                                    figc.add_trace(go.Scatter(x=norm.index, y=norm.values, mode="lines",
+                                                              name=f"{b}(円換算)", line=dict(color=_bcolors.get(b, "#B0B8C0"), width=1.5)))
+                                    alphas.append((b, float(norm.iloc[-1] - 100)))
+                                figc.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                                                   margin=dict(t=10, b=10, l=10, r=10), height=300,
+                                                   xaxis=dict(showgrid=True, gridcolor="#1E232F"),
+                                                   yaxis=dict(title="指数(開始=100)", showgrid=True, gridcolor="#1E232F"),
+                                                   legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
+                                st.plotly_chart(figc, width='stretch')
+                                pf_ret = (hdf_f["総資産額(円)"].iloc[-1] / pf0 - 1) * 100 if pf0 > 0 else 0
+                                for b, bret in alphas:
+                                    alpha = pf_ret - bret
+                                    ac = pnl_color(alpha); asign = pnl_sign(alpha)
+                                    st.markdown(f"<span style='font-size:0.85rem'>{b}対比 α: "
+                                                f"<b style='color:{ac}'>{asign}{alpha:.2f}pt</b> "
+                                                f"（あなた {pf_ret:+.2f}% vs {b} {bret:+.2f}%）</span>", unsafe_allow_html=True)
+                                st.caption("※ ベンチマークはETF(ACWI/S&P500)を円換算し期間開始=100に指数化した簡易比較。投信オルカンの基準価額とは厳密には一致しないわ。")
+                            else:
+                                st.caption("ベンチマーク価格を取得できませんでした。")
                 else: st.info("選択期間内に記録がありません。")
             else: st.info("ヘッダーの「💾 記録」で記録を開始してください。")
