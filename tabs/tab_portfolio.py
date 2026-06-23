@@ -4,8 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import html
 from datetime import datetime
-from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP
-from data import load_data, save_data, load_history, _clear_sheet_cache
+from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL
+from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
 from market import get_ticker_name, get_cached_market_data, get_stock_detail
 from calc import round_up_3, safe_csv_df, calc_risk_metrics
 from tabs import card, colored_card, pnl_color, pnl_sign
@@ -105,6 +105,43 @@ def render(tab, df, display_df, totals):
                 tv = toku["評価額(円)"].sum() if not toku.empty else 0
                 colored_card("特定口座合計（課税）", f"{tv:,.0f}<span>円</span>",
                              sub=f"{len(toku)}銘柄", border_color="#FF8F00")
+
+            # ── NISA枠消化状況（今年・取引履歴の取得対価ベース） ──
+            try:
+                _tx = load_transactions()
+            except Exception:
+                _tx = pd.DataFrame()
+            if not _tx.empty and "口座区分" in _tx.columns:
+                _tx = _tx.copy()
+                _tx["_d"] = pd.to_datetime(_tx["日付"], errors="coerce")
+                _yr = datetime.now().year
+                _kbn = _tx["口座区分"].astype(str)
+                _buy = _tx[_tx["取引種別"].isin(["買い増し", "新規購入"]) &
+                           _kbn.str.contains("NISA", na=False) &
+                           (_tx["_d"].dt.year == _yr)].copy()
+                if not _buy.empty:
+                    _buy["_amt"] = _buy["数量"] * _buy["単価(円)"]  # 取得対価（枠は手数料を含めない）
+                    _bk = _buy["口座区分"].astype(str)
+                    g_used = _buy[_bk.str.contains("成長", na=False)]["_amt"].sum()
+                    t_used = _buy[_bk.str.contains("積立", na=False)]["_amt"].sum()
+                    st.markdown(f"##### 🎫 NISA枠消化状況（{_yr}年）")
+                    q1, q2 = st.columns(2)
+                    for _col, _label, _used, _limit, _color in [
+                        (q1, "成長投資枠", g_used, NISA_GROWTH_ANNUAL, "#69F0AE"),
+                        (q2, "つみたて投資枠", t_used, NISA_TSUMITATE_ANNUAL, "#00D2FF"),
+                    ]:
+                        with _col:
+                            _pct = min(_used / _limit * 100, 100) if _limit > 0 else 0
+                            _remain = max(_limit - _used, 0)
+                            st.markdown(
+                                f"<div class='status-card' style='padding:0.8rem;border-left:3px solid {_color}'>"
+                                f"<h4>{_label}（年{int(_limit/10000):,}万円）</h4>"
+                                f"<p class='mv' style='font-size:1.2rem;color:{_color}'>{_used:,.0f}<span>円 消化</span></p>"
+                                f"<div style='background:#1E232F;border-radius:6px;height:8px;margin:0.4rem 0'>"
+                                f"<div style='background:{_color};width:{_pct:.0f}%;height:8px;border-radius:6px'></div></div>"
+                                f"<p class='sv'>{_pct:.0f}% 消化 · 残枠 {_remain:,.0f}円</p>"
+                                f"</div>", unsafe_allow_html=True)
+                    st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。")
 
         # ── 保有一覧 ──
         if not df.empty and not display_df.empty:
