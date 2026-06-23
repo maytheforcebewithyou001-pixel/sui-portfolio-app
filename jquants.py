@@ -399,6 +399,76 @@ def get_fin_statements_history(code, limit=8):
 
 
 # ══════════════════════════════════════════
+# 減配検知（配当予想 vs 前期実績）
+# ══════════════════════════════════════════
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_dividend_status(code):
+    """財務サマリから年間配当(予想/実績)を取り、減配の兆候を判定。
+
+    Returns: dict | None
+      {current: 現在の年間配当予想(円/株), prior: 直近の年間配当実績(円/株),
+       pct: 変化率%, is_cut: bool}
+    ※ /fins/summary の配当DPSは分割未調整。減配判定は人手確認が前提（分割で誤検知しうる）。
+    """
+    fh = get_fin_statements_history(code, limit=8)
+    if fh is None or fh.empty:
+        return None
+    fcst_cols = ("NextYearForecastDividendPerShareAnnual", "ForecastDividendPerShareAnnual")
+    res_col = "ResultDividendPerShareAnnual"
+    if res_col not in fh.columns and not any(c in fh.columns for c in fcst_cols):
+        return None  # 配当フィールドが取得できない（プラン/エンドポイント差異）
+
+    # 実績年間配当の時系列（>0のみ）
+    results = []
+    if res_col in fh.columns:
+        for v in pd.to_numeric(fh[res_col], errors="coerce").tolist():
+            if pd.notna(v) and v > 0:
+                results.append(float(v))
+
+    # 現在の年間配当予想（最新レコード：翌期予想 → 当期予想）
+    current = None
+    last = fh.iloc[-1]
+    for col in fcst_cols:
+        if col in fh.columns:
+            v = pd.to_numeric(last.get(col), errors="coerce")
+            if pd.notna(v) and v > 0:
+                current = float(v)
+                break
+
+    prior = results[-1] if results else None
+    if current is None:
+        # 予想が無ければ実績の前年比で判定
+        if len(results) >= 2:
+            current, prior = results[-1], results[-2]
+        else:
+            return None
+    if prior is None or prior <= 0:
+        return None
+
+    pct = (current / prior - 1) * 100
+    return {"current": current, "prior": prior, "pct": pct, "is_cut": pct <= -1.0}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def scan_dividend_cuts(codes_tuple):
+    """保有日本株を一括スキャンし減配の疑いがある銘柄を返す（日次キャッシュ）。
+
+    Returns: list[{code, current, prior, pct}]
+    """
+    out = []
+    for code in codes_tuple:
+        try:
+            ds = get_dividend_status(code)
+        except Exception:
+            ds = None
+        if ds and ds.get("is_cut"):
+            d = dict(ds)
+            d["code"] = str(code)
+            out.append(d)
+    return out
+
+
+# ══════════════════════════════════════════
 # 決算カレンダー (yfinance + J-Quants当日分)
 # ══════════════════════════════════════════
 @st.cache_data(ttl=3600, show_spinner=False)

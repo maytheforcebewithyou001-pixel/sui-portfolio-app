@@ -447,6 +447,30 @@ if not df.empty and "銘柄コード" in df.columns:
     except Exception as _e:
         logger.warning("決算カレンダーアラート取得失敗: %s", _e)
 
+# 減配検知アラート（保有日本株の配当予想が前期実績を下回る兆候・要確認）
+if not df.empty and "銘柄コード" in df.columns:
+    try:
+        import jquants
+        if jquants.is_available():
+            _dvc = []
+            for _, _r in df.iterrows():
+                _c = str(_r.get("銘柄コード", "")).replace(".T", "").strip()
+                if str(_r.get("市場", "")).strip() == "日本株" and len(_c) >= 3 and _c.isdigit():
+                    _dvc.append(_c)
+            _dvc = tuple(sorted(set(_dvc)))
+            if _dvc:
+                _cuts = jquants.scan_dividend_cuts(_dvc)
+                _nm_map = {str(k).replace(".T", "").strip(): str(v) for k, v in zip(df["銘柄コード"], df["銘柄名"])}
+                for _cut in _cuts:
+                    _nm = html.escape(_nm_map.get(_cut["code"], _cut["code"]))
+                    st.markdown(
+                        f"<div class='alert-bar alert-down'>⚠ 減配の疑い（要確認）: <b>{_nm}</b>（{html.escape(_cut['code'])}）"
+                        f"予想年配当 {_cut['current']:.1f}円 ＜ 前期実績 {_cut['prior']:.1f}円（{_cut['pct']:+.1f}%）。"
+                        f"※株式分割の可能性あり。IR・適時開示で必ず確認を</div>",
+                        unsafe_allow_html=True)
+    except Exception as _e:
+        logger.warning("減配検知アラート取得失敗: %s", _e)
+
 # ═══════════════════ タブ ═══════════════════
 from tabs import tab_portfolio, tab_analysis, tab_currency, tab_dividend, tab_simulation, tab_market, tab_transaction, tab_ai, tab_rank, tab_admin
 
