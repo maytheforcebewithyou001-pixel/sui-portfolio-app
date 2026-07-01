@@ -121,6 +121,10 @@ def render(tab, df, display_df, totals):
                            (_tx["_d"].dt.year == _yr)].copy()
                 if not _buy.empty:
                     _buy["_amt"] = _buy["数量"] * _buy["単価(円)"]  # 取得対価（枠は手数料を含めない）
+                    # 投信は数量=口数・単価=基準価額(1万口あたり)のため1万で割って円換算
+                    if "市場" in _buy.columns:
+                        _fund = _buy["市場"].astype(str) == "投資信託"
+                        _buy.loc[_fund, "_amt"] = _buy.loc[_fund, "_amt"] / 10000
                     _bk = _buy["口座区分"].astype(str)
                     g_used = _buy[_bk.str.contains("成長", na=False)]["_amt"].sum()
                     t_used = _buy[_bk.str.contains("積立", na=False)]["_amt"].sum()
