@@ -145,7 +145,7 @@ def render(tab, df, display_df, totals):
                                 f"<div style='background:{_color};width:{_pct:.0f}%;height:8px;border-radius:6px'></div></div>"
                                 f"<p class='sv'>{_pct:.0f}% 消化 · 残枠 {_remain:,.0f}円</p>"
                                 f"</div>", unsafe_allow_html=True)
-                    st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。")
+                    st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。〔計算版: 2026-07-02b 投信/10000換算〕")
 
         # ── 保有一覧 ──
         if not df.empty and not display_df.empty:
