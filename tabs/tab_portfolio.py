@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import html
+import unicodedata
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL
 from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
@@ -121,10 +122,18 @@ def render(tab, df, display_df, totals):
                            (_tx["_d"].dt.year == _yr)].copy()
                 if not _buy.empty:
                     _buy["_amt"] = _buy["数量"] * _buy["単価(円)"]  # 取得対価（枠は手数料を含めない）
-                    # 投信は数量=口数・単価=基準価額(1万口あたり)のため1万で割って円換算
-                    if "市場" in _buy.columns:
-                        _fund = _buy["市場"].astype(str) == "投資信託"
-                        _buy.loc[_fund, "_amt"] = _buy.loc[_fund, "_amt"] / 10000
+                    # 投信は数量=口数・単価=基準価額(1万口あたり)のため1万で割って円換算。
+                    # 取引履歴の投信行は市場列が「-」・銘柄コード空のことがあるため多重条件で判定:
+                    #  ①市場=投資信託 ②つみたて枠(制度上投信のみ)
+                    #  ③銘柄コードが数字でない行で銘柄名にファンド/インデックス(NFKC正規化後)
+                    _code = _buy["銘柄コード"].astype(str).str.strip()
+                    _norm = _buy["銘柄名"].astype(str).map(lambda s: unicodedata.normalize("NFKC", s))
+                    _fund = (
+                        (_buy["市場"].astype(str) == "投資信託")
+                        | _buy["口座区分"].astype(str).str.contains("積立", na=False)
+                        | (~_code.str.match(r"^\d") & _norm.str.contains("ファンド|インデックス", na=False))
+                    )
+                    _buy.loc[_fund, "_amt"] = _buy.loc[_fund, "_amt"] / 10000
                     _bk = _buy["口座区分"].astype(str)
                     g_used = _buy[_bk.str.contains("成長", na=False)]["_amt"].sum()
                     t_used = _buy[_bk.str.contains("積立", na=False)]["_amt"].sum()
@@ -145,7 +154,7 @@ def render(tab, df, display_df, totals):
                                 f"<div style='background:{_color};width:{_pct:.0f}%;height:8px;border-radius:6px'></div></div>"
                                 f"<p class='sv'>{_pct:.0f}% 消化 · 残枠 {_remain:,.0f}円</p>"
                                 f"</div>", unsafe_allow_html=True)
-                    st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。〔計算版: 2026-07-02b 投信/10000換算〕")
+                    st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。〔計算版: 2026-07-02c 投信判定を多重条件化〕")
 
         # ── 保有一覧 ──
         if not df.empty and not display_df.empty:
