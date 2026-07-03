@@ -2,6 +2,9 @@
 import streamlit as st
 import html
 
+# Plotly ダークテーマ共通配色（#0A0E13 系。tab_market の #12161E 系は別物なので対象外）
+PLOTLY_DARK = dict(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0")
+
 def card(title, value, sub="", border_color="", cls=""):
     bc = f"border-left:3px solid {border_color};" if border_color else ""
     st.markdown(

@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from tabs import colored_card, pnl_color, pnl_sign
+from tabs import colored_card, pnl_color, pnl_sign, PLOTLY_DARK
 
 CCY_COLORS = {"JPY": "#00D2FF", "USD": "#FFD54F", "その他": "#B0B8C0"}
 
@@ -151,8 +151,7 @@ def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate):
         fig.update_traces(textposition="inside", textinfo="percent+label",
                           textfont_size=14)
         fig.update_layout(
-            plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13",
-            font_color="#E0E0E0", showlegend=False,
+            **PLOTLY_DARK, showlegend=False,
             margin=dict(t=10, b=10, l=10, r=10), height=350,
             annotations=[dict(text=f"¥{TA:,.0f}", x=0.5, y=0.5,
                               font_size=16, font_color="#E0E0E0",
@@ -237,8 +236,7 @@ def _render_fx_sensitivity(cdf, TA, jpy_usd_rate):
         textposition="outside",
     ))
     fig_fx.update_layout(
-        plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13",
-        font_color="#E0E0E0", showlegend=False,
+        **PLOTLY_DARK, showlegend=False,
         margin=dict(t=30, b=10, l=10, r=10), height=320,
         xaxis=dict(title="USD/JPY 変動幅", showgrid=False),
         yaxis=dict(title="評価額への影響(円)", showgrid=True,

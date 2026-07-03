@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from config import (NISA_GROWTH_ANNUAL, NISA_GROWTH_LIFETIME,
                     NISA_TSUMITATE_ANNUAL, NISA_TSUMITATE_LIFETIME, NISA_TOTAL_LIFETIME)
-from tabs import colored_card, alert_bar
+from tabs import colored_card, alert_bar, PLOTLY_DARK
 
 
 def _nisa_bar(label, val, limit, color, annual_limit):
@@ -53,7 +53,7 @@ def render(tab, df, display_df, totals):
         a1, a2 = st.columns([1.2, 1])
         with a1:
             f1 = px.pie(display_df, values="評価額(円)", names="円グラフ表示名", hole=0.4)
-            f1.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0", showlegend=False, margin=dict(t=10, b=10))
+            f1.update_layout(**PLOTLY_DARK, showlegend=False, margin=dict(t=10, b=10))
             st.plotly_chart(f1, width='stretch')
         with a2:
             t1 = display_df[display_df["評価額(円)"] > 0].groupby("円グラフ表示名", as_index=False)["評価額(円)"].sum().sort_values("評価額(円)", ascending=False)
@@ -67,7 +67,7 @@ def render(tab, df, display_df, totals):
         with s1:
             f2 = px.pie(display_df, values="評価額(円)", names="セクター", hole=0.4)
             f2.update_traces(textposition="inside", textinfo="percent+label")
-            f2.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0", showlegend=False, margin=dict(t=10, b=10))
+            f2.update_layout(**PLOTLY_DARK, showlegend=False, margin=dict(t=10, b=10))
             st.plotly_chart(f2, width='stretch')
         with s2:
             t2 = display_df[display_df["評価額(円)"] > 0].groupby("セクター", as_index=False)["評価額(円)"].sum().sort_values("評価額(円)", ascending=False)
@@ -113,7 +113,7 @@ def render(tab, df, display_df, totals):
         for _, r in rdf.iterrows():
             cl = "#FF5252" if r["乖離(%)"] > 1 else "#00E676" if r["乖離(%)"] < -1 else "#9E9E9E"
             fr.add_trace(go.Bar(x=[r["乖離(%)"]], y=[r["セクター"]], orientation="h", marker_color=cl, text=f"{r['乖離(%)']:+.1f}%", textposition="auto", showlegend=False))
-        fr.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0", margin=dict(t=10, b=10, l=10, r=10),
+        fr.update_layout(**PLOTLY_DARK, margin=dict(t=10, b=10, l=10, r=10),
                          height=max(len(secs) * 40, 200), xaxis=dict(title="乖離（%）", showgrid=True, gridcolor="#1E232F", zeroline=True, zerolinecolor="#4A5060"), yaxis=dict(showgrid=False))
         st.plotly_chart(fr, width='stretch')
         st.caption("🔴 比重オーバー / 🟢 比重不足 / 灰 適正範囲(±1%)")

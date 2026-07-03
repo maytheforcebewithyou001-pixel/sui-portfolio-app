@@ -8,7 +8,7 @@ from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS
 from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
 from market import get_ticker_name, get_cached_market_data, get_stock_detail, get_benchmark_history
 from calc import round_up_3, safe_csv_df, calc_risk_metrics, calc_nisa_usage, merge_position
-from tabs import card, colored_card, pnl_color, pnl_sign
+from tabs import card, colored_card, pnl_color, pnl_sign, PLOTLY_DARK
 import jquants
 
 
@@ -361,7 +361,7 @@ def _render_stock_detail(display_df, sel):
                         pc2 = pnl_color(pnl_val); ps2 = pnl_sign(pnl_val)
 
                         fig_d.update_layout(
-                            plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                            **PLOTLY_DARK,
                             margin=dict(t=30, b=10, l=10, r=10), height=350,
                             title=dict(text=f"損益 {ps2}{pnl_val:,.0f}円 ({ps2}{pnl_pct:.1f}%)",
                                        font=dict(color=pc2, size=14)),
@@ -414,7 +414,7 @@ def _render_stock_detail(display_df, sel):
                                     x=xlabel, y=yvals / 1e8,
                                     name=label, marker_color=colors_e[ci]))
                         fig_e.update_layout(
-                            plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                            **PLOTLY_DARK,
                             margin=dict(t=10, b=10, l=10, r=10), height=320, barmode="group",
                             xaxis=dict(showgrid=False, tickfont=dict(size=10)),
                             yaxis=dict(title=dict(text="売上/利益 (億円)", font=dict(size=11)),
@@ -520,7 +520,7 @@ def _render_history_chart(df, TA):
                     c = pnl_color(chg); s = pnl_sign(chg)
                     st.markdown(f"<div style='padding:0.5rem 0;font-size:0.85rem;color:#B0B8C0'>期間変化: "
                                 f"<span style='color:{c};font-weight:bold'>{s}{chg:,.0f}円 ({s}{chg_pct:.1f}%)</span></div>", unsafe_allow_html=True)
-            fig_h.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+            fig_h.update_layout(**PLOTLY_DARK,
                                 margin=dict(t=10, b=10, l=10, r=10), height=320,
                                 xaxis=dict(showgrid=True, gridcolor="#1E232F"),
                                 yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
@@ -557,7 +557,7 @@ def _render_history_chart(df, TA):
                             figc.add_trace(go.Scatter(x=norm.index, y=norm.values, mode="lines",
                                                       name=f"{b}(円換算)", line=dict(color=_bcolors.get(b, "#B0B8C0"), width=1.5)))
                             alphas.append((b, float(norm.iloc[-1] - 100)))
-                        figc.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+                        figc.update_layout(**PLOTLY_DARK,
                                            margin=dict(t=10, b=10, l=10, r=10), height=300,
                                            xaxis=dict(showgrid=True, gridcolor="#1E232F"),
                                            yaxis=dict(title="指数(開始=100)", showgrid=True, gridcolor="#1E232F"),

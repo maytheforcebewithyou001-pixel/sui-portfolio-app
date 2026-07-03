@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from calc import get_future_simulation, simulate_withdrawal
-from tabs import card
+from tabs import card, PLOTLY_DARK
 
 
 def _render_goal(TA, goal_amount, goal_oku, interest_rate, interest_rate_pct):
@@ -18,7 +18,7 @@ def _render_goal(TA, goal_amount, goal_oku, interest_rate, interest_rate_pct):
     sdb["表示用金額"] = sdb["年間積立額"].apply(lambda x: f"{int(x):,}円" if x > 0 else "達成確実！")
     fb = px.bar(sdb, x="年間積立額", y="達成年数", orientation="h", text="表示用金額")
     fb.update_traces(textposition="auto", marker_color="#00D2FF")
-    fb.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0", margin=dict(t=10, b=10), xaxis=dict(tickformat=",", ticksuffix="円"))
+    fb.update_layout(**PLOTLY_DARK, margin=dict(t=10, b=10), xaxis=dict(tickformat=",", ticksuffix="円"))
     st.plotly_chart(fb, width='stretch')
 
 
@@ -44,7 +44,7 @@ def _render_future(TA, interest_rate, yearly_add, goal_amount, goal_oku):
     with f2: card("積立元本", f"{fpv:,.0f}<span>円</span>")
     with f3: card("運用益", f"<span style='color:#00E676'>{fg:,.0f}<span>円</span></span>")
 
-    ff.update_layout(barmode="stack", plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+    ff.update_layout(barmode="stack", **PLOTLY_DARK,
                      margin=dict(l=0, r=0, t=20, b=10), height=400,
                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
@@ -86,7 +86,7 @@ def _render_accumulation(TA):
     fig = go.Figure()
     fig.add_trace(go.Bar(x=yd["経過年数"], y=yd["積立元本(円)"], name="元本", marker_color="#4A90D9"))
     fig.add_trace(go.Bar(x=yd["経過年数"], y=yd["運用益(円)"], name="運用益", marker_color="#00D2FF"))
-    fig.update_layout(barmode="stack", plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+    fig.update_layout(barmode="stack", **PLOTLY_DARK,
                       margin=dict(l=0, r=0, t=20, b=10), height=380,
                       xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=",", ticksuffix="円"),
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
@@ -157,7 +157,7 @@ def _render_withdrawal(TA):
     fig.add_trace(go.Bar(x=sim["年"], y=sim["取り崩し額(円)"], name="年間取崩", marker_color="#FFA726", yaxis="y2", opacity=0.7))
     if depleted_year is not None:
         fig.add_vline(x=depleted_year, line=dict(color="#FF5252", width=2, dash="dash"), annotation_text=f"枯渇 ({depleted_year}年目)", annotation_position="top")
-    fig.update_layout(plot_bgcolor="#0A0E13", paper_bgcolor="#0A0E13", font_color="#E0E0E0",
+    fig.update_layout(**PLOTLY_DARK,
                       margin=dict(l=0, r=0, t=20, b=10), height=400,
                       xaxis=dict(title="経過年数", showgrid=False),
                       yaxis=dict(title="残高(円)", showgrid=True, gridcolor="#1E232F", tickformat=","),
