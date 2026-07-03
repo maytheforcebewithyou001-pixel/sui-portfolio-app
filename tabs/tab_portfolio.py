@@ -7,7 +7,7 @@ from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL, FALLBACK_USDJPY
 from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
 from market import get_ticker_name, get_cached_market_data, get_stock_detail, get_benchmark_history
-from calc import round_up_3, safe_csv_df, calc_risk_metrics, calc_nisa_usage
+from calc import round_up_3, safe_csv_df, calc_risk_metrics, calc_nisa_usage, merge_position
 from tabs import card, colored_card, pnl_color, pnl_sign
 import jquants
 
@@ -54,8 +54,8 @@ def render(tab, df, display_df, totals):
                 i = match_idx[0]
                 cur_shares = float(df.at[i, "保有株数"])
                 cur_price = float(df.at[i, "取得単価"])
-                new_total = cur_shares + shares
-                df.at[i, "取得単価"] = (cur_shares * cur_price + shares * avg_price) / new_total if new_total > 0 else avg_price
+                new_total, new_price = merge_position(cur_shares, cur_price, shares, avg_price)
+                df.at[i, "取得単価"] = new_price
                 df.at[i, "保有株数"] = new_total
                 if annual_div > 0:
                     df.at[i, "年間配当金(円/株)"] = annual_div

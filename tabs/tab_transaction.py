@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS
+from calc import merge_position
 from data import save_data, save_transaction, save_transactions_batch, load_transactions, _clear_sheet_cache
 from tabs import pnl_color, pnl_sign
 
@@ -131,8 +132,8 @@ def render(tab, df):
                         df.at[i, "保有株数"] = max(cur_shares - tx_qty, 0)
                         pnl_realized = (tx_price - cur_price) * tx_qty
                     else:
-                        new_total = cur_shares + tx_qty
-                        df.at[i, "取得単価"] = (cur_shares * cur_price + tx_qty * tx_price) / new_total if new_total > 0 else tx_price
+                        new_total, new_price = merge_position(cur_shares, cur_price, tx_qty, tx_price)
+                        df.at[i, "取得単価"] = new_price
                         df.at[i, "保有株数"] = new_total
                     save_data(df)
                     save_transaction({"日付": tx_date.strftime("%Y/%m/%d"), "銘柄コード": tx_code, "銘柄名": tx_name,
@@ -187,8 +188,8 @@ def render(tab, df):
                         if crow["_取引種別"] == "売却":
                             df.at[idx[0], "保有株数"] = max(cur_s - qty, 0)
                         else:
-                            new_t = cur_s + qty
-                            df.at[idx[0], "取得単価"] = (cur_s * cur_p + qty * price) / new_t if new_t > 0 else price
+                            new_t, new_p = merge_position(cur_s, cur_p, qty, price)
+                            df.at[idx[0], "取得単価"] = new_p
                             df.at[idx[0], "保有株数"] = new_t
                         upd_count += 1
                     save_data(df)

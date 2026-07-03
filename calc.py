@@ -223,6 +223,14 @@ def calc_nisa_usage(tx: pd.DataFrame, year: int):
     t_used = _buy[_bk.str.contains("積立", na=False)]["_amt"].sum()
     return g_used, t_used
 
+def merge_position(cur_shares: float, cur_price: float, add_qty: float, add_price: float):
+    """買い増し時の保有数と平均取得単価を再計算する。
+    Returns: (新保有数, 新平均取得単価)。合計0株なら単価は add_price。
+    """
+    new_total = cur_shares + add_qty
+    new_price = (cur_shares * cur_price + add_qty * add_price) / new_total if new_total > 0 else add_price
+    return new_total, new_price
+
 def get_future_simulation(current_asset: float, annual_rate: float, years: int, yearly_addition: float) -> pd.DataFrame:
     months = years * 12
     monthly_rate = (1 + annual_rate) ** (1 / 12) - 1  # 年利の複利等価な月利（単純割りだと過大評価）
