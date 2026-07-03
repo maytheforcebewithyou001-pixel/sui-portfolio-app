@@ -157,7 +157,7 @@ def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate):
                               font_size=16, font_color="#E0E0E0",
                               showarrow=False)],
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with c2:
         st.markdown("#### 📋 通貨別内訳")
         tbl = ccy_agg.copy()
@@ -242,7 +242,7 @@ def _render_fx_sensitivity(cdf, TA, jpy_usd_rate):
         yaxis=dict(title="評価額への影響(円)", showgrid=True,
                    gridcolor="#1E232F", tickformat=","),
     )
-    st.plotly_chart(fig_fx, use_container_width=True)
+    st.plotly_chart(fig_fx, width="stretch")
 
     fx_df = pd.DataFrame(rows)
     fx_df["USD資産変動"] = fx_df["USD資産変動"].apply(lambda x: f"{x:+,.0f}円")

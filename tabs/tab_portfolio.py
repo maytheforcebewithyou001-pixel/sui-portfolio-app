@@ -368,7 +368,7 @@ def _render_stock_detail(display_df, sel):
                             xaxis=dict(showgrid=True, gridcolor="#1E232F"),
                             yaxis=dict(showgrid=True, gridcolor="#1E232F", tickformat=","),
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
-                        st.plotly_chart(fig_d, use_container_width=True)
+                        st.plotly_chart(fig_d, width="stretch")
                     else:
                         st.info("株価データが不足しています。")
                 else:
