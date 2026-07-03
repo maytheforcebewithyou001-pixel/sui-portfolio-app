@@ -482,7 +482,6 @@ def save_lifeplan(dt_str, inputs_json, text):
 # ══════════════════════════════════════════
 # #3 yfinance障害用フォールバック: 最終取得価格を保存・復元
 # ══════════════════════════════════════════
-# ══════════════════════════════════════════
 # 取引履歴 (TransactionData シート)
 # 列: 日付 | 銘柄コード | 銘柄名 | 市場 | 取引種別 | 数量 | 単価(円) | 手数料 | 損益確定(円) | 口座 | 口座区分
 # ══════════════════════════════════════════
@@ -541,7 +540,6 @@ def save_last_prices(price_dict):
             ws.update_cell(1, 1, "ティッカー")
             ws.update_cell(1, 2, "最終価格")
             ws.update_cell(1, 3, "更新日時")
-        from datetime import datetime
         rows = [["ティッカー", "最終価格", "更新日時"]]
         now = datetime.now().strftime("%Y/%m/%d %H:%M")
         for ticker, price in price_dict.items():

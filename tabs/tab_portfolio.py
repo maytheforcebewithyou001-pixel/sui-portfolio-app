@@ -344,7 +344,7 @@ def render(tab, df, display_df, totals):
                                 fig_d.add_trace(go.Scatter(
                                     x=cs.index, y=eval_series, mode="lines",
                                     name="評価額", line=dict(color="#00D2FF", width=2),
-                                    fill="tonexty" if False else None))
+                                    fill=None))
                                 fig_d.add_trace(go.Scatter(
                                     x=[cs.index[0], cs.index[-1]], y=[cost_total, cost_total],
                                     mode="lines", name="元本",
