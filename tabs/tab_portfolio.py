@@ -3,12 +3,11 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import html
-import unicodedata
 from datetime import datetime
 from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL, FALLBACK_USDJPY
 from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
 from market import get_ticker_name, get_cached_market_data, get_stock_detail, get_benchmark_history
-from calc import round_up_3, safe_csv_df, calc_risk_metrics
+from calc import round_up_3, safe_csv_df, calc_risk_metrics, calc_nisa_usage
 from tabs import card, colored_card, pnl_color, pnl_sign
 import jquants
 
@@ -112,49 +111,28 @@ def render(tab, df, display_df, totals):
                 _tx = load_transactions()
             except Exception:
                 _tx = pd.DataFrame()
-            if not _tx.empty and "口座区分" in _tx.columns:
-                _tx = _tx.copy()
-                _tx["_d"] = pd.to_datetime(_tx["日付"], errors="coerce")
-                _yr = datetime.now().year
-                _kbn = _tx["口座区分"].astype(str)
-                _buy = _tx[_tx["取引種別"].isin(["買い増し", "新規購入"]) &
-                           _kbn.str.contains("NISA", na=False) &
-                           (_tx["_d"].dt.year == _yr)].copy()
-                if not _buy.empty:
-                    _buy["_amt"] = _buy["数量"] * _buy["単価(円)"]  # 取得対価（枠は手数料を含めない）
-                    # 投信は数量=口数・単価=基準価額(1万口あたり)のため1万で割って円換算。
-                    # 取引履歴の投信行は市場列が「-」・銘柄コード空のことがあるため多重条件で判定:
-                    #  ①市場=投資信託 ②つみたて枠(制度上投信のみ)
-                    #  ③銘柄コードが数字でない行で銘柄名にファンド/インデックス(NFKC正規化後)
-                    _code = _buy["銘柄コード"].astype(str).str.strip()
-                    _norm = _buy["銘柄名"].astype(str).map(lambda s: unicodedata.normalize("NFKC", s))
-                    _fund = (
-                        (_buy["市場"].astype(str) == "投資信託")
-                        | _buy["口座区分"].astype(str).str.contains("積立", na=False)
-                        | (~_code.str.match(r"^\d") & _norm.str.contains("ファンド|インデックス", na=False))
-                    )
-                    _buy.loc[_fund, "_amt"] = _buy.loc[_fund, "_amt"] / 10000
-                    _bk = _buy["口座区分"].astype(str)
-                    g_used = _buy[_bk.str.contains("成長", na=False)]["_amt"].sum()
-                    t_used = _buy[_bk.str.contains("積立", na=False)]["_amt"].sum()
-                    st.markdown(f"##### 🎫 NISA枠消化状況（{_yr}年）")
-                    q1, q2 = st.columns(2)
-                    for _col, _label, _used, _limit, _color in [
-                        (q1, "成長投資枠", g_used, NISA_GROWTH_ANNUAL, "#69F0AE"),
-                        (q2, "つみたて投資枠", t_used, NISA_TSUMITATE_ANNUAL, "#00D2FF"),
-                    ]:
-                        with _col:
-                            _pct = min(_used / _limit * 100, 100) if _limit > 0 else 0
-                            _remain = max(_limit - _used, 0)
-                            st.markdown(
-                                f"<div class='status-card' style='padding:0.8rem;border-left:3px solid {_color}'>"
-                                f"<h4>{_label}（年{int(_limit/10000):,}万円）</h4>"
-                                f"<p class='mv' style='font-size:1.2rem;color:{_color}'>{_used:,.0f}<span>円 消化</span></p>"
-                                f"<div style='background:#1E232F;border-radius:6px;height:8px;margin:0.4rem 0'>"
-                                f"<div style='background:{_color};width:{_pct:.0f}%;height:8px;border-radius:6px'></div></div>"
-                                f"<p class='sv'>{_pct:.0f}% 消化 · 残枠 {_remain:,.0f}円</p>"
-                                f"</div>", unsafe_allow_html=True)
-                    st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。〔計算版: 2026-07-02c 投信判定を多重条件化〕")
+            _yr = datetime.now().year
+            _usage = calc_nisa_usage(_tx, _yr)
+            if _usage is not None:
+                g_used, t_used = _usage
+                st.markdown(f"##### 🎫 NISA枠消化状況（{_yr}年）")
+                q1, q2 = st.columns(2)
+                for _col, _label, _used, _limit, _color in [
+                    (q1, "成長投資枠", g_used, NISA_GROWTH_ANNUAL, "#69F0AE"),
+                    (q2, "つみたて投資枠", t_used, NISA_TSUMITATE_ANNUAL, "#00D2FF"),
+                ]:
+                    with _col:
+                        _pct = min(_used / _limit * 100, 100) if _limit > 0 else 0
+                        _remain = max(_limit - _used, 0)
+                        st.markdown(
+                            f"<div class='status-card' style='padding:0.8rem;border-left:3px solid {_color}'>"
+                            f"<h4>{_label}（年{int(_limit/10000):,}万円）</h4>"
+                            f"<p class='mv' style='font-size:1.2rem;color:{_color}'>{_used:,.0f}<span>円 消化</span></p>"
+                            f"<div style='background:#1E232F;border-radius:6px;height:8px;margin:0.4rem 0'>"
+                            f"<div style='background:{_color};width:{_pct:.0f}%;height:8px;border-radius:6px'></div></div>"
+                            f"<p class='sv'>{_pct:.0f}% 消化 · 残枠 {_remain:,.0f}円</p>"
+                            f"</div>", unsafe_allow_html=True)
+                st.caption("※ 取引履歴の買い増し/新規購入・NISA口座の取得対価ベース。手数料・分配金再投資は枠計算に含めていないわ。〔計算版: 2026-07-02c 投信判定を多重条件化〕")
 
         # ── 保有一覧 ──
         if not df.empty and not display_df.empty:

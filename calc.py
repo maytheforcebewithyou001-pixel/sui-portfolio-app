@@ -6,6 +6,7 @@
 """
 import pandas as pd
 import math
+import unicodedata
 from datetime import datetime
 from typing import Optional
 from config import get_tax_rate
@@ -184,6 +185,43 @@ def get_portfolio_totals(display_df: pd.DataFrame) -> dict:
         "avg_dividend_yield": (display_df["予想配当(円)"].sum() / ta * 100) if ta > 0 else 0.0,
         "stock_count": len(display_df),
     }
+
+def calc_nisa_usage(tx: pd.DataFrame, year: int):
+    """NISA枠の年間消化額を取引履歴から計算する。
+
+    仕様（tab_portfolio.py の旧インライン実装と完全同一）:
+      - 対象: 取引種別が 買い増し/新規購入、口座区分に 'NISA' を含む、日付が year 年
+      - 金額 = 数量 × 単価(円)（取得対価。手数料は枠に含めない）
+      - 投信判定（いずれか成立で 1万口あたり基準価額とみなし ÷10,000 円換算）:
+          ①市場 == '投資信託'
+          ②口座区分に '積立' を含む（つみたて枠は制度上投信のみ）
+          ③銘柄コードが数字始まりでなく、銘柄名(NFKC正規化)に 'ファンド' or 'インデックス'
+    Returns:
+        (成長枠消化額, 積立枠消化額) のタプル。対象取引が無い場合は None（UI側で非表示にする）。
+    """
+    if tx is None or tx.empty or "口座区分" not in tx.columns:
+        return None
+    _tx = tx.copy()
+    _tx["_d"] = pd.to_datetime(_tx["日付"], errors="coerce")
+    _kbn = _tx["口座区分"].astype(str)
+    _buy = _tx[_tx["取引種別"].isin(["買い増し", "新規購入"]) &
+               _kbn.str.contains("NISA", na=False) &
+               (_tx["_d"].dt.year == year)].copy()
+    if _buy.empty:
+        return None
+    _buy["_amt"] = _buy["数量"] * _buy["単価(円)"]  # 取得対価（枠は手数料を含めない）
+    _code = _buy["銘柄コード"].astype(str).str.strip()
+    _norm = _buy["銘柄名"].astype(str).map(lambda s: unicodedata.normalize("NFKC", s))
+    _fund = (
+        (_buy["市場"].astype(str) == "投資信託")
+        | _buy["口座区分"].astype(str).str.contains("積立", na=False)
+        | (~_code.str.match(r"^\d") & _norm.str.contains("ファンド|インデックス", na=False))
+    )
+    _buy.loc[_fund, "_amt"] = _buy.loc[_fund, "_amt"] / 10000
+    _bk = _buy["口座区分"].astype(str)
+    g_used = _buy[_bk.str.contains("成長", na=False)]["_amt"].sum()
+    t_used = _buy[_bk.str.contains("積立", na=False)]["_amt"].sum()
+    return g_used, t_used
 
 def get_future_simulation(current_asset: float, annual_rate: float, years: int, yearly_addition: float) -> pd.DataFrame:
     months = years * 12
