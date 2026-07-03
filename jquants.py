@@ -204,20 +204,6 @@ def _parse_daily(data, code):
     return entries if entries else None
 
 
-def get_latest_prices(codes):
-    """日本株の最新終値を返す。{銘柄コード: {price, change_pct}}"""
-    quotes = get_daily_quotes(codes, days=5)
-    result = {}
-    for code, entries in quotes.items():
-        if len(entries) >= 1:
-            latest = entries[-1]["Close"]
-            change_pct = None
-            if len(entries) >= 2 and entries[-2]["Close"] > 0:
-                change_pct = ((latest / entries[-2]["Close"]) - 1) * 100
-            result[code] = {"price": latest, "change_pct": change_pct}
-    return result
-
-
 # ══════════════════════════════════════════
 # 銘柄情報（セクター等）
 # ══════════════════════════════════════════
@@ -258,38 +244,6 @@ def get_listed_info(code=None):
             "market": item.get("MktNm", "") or item.get("MarketCodeName", ""),
         }
     return result
-
-
-# ══════════════════════════════════════════
-# 財務情報
-# ══════════════════════════════════════════
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_fin_statements(code):
-    """直近の財務サマリーを取得。"""
-    c = str(code).replace(".T", "").strip()
-    data = None
-
-    # ── CLI ──
-    if _USE_CLI:
-        data = _cli(["fins", "summary", "--code", c])
-
-    # ── HTTP fallback ──
-    if data is None:
-        data = _http_get("/fins/summary", {"code": c})
-
-    if not data:
-        return {}
-
-    df = pd.DataFrame(data)
-    if df.empty:
-        return {}
-
-    # CLI: DiscDate, HTTP: DisclosedDate — normalize
-    date_col = "DiscDate" if "DiscDate" in df.columns else "DisclosedDate"
-    if date_col in df.columns:
-        df = df.sort_values(date_col, ascending=False)
-
-    return df.iloc[0].to_dict()
 
 
 # ══════════════════════════════════════════
