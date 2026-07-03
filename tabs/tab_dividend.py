@@ -1,6 +1,7 @@
 """TAB 3: 配当"""
 import streamlit as st
 import pandas as pd
+from config import logger
 from tabs import colored_card
 
 
@@ -21,7 +22,8 @@ def render(tab, df, display_df, totals):
                     tl = "非課税" if "NISA" in str(row.get("口座区分", "")) else "課税"
                     for m in ml:
                         if 1 <= m <= 12: mdv[m] += p; mda[m] += pa; mdt[m].append({"銘柄": f"{row['銘柄コード']} {row['銘柄名']}", "税引前": p, "税引後": pa, "税区分": tl})
-                except Exception: pass
+                except Exception as e:
+                    logger.debug("配当月パースをスキップ: %s", e)
 
         mn = [f"{m}月" for m in range(1, 13)]
         for rs in range(0, 12, 4):

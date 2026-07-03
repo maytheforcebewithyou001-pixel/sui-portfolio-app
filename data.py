@@ -296,7 +296,8 @@ def load_fund_prices() -> dict:
                 try: fund_prices[row[0].strip()] = float(str(row[2]).replace(",", ""))
                 except (ValueError, TypeError): pass
         return fund_prices
-    except Exception:
+    except Exception as e:
+        logger.debug("投信価格読み込みスキップ: %s", e)
         return {}
 
 # ══════════════════════════════════════════
@@ -320,7 +321,8 @@ def load_gas_prices() -> dict:
                 except (ValueError, TypeError):
                     pass
         return gas_prices
-    except Exception:
+    except Exception as e:
+        logger.debug("GAS株価読み込みスキップ: %s", e)
         return {}
 
 # ══════════════════════════════════════════
@@ -432,7 +434,8 @@ def load_ai_review_history(n=10):
             return []
         rows = [(r[0], r[1]) for r in vals[1:] if len(r) >= 2 and r[0].strip()]
         return rows[-n:]  # 直近n件
-    except Exception:
+    except Exception as e:
+        logger.debug("AI総評履歴読み込みスキップ: %s", e)
         return []
 
 def save_ai_review(dt_str, text):
@@ -461,7 +464,8 @@ def load_lifeplan_history(n=10):
             return []
         rows = [(r[0], r[1], r[2]) for r in vals[1:] if len(r) >= 3 and r[0].strip()]
         return rows[-n:]
-    except Exception:
+    except Exception as e:
+        logger.debug("ライフプラン履歴読み込みスキップ: %s", e)
         return []
 
 def save_lifeplan(dt_str, inputs_json, text):
@@ -560,7 +564,8 @@ def load_last_prices():
                 try: prices[row[0].strip()] = float(row[1])
                 except (ValueError, TypeError): pass
         return prices
-    except Exception:
+    except Exception as e:
+        logger.debug("最終価格読み込みスキップ: %s", e)
         return {}
 
 # ══════════════════════════════════════════

@@ -280,7 +280,8 @@ try:
         prev_asset = _hdf["総資産額(円)"].iloc[-1]; prev_date_str = str(_hdf["日付"].iloc[-1])
         if prev_asset > 0 and TA > 0:
             prev_diff = TA - prev_asset; prev_diff_pct = (prev_diff / prev_asset) * 100
-except Exception: pass
+except Exception as e:
+    logger.debug("前回資産の読み込みをスキップ: %s", e)
 
 tnp, tda = totals["total_net_profit"], totals["total_dividend_after_tax"]
 tgp = totals["total_gross_profit"]
@@ -380,7 +381,8 @@ if gas_prices and gas_last_updated:
         if gap_min > 60:
             st.markdown(f"<div class='alert-bar alert-down'>⚠ GAS株価データが古い可能性あり（最終更新: {gas_last_updated}、約{gap_min/60:.0f}時間前）</div>", unsafe_allow_html=True)
         else: st.caption(f"📡 GAS株価データ 最終更新: {gas_last_updated}")
-    except Exception: pass
+    except Exception as e:
+        logger.debug("GAS更新時刻の解析をスキップ: %s", e)
 
 # 為替損益サマリー
 tfx, tsg = totals["total_fx_gain"], totals["total_stock_gain"]
