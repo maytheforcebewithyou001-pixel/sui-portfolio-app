@@ -1,6 +1,6 @@
 """
 #7 calc.pyのユニットテスト
-実行: python -m pytest tests_calc.py -v
+実行: python -m pytest test_calc.py -v
 """
 import pandas as pd
 import pytest
@@ -133,6 +133,7 @@ class TestGetPortfolioTotals:
     def test_basic(self):
         df = pd.DataFrame({
             "評価額(円)": [100000, 200000],
+            "含み損益(円)": [12000, -5000],
             "税引後損益(円)": [10000, -5000],
             "予想配当(円)": [3000, 6000],
             "税引後配当(円)": [2400, 4800],
@@ -141,8 +142,12 @@ class TestGetPortfolioTotals:
         })
         t = get_portfolio_totals(df)
         assert t["total_asset"] == 300000
+        assert t["total_gross_profit"] == 7000
         assert t["total_net_profit"] == 5000
         assert t["total_dividend"] == 9000
+        assert t["total_dividend_after_tax"] == 7200
+        assert t["total_fx_gain"] == 1000
+        assert t["total_stock_gain"] == 5000
         assert t["stock_count"] == 2
         assert abs(t["avg_dividend_yield"] - 3.0) < 0.01
 
