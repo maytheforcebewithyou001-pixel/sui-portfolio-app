@@ -8,14 +8,80 @@ from data import save_data, save_transaction, save_transactions_batch, load_tran
 from tabs import pnl_color, pnl_sign
 
 
-def _parse_broker_csv(csv_file):
-    """SBI証券/楽天証券の約定履歴CSVを自動判別しパース。統一カラムで返す"""
-    import io
-    raw = csv_file.read()
+def _decode_broker_csv(raw: bytes):
+    """バイト列を shift_jis→cp932→utf-8-sig→utf-8 の順で decode。全滅なら None"""
     csv_text = None
     for enc in ["shift_jis", "cp932", "utf-8-sig", "utf-8"]:
         try: csv_text = raw.decode(enc); break
         except Exception: continue
+    return csv_text
+
+
+def _normalize_mufj(csv_df):
+    """三菱UFJeスマート証券(投信)を統一カラム(_name/_qty/_price/_fee/_code/_market/_取引種別/_口座区分)へ"""
+    # 三菱UFJeスマート証券フォーマット（投信）
+    csv_df["_取引種別"] = csv_df["売買"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
+    def _tax_mufj(v):
+        v = str(v)
+        if "つみたて" in v or "積立" in v: return "NISA(積立投資枠)"
+        if "NISA" in v or "成長" in v: return "NISA(成長投資枠)"
+        return "特定口座"
+    csv_df["_口座区分"] = csv_df["課税区分"].apply(_tax_mufj)
+    for nc in ["数量", "約定単価", "受渡金額", "手数料(税込)", "売買損益"]:
+        if nc in csv_df.columns:
+            csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("-", "0")
+            csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
+    csv_df = csv_df.rename(columns={"ファンド名": "_name", "数量": "_qty",
+                                     "約定単価": "_price", "手数料(税込)": "_fee"})
+    csv_df["_code"] = ""
+    csv_df["_market"] = "投資信託"
+    return csv_df
+
+
+def _normalize_rakuten(csv_df):
+    """楽天証券を統一カラムへ"""
+    # 楽天証券フォーマット
+    csv_df["_取引種別"] = csv_df["売買区分"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
+    def _tax_rakuten(v):
+        v = str(v)
+        if "NISA" in v and "積立" in v: return "NISA(積立投資枠)"
+        if "NISA" in v: return "NISA(成長投資枠)"
+        return "特定口座"
+    csv_df["_口座区分"] = csv_df["口座区分"].apply(_tax_rakuten)
+    for nc in ["数量［株］", "単価［円］", "手数料［円］", "受渡金額［円］"]:
+        if nc in csv_df.columns:
+            csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("-", "0")
+            csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
+    # 統一カラム名にリネーム
+    csv_df = csv_df.rename(columns={"銘柄コード": "_code", "銘柄名": "_name", "市場名称": "_market",
+                                     "数量［株］": "_qty", "単価［円］": "_price", "手数料［円］": "_fee"})
+    return csv_df
+
+
+def _normalize_sbi(csv_df):
+    """SBI証券を統一カラムへ"""
+    # SBI証券フォーマット
+    csv_df["_取引種別"] = csv_df["取引"].apply(lambda v: "売却" if "売" in str(v) or "解約" in str(v) else "買い増し")
+    def _tax_sbi(v):
+        v = str(v)
+        if "つ" in v or "つみたて" in v or "旧つみたて" in v: return "NISA(積立投資枠)"
+        if "成" in v or "NISA" in v: return "NISA(成長投資枠)"
+        return "特定口座"
+    csv_df["_口座区分"] = csv_df["預り"].apply(_tax_sbi)
+    for nc in ["約定数量", "約定単価", "受渡金額/決済損益", "手数料/諸経費等"]:
+        if nc in csv_df.columns:
+            csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("--", "0")
+            csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
+    csv_df = csv_df.rename(columns={"銘柄コード": "_code", "銘柄": "_name", "市場": "_market",
+                                     "約定数量": "_qty", "約定単価": "_price", "手数料/諸経費等": "_fee"})
+    return csv_df
+
+
+def _parse_broker_csv(csv_file):
+    """SBI証券/楽天証券の約定履歴CSVを自動判別しパース。統一カラムで返す"""
+    import io
+    raw = csv_file.read()
+    csv_text = _decode_broker_csv(raw)
     if csv_text is None: return None, None, "ファイルのエンコーディングを判別できませんでした。"
 
     lines = csv_text.splitlines()
@@ -40,53 +106,11 @@ def _parse_broker_csv(csv_file):
     broker = "三菱UFJeスマート証券" if is_mufj else ("楽天証券" if is_rakuten else "SBI証券")
 
     if is_mufj:
-        # 三菱UFJeスマート証券フォーマット（投信）
-        csv_df["_取引種別"] = csv_df["売買"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
-        def _tax_mufj(v):
-            v = str(v)
-            if "つみたて" in v or "積立" in v: return "NISA(積立投資枠)"
-            if "NISA" in v or "成長" in v: return "NISA(成長投資枠)"
-            return "特定口座"
-        csv_df["_口座区分"] = csv_df["課税区分"].apply(_tax_mufj)
-        for nc in ["数量", "約定単価", "受渡金額", "手数料(税込)", "売買損益"]:
-            if nc in csv_df.columns:
-                csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("-", "0")
-                csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
-        csv_df = csv_df.rename(columns={"ファンド名": "_name", "数量": "_qty",
-                                         "約定単価": "_price", "手数料(税込)": "_fee"})
-        csv_df["_code"] = ""
-        csv_df["_market"] = "投資信託"
+        csv_df = _normalize_mufj(csv_df)
     elif is_rakuten:
-        # 楽天証券フォーマット
-        csv_df["_取引種別"] = csv_df["売買区分"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
-        def _tax_rakuten(v):
-            v = str(v)
-            if "NISA" in v and "積立" in v: return "NISA(積立投資枠)"
-            if "NISA" in v: return "NISA(成長投資枠)"
-            return "特定口座"
-        csv_df["_口座区分"] = csv_df["口座区分"].apply(_tax_rakuten)
-        for nc in ["数量［株］", "単価［円］", "手数料［円］", "受渡金額［円］"]:
-            if nc in csv_df.columns:
-                csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("-", "0")
-                csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
-        # 統一カラム名にリネーム
-        csv_df = csv_df.rename(columns={"銘柄コード": "_code", "銘柄名": "_name", "市場名称": "_market",
-                                         "数量［株］": "_qty", "単価［円］": "_price", "手数料［円］": "_fee"})
+        csv_df = _normalize_rakuten(csv_df)
     else:
-        # SBI証券フォーマット
-        csv_df["_取引種別"] = csv_df["取引"].apply(lambda v: "売却" if "売" in str(v) or "解約" in str(v) else "買い増し")
-        def _tax_sbi(v):
-            v = str(v)
-            if "つ" in v or "つみたて" in v or "旧つみたて" in v: return "NISA(積立投資枠)"
-            if "成" in v or "NISA" in v: return "NISA(成長投資枠)"
-            return "特定口座"
-        csv_df["_口座区分"] = csv_df["預り"].apply(_tax_sbi)
-        for nc in ["約定数量", "約定単価", "受渡金額/決済損益", "手数料/諸経費等"]:
-            if nc in csv_df.columns:
-                csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("--", "0")
-                csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
-        csv_df = csv_df.rename(columns={"銘柄コード": "_code", "銘柄": "_name", "市場": "_market",
-                                         "約定数量": "_qty", "約定単価": "_price", "手数料/諸経費等": "_fee"})
+        csv_df = _normalize_sbi(csv_df)
 
     # コード正規化
     csv_df["_code"] = csv_df["_code"].astype(str).str.strip()
