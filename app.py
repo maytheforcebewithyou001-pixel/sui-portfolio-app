@@ -13,7 +13,7 @@ import bcrypt
 import pyotp
 from datetime import datetime
 
-from config import WORLD_INDICES, SESSION_TTL_SEC, logger, get_rank
+from config import WORLD_INDICES, SESSION_TTL_SEC, FALLBACK_USDJPY, logger, get_rank
 from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, save_fund_history, load_prev_fund_prices, get_gas_last_updated, load_settings, save_settings
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
@@ -260,14 +260,14 @@ if not df.empty:
         if not s.empty:
             jpy_usd_rate = s.iloc[-1]
         else:
-            jpy_usd_rate = 150.0
-            st.warning("⚠ USD/JPYの最新レートを取得できませんでした。概算値（150.0円）で表示しています — USD建て資産の評価額・損益・為替損益は不正確な可能性があります。")
+            jpy_usd_rate = FALLBACK_USDJPY
+            st.warning(f"⚠ USD/JPYの最新レートを取得できませんでした。概算値（{FALLBACK_USDJPY:.1f}円）で表示しています — USD建て資産の評価額・損益・為替損益は不正確な可能性があります。")
         display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices, prev_fund_prices)
         totals = get_portfolio_totals(display_df)
 else:
     totals = dict(total_asset=0, total_net_profit=0, total_gross_profit=0, total_dividend=0, total_dividend_after_tax=0,
                   total_fx_gain=0, total_stock_gain=0, avg_dividend_yield=0.0, stock_count=0)
-    jpy_usd_rate = 150.0; display_df = pd.DataFrame()
+    jpy_usd_rate = FALLBACK_USDJPY; display_df = pd.DataFrame()
 
 TA, SC = totals["total_asset"], totals["stock_count"]
 

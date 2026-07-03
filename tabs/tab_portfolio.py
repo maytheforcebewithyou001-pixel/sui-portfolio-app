@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import html
 import unicodedata
 from datetime import datetime
-from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL
+from config import BROKER_OPTIONS, TAX_OPTIONS, MARKET_OPTIONS, CURRENCY_OPTIONS, ACCT_BADGE_MAP, NISA_GROWTH_ANNUAL, NISA_TSUMITATE_ANNUAL, FALLBACK_USDJPY
 from data import load_data, save_data, load_history, _clear_sheet_cache, load_transactions
 from market import get_ticker_name, get_cached_market_data, get_stock_detail, get_benchmark_history
 from calc import round_up_3, safe_csv_df, calc_risk_metrics
@@ -336,7 +336,7 @@ def render(tab, df, display_df, totals):
                                 cost_total = buy_price * shares_val
                                 eval_series = cs * shares_val
                                 if market_type == "米国株" and "JPY=X" in chart_closes.columns:
-                                    fx = chart_closes["JPY=X"].reindex(cs.index, method="ffill").fillna(150)
+                                    fx = chart_closes["JPY=X"].reindex(cs.index, method="ffill").fillna(FALLBACK_USDJPY)
                                     eval_series = cs * shares_val * fx
                                     cost_total = buy_price * shares_val  # 取得単価(円)は既に円建て
 

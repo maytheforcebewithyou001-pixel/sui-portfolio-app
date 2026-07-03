@@ -21,6 +21,9 @@ TAX_RATE = 0.20315
 # セッション有効期限（秒）— ログイン後この時間で自動ログアウト
 SESSION_TTL_SEC = 8 * 3600  # 8時間
 
+# USD/JPY レート取得失敗時のフォールバック概算値（円）
+FALLBACK_USDJPY = 150.0
+
 # AI モデル — 通常はtab_aiが /v1/models から最新Sonnetを動的解決する。
 # これは解決失敗時のフォールバック既定値（最後の砦）。
 AI_MODEL = "claude-sonnet-4-6"
