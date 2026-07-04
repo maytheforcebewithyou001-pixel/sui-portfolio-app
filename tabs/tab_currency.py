@@ -28,13 +28,13 @@ def render(tab, df, display_df, totals, jpy_usd_rate, target_jpy_pct=50.0, targe
             銘柄数=("銘柄コード", "count"),
         ).reset_index().sort_values("評価額", ascending=False)
 
-        jpy_diff, jpy_actual = _render_target_diff(cdf, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct)
+        jpy_diff, jpy_actual = _render_target_diff(ccy_agg, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct)
         _render_rebalance_plan(cdf, TA, jpy_diff, jpy_actual, target_jpy_pct)
         _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate)
         _render_fx_sensitivity(cdf, TA, jpy_usd_rate)
 
 
-def _render_target_diff(cdf, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct):
+def _render_target_diff(ccy_agg, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct):
     # ── 目標バランスとの差分 ──
     jpy_actual = ccy_agg.loc[ccy_agg["通貨"] == "JPY", "評価額"].sum()
     usd_actual_jpy = ccy_agg.loc[ccy_agg["通貨"] == "USD", "評価額"].sum()
