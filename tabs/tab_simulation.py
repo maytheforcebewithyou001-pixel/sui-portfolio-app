@@ -174,7 +174,7 @@ def _render_withdrawal(TA):
 
 
 def render(tab, df, totals, goal_amount, goal_oku, interest_rate, interest_rate_pct, yearly_add):
-    TA = totals["total_asset"]
+    TA = totals.get("total_asset_all", totals["total_asset"])  # 現金込みで将来推計
     with tab:
         if df.empty or TA <= 0:
             st.info("銘柄を追加するとシミュレーションが表示されます。"); return

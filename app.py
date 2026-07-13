@@ -285,6 +285,11 @@ else:
     jpy_usd_rate = FALLBACK_USDJPY; display_df = pd.DataFrame()
 
 TA, SC = totals["total_asset"], totals["stock_count"]
+# 現金込み総資産: 評価額表示・前回比・ランク・目標進捗・履歴・シミュレーションに使用。
+# 損益率・構成比・利回りの分母は証券のみ(TA)を維持する。
+TA_ALL = TA + cash_balance_jpy
+totals["cash_jpy"] = cash_balance_jpy
+totals["total_asset_all"] = TA_ALL
 
 # ═══════════════════ ヘッダー ═══════════════════
 prev_asset = prev_diff = prev_diff_pct = 0; prev_date_str = ""
@@ -293,14 +298,14 @@ try:
     if not _hdf.empty:
         _hdf["総資産額(円)"] = pd.to_numeric(_hdf["総資産額(円)"], errors="coerce")
         prev_asset = _hdf["総資産額(円)"].iloc[-1]; prev_date_str = str(_hdf["日付"].iloc[-1])
-        if prev_asset > 0 and TA > 0:
-            prev_diff = TA - prev_asset; prev_diff_pct = (prev_diff / prev_asset) * 100
+        if prev_asset > 0 and TA_ALL > 0:
+            prev_diff = TA_ALL - prev_asset; prev_diff_pct = (prev_diff / prev_asset) * 100
 except Exception as e:
     logger.debug("前回資産の読み込みをスキップ: %s", e)
 
 tnp, tda = totals["total_net_profit"], totals["total_dividend_after_tax"]
 tgp = totals["total_gross_profit"]
-prog = min(TA / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
+prog = min(TA_ALL / goal_amount * 100, 100.0) if goal_amount > 0 else 100.0
 pc, ps = pnl_color(tgp), pnl_sign(tgp)
 pnl_pct = (tgp / (TA - tgp) * 100) if (TA - tgp) > 0 else 0
 from zoneinfo import ZoneInfo
@@ -339,6 +344,11 @@ try:
 except Exception:
     ticker_bar_html = "<span style='color:rgba(255,255,255,0.3);font-size:11px'>指標読込中...</span>"
 
+cash_html = ""
+if cash_balance_jpy > 0:
+    cash_html = (f"<span class='val-sm' style='color:rgba(255,255,255,0.4);margin-left:8px'>"
+                 f"(証券 ¥{TA:,.0f} + 現金 ¥{cash_balance_jpy:,.0f})</span>")
+
 prev_html = ""
 if prev_asset > 0:
     _pc, _ps = pnl_color(prev_diff), pnl_sign(prev_diff)
@@ -346,7 +356,7 @@ if prev_asset > 0:
 
 # ランクバッジ
 rank_html = ""
-_rank = get_rank(TA)
+_rank = get_rank(TA_ALL)
 if _rank:
     _rn, _rc, _rl, _rm = _rank
     _fill = round(_rl / _rm * 10)
@@ -368,7 +378,7 @@ st.markdown(f"""
     <div class='term-time'><div class='mkt-row'>{_jp_status} {_us_status}</div><div class='dt'>{now_str} JST</div></div>
   </div>
   <div class='term-bottom'>
-    <div class='term-metric'><span class='label'>評価額</span><span class='val-lg' style='color:#00D2FF'>¥{TA:,.0f}</span>{prev_html}{rank_html}</div>
+    <div class='term-metric'><span class='label'>評価額</span><span class='val-lg' style='color:#00D2FF'>¥{TA_ALL:,.0f}</span>{cash_html}{prev_html}{rank_html}</div>
     <div class='term-vsep'></div>
     <div class='term-metric'><span class='label'>損益</span><span class='val-md' style='color:{pc}'>{ps}¥{abs(tgp):,.0f}</span><span class='val-sm' style='color:{pnl_color(tnp)}'>({pnl_sign(tnp)}¥{abs(tnp):,.0f})</span><span class='val-sm' style='color:{pc}'> {ps}{pnl_pct:.1f}%</span></div>
     <div class='term-vsep'></div>
@@ -383,8 +393,8 @@ st.markdown(f"""
 # 記録ボタン
 _rec1, _rec2 = st.columns([5, 1])
 with _rec2:
-    if st.button("💾 記録", width="stretch") and TA > 0:
-        save_history(datetime.now().strftime("%Y/%m/%d"), TA)
+    if st.button("💾 記録", width="stretch") and TA_ALL > 0:
+        save_history(datetime.now().strftime("%Y/%m/%d"), TA_ALL)
         save_fund_history(fund_prices)
         st.toast("✓ 記録しました"); st.rerun()
 

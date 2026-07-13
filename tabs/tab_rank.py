@@ -4,7 +4,7 @@ from config import RANK_TIERS, get_rank
 
 
 def render(tab, totals):
-    TA = totals["total_asset"]
+    TA = totals.get("total_asset_all", totals["total_asset"])  # ランクは現金込み総資産
     rank = get_rank(TA)
     current_level = rank[2] if rank else 0
 

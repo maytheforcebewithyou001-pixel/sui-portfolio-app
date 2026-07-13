@@ -258,7 +258,8 @@ def _render_lifeplan(totals, api_key):
         except Exception: pass
         st.session_state.lp_loaded = True
 
-    cur_asset_man = int(round(totals.get("total_asset", 0) / 10000)) if totals.get("total_asset", 0) > 0 else 3000
+    _ta_all = totals.get("total_asset_all", totals.get("total_asset", 0))
+    cur_asset_man = int(round(_ta_all / 10000)) if _ta_all > 0 else 3000
 
     with st.form("lifeplan_form"):
         c1, c2 = st.columns(2)
