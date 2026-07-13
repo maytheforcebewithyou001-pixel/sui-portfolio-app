@@ -212,6 +212,21 @@ with st.sidebar:
         if _total_pct != 100:
             st.caption("⚠️ 合計を100%にしてね")
 
+    # ── 現金残高（通貨配分の全資産計算用） ──
+    try:
+        _cash_default = float(_settings.get("cash_balance_jpy", 0))
+    except (ValueError, TypeError):
+        _cash_default = 0.0
+    with st.expander("💰 現金残高", expanded=False):
+        cash_balance_jpy = st.number_input(
+            "現金残高 (円)", min_value=0.0, max_value=1e10,
+            value=_cash_default, step=10000.0, format="%.0f", key="cash_jpy")
+        st.caption("通貨配分タブの実質JPY比率に合算される。保有シートには載らないわ")
+        if st.button("💾 現金を保存", width="stretch", key="save_cash"):
+            save_settings({"cash_balance_jpy": cash_balance_jpy})
+            st.success("保存したわ。")
+            st.rerun()
+
     st.markdown("---")
     if st.button("🔄 全データ最新化", width="stretch"):
         st.cache_data.clear(); st.rerun()
@@ -486,7 +501,8 @@ tab_pf, tab_an, tab_ccy, tab_div, tab_sim, tab_mkt, tab_tx, tab_ai_tab, tab_rk =
 
 tab_portfolio.render(tab_pf, df, display_df, totals)
 tab_analysis.render(tab_an, df, display_df, totals)
-tab_currency.render(tab_ccy, df, display_df, totals, jpy_usd_rate, target_jpy_pct, target_usd_pct)
+tab_currency.render(tab_ccy, df, display_df, totals, jpy_usd_rate, target_jpy_pct, target_usd_pct,
+                    cash_jpy=cash_balance_jpy)
 tab_dividend.render(tab_div, df, display_df, totals)
 tab_simulation.render(tab_sim, df, totals, goal_amount, goal_oku, interest_rate, interest_rate_pct, yearly_add)
 tab_market.render(tab_mkt)

@@ -6,13 +6,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from tabs import colored_card, pnl_color, pnl_sign, PLOTLY_DARK
 
-CCY_COLORS = {"JPY": "#00D2FF", "USD": "#FFD54F", "その他": "#B0B8C0"}
+CCY_COLORS = {"JPY": "#00D2FF", "USD": "#FFD54F", "現金(JPY)": "#4DB6AC", "その他": "#B0B8C0"}
 
 
-def render(tab, df, display_df, totals, jpy_usd_rate, target_jpy_pct=50.0, target_usd_pct=50.0):
-    TA = totals["total_asset"]
+def render(tab, df, display_df, totals, jpy_usd_rate, target_jpy_pct=50.0, target_usd_pct=50.0,
+           cash_jpy=0.0):
+    TA = totals["total_asset"] + cash_jpy  # 実質配分は現金込みの全資産で測る
     with tab:
-        if df.empty or TA <= 0 or display_df.empty:
+        if df.empty or totals["total_asset"] <= 0 or display_df.empty:
             st.info("銘柄を追加すると通貨配分が表示されます。")
             return
 
@@ -28,15 +29,16 @@ def render(tab, df, display_df, totals, jpy_usd_rate, target_jpy_pct=50.0, targe
             銘柄数=("銘柄コード", "count"),
         ).reset_index().sort_values("評価額", ascending=False)
 
-        jpy_diff, jpy_actual = _render_target_diff(ccy_agg, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct)
+        jpy_diff, jpy_actual = _render_target_diff(ccy_agg, TA, jpy_usd_rate,
+                                                   target_jpy_pct, target_usd_pct, cash_jpy)
         _render_rebalance_plan(cdf, TA, jpy_diff, jpy_actual, target_jpy_pct)
-        _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate)
+        _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate, cash_jpy)
         _render_fx_sensitivity(cdf, TA, jpy_usd_rate)
 
 
-def _render_target_diff(ccy_agg, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct):
+def _render_target_diff(ccy_agg, TA, jpy_usd_rate, target_jpy_pct, target_usd_pct, cash_jpy=0.0):
     # ── 目標バランスとの差分 ──
-    jpy_actual = ccy_agg.loc[ccy_agg["通貨"] == "JPY", "評価額"].sum()
+    jpy_actual = ccy_agg.loc[ccy_agg["通貨"] == "JPY", "評価額"].sum() + cash_jpy
     usd_actual_jpy = ccy_agg.loc[ccy_agg["通貨"] == "USD", "評価額"].sum()
     jpy_target_amt = TA * target_jpy_pct / 100
     usd_target_amt_jpy = TA * target_usd_pct / 100
@@ -45,7 +47,10 @@ def _render_target_diff(ccy_agg, TA, jpy_usd_rate, target_jpy_pct, target_usd_pc
     usd_diff_usd = usd_diff_jpy / jpy_usd_rate if jpy_usd_rate > 0 else 0
 
     st.markdown("#### 📐 目標バランスとの差分")
-    st.caption("目標%はサイドバー「🎯 目標通貨配分」で調整できるわ")
+    cap = "目標%はサイドバー「🎯 目標通貨配分」で調整できるわ"
+    if cash_jpy > 0:
+        cap += f"。現金 {cash_jpy:,.0f}円（MRF等・サイドバー「💰 現金残高」）を実質JPYに合算済み"
+    st.caption(cap)
     d1, d2 = st.columns(2)
     with d1:
         sign = "過剰" if jpy_diff > 0 else "不足" if jpy_diff < 0 else "一致"
@@ -121,22 +126,29 @@ def _render_rebalance_plan(cdf, TA, jpy_diff, jpy_actual, target_jpy_pct):
     st.markdown("---")
 
 
-def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate):
+def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate, cash_jpy=0.0):
     # ── 通貨別サマリー ──
     st.markdown("#### 💱 通貨配分サマリー")
-    cols = st.columns(max(len(ccy_agg), 1))
-    for idx, (_, r) in enumerate(ccy_agg.iterrows()):
+    disp_agg = ccy_agg
+    if cash_jpy > 0:
+        cash_row = pd.DataFrame([{"通貨": "現金(JPY)", "評価額": cash_jpy,
+                                  "損益": 0.0, "配当": 0.0, "銘柄数": 0}])
+        disp_agg = pd.concat([ccy_agg, cash_row], ignore_index=True)\
+            .sort_values("評価額", ascending=False)
+    cols = st.columns(max(len(disp_agg), 1))
+    for idx, (_, r) in enumerate(disp_agg.iterrows()):
         ccy = r["通貨"]
         pct = r["評価額"] / TA * 100
         color = CCY_COLORS.get(ccy, "#B0B8C0")
         pc = pnl_color(r["損益"]); ps = pnl_sign(r["損益"])
+        sub = "MRF・預り金" if ccy == "現金(JPY)" else f"{int(r['銘柄数'])}銘柄"
         with cols[idx % len(cols)]:
             st.markdown(
                 f"<div class='status-card' style='padding:0.8rem;border-left:3px solid {color}'>"
-                f"<h4>{ccy} 建て資産</h4>"
+                f"<h4>{ccy} {'' if ccy == '現金(JPY)' else '建て資産'}</h4>"
                 f"<p class='mv' style='font-size:1.3rem;color:{color}'>"
                 f"{r['評価額']:,.0f}<span>円</span></p>"
-                f"<p class='sv' style='font-size:1rem'>{pct:.1f}% · {int(r['銘柄数'])}銘柄</p>"
+                f"<p class='sv' style='font-size:1rem'>{pct:.1f}% · {sub}</p>"
                 f"<p class='sv' style='color:{pc}'>"
                 f"損益 {ps}{r['損益']:,.0f}円 · 配当 {r['配当']:,.0f}円</p>"
                 f"</div>", unsafe_allow_html=True)
@@ -146,7 +158,7 @@ def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate):
     c1, c2 = st.columns([1.2, 1])
     with c1:
         st.markdown("#### 🥧 通貨配分チャート")
-        fig = px.pie(ccy_agg, values="評価額", names="通貨", hole=0.5,
+        fig = px.pie(disp_agg, values="評価額", names="通貨", hole=0.5,
                      color="通貨", color_discrete_map=CCY_COLORS)
         fig.update_traces(textposition="inside", textinfo="percent+label",
                           textfont_size=14)
@@ -160,7 +172,7 @@ def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate):
         st.plotly_chart(fig, width="stretch")
     with c2:
         st.markdown("#### 📋 通貨別内訳")
-        tbl = ccy_agg.copy()
+        tbl = disp_agg.copy()
         tbl["割合"] = (tbl["評価額"] / TA * 100).apply(lambda x: f"{x:.1f}%")
         tbl["評価額"] = tbl["評価額"].apply(lambda x: f"{int(x):,}円")
         tbl["損益"] = tbl["損益"].apply(lambda x: f"{x:+,.0f}円")
