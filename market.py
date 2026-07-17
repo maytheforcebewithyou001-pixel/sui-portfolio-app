@@ -99,6 +99,16 @@ def get_cached_market_data(tickers_tuple, period="1y"):
                 save_last_prices(last_prices)
         except Exception as e:
             logger.debug("最終価格保存スキップ: %s", e)
+        # 取得できなかったティッカーは前回取得値で補完（部分失敗対策）。
+        # 補完は最終行のみ — 履歴を捏造せず、前日比計算(要2点)の対象にもしない
+        missing = [t for t in tickers if t not in closes.columns or closes[t].dropna().empty]
+        if missing:
+            fallback = load_last_prices()
+            filled = [t for t in missing if fallback.get(t)]
+            for t in filled:
+                closes.loc[closes.index[-1], t] = fallback[t]
+            if filled:
+                st.warning(f"⚠ 一部の価格を取得できず、前回取得値で表示しています: {', '.join(filled)}")
         return closes
 
     # 全部ダメ → Sheetsフォールバック

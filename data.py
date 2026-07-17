@@ -534,39 +534,48 @@ def save_transactions_batch(tx_list):
         st.error(f"取引履歴保存エラー: {e}")
 
 def save_last_prices(price_dict):
-    """最終取得価格をSheetsに保存（yfinance障害時のフォールバック用）"""
+    """最終取得価格をSheetsに保存（yfinance障害時のフォールバック用）。
+    既存行とマージし今回取得できた銘柄のみ更新 — 取得失敗した銘柄の前回値・
+    更新日時を保持し、部分失敗時のフォールバックに使えるようにする"""
     sh = get_spreadsheet()
     if sh is None: return
     try:
-        try: ws = sh.worksheet("LastPrices")
+        try:
+            ws = sh.worksheet("LastPrices")
+            merged = {r[0].strip(): [r[1], r[2] if len(r) > 2 else ""]
+                      for r in ws.get_all_values()[1:] if len(r) >= 2 and r[0].strip()}
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title="LastPrices", rows="200", cols="3")
-            ws.update_cell(1, 1, "ティッカー")
-            ws.update_cell(1, 2, "最終価格")
-            ws.update_cell(1, 3, "更新日時")
-        rows = [["ティッカー", "最終価格", "更新日時"]]
+            merged = {}
         now = datetime.now().strftime("%Y/%m/%d %H:%M")
         for ticker, price in price_dict.items():
-            rows.append([ticker, str(price), now])
+            merged[ticker] = [str(price), now]
+        rows = [["ティッカー", "最終価格", "更新日時"]]
+        rows += [[t, v[0], v[1]] for t, v in sorted(merged.items())]
         ws.clear()
         ws.update(rows, value_input_option="RAW")
     except Exception as e:
         logger.warning("最終価格保存エラー: %s", e)
 
-def load_last_prices():
-    """最終取得価格をSheetsから復元"""
+def load_last_prices_full():
+    """最終取得価格を更新日時付きでSheetsから復元 {ticker: (price, 更新日時str)}"""
     try:
         vals = _get_sheet_values("LastPrices")
         if not vals or len(vals) < 2: return {}
         prices = {}
         for row in vals[1:]:
             if len(row) >= 2 and row[0].strip():
-                try: prices[row[0].strip()] = float(row[1])
+                try:
+                    prices[row[0].strip()] = (float(row[1]), row[2].strip() if len(row) > 2 else "")
                 except (ValueError, TypeError): pass
         return prices
     except Exception as e:
         logger.debug("最終価格読み込みスキップ: %s", e)
         return {}
+
+def load_last_prices():
+    """最終取得価格をSheetsから復元"""
+    return {t: p for t, (p, _) in load_last_prices_full().items()}
 
 # ══════════════════════════════════════════
 # ユーザー設定 (Settings シート)

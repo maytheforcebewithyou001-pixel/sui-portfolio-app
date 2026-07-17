@@ -14,7 +14,7 @@ import pyotp
 from datetime import datetime
 
 from config import WORLD_INDICES, SESSION_TTL_SEC, FALLBACK_USDJPY, logger, get_rank
-from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, save_fund_history, load_prev_fund_prices, get_gas_last_updated, load_settings, save_settings
+from data import load_data, load_fund_prices, load_gas_prices, load_history, save_history, save_fund_history, load_prev_fund_prices, get_gas_last_updated, load_settings, save_settings, load_last_prices_full
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import calculate_portfolio, get_portfolio_totals
 from style import MAIN_CSS
@@ -272,11 +272,18 @@ if not df.empty:
         closes_df = get_cached_market_data(unique_tickers, period="1y")
         info_dict = get_cached_ticker_info(unique_tickers)
         s = closes_df["JPY=X"].dropna() if "JPY=X" in closes_df.columns else pd.Series()
-        if not s.empty:
+        # 2点未満はmarket.pyが前回値で最終行のみ補完した系列（=取得失敗）とみなす
+        if len(s) >= 2:
             jpy_usd_rate = s.iloc[-1]
         else:
-            jpy_usd_rate = FALLBACK_USDJPY
-            st.warning(f"⚠ USD/JPYの最新レートを取得できませんでした。概算値（{FALLBACK_USDJPY:.1f}円）で表示しています — USD建て資産の評価額・損益・為替損益は不正確な可能性があります。")
+            _last_fx = load_last_prices_full().get("JPY=X")
+            if _last_fx and _last_fx[0] > 0:
+                jpy_usd_rate = _last_fx[0]
+                _fx_ts = f"・{_last_fx[1]}時点" if _last_fx[1] else ""
+                st.warning(f"⚠ USD/JPYの最新レートを取得できませんでした。前回取得値（{_last_fx[0]:.2f}円{_fx_ts}）で表示しています。")
+            else:
+                jpy_usd_rate = FALLBACK_USDJPY
+                st.warning(f"⚠ USD/JPYの最新レートを取得できませんでした。概算値（{FALLBACK_USDJPY:.1f}円）で表示しています — USD建て資産の評価額・損益・為替損益は不正確な可能性があります。")
         display_df = calculate_portfolio(df, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_prices, prev_fund_prices)
         totals = get_portfolio_totals(display_df)
 else:
