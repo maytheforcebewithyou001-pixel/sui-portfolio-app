@@ -345,11 +345,16 @@ def round_up_3(val):
 def build_portfolio_summary_text(display_df: pd.DataFrame, totals: dict, jpy_usd_rate: float, history_df: Optional[pd.DataFrame] = None) -> str:
     """#5 AI総評用サマリー — 資産推移履歴も含める"""
     ta = totals["total_asset"]
-    lines = [
-        "■ ポートフォリオ概要",
-        f"  評価額合計: {ta:,.0f}円", f"  税引後含み損益: {totals['total_net_profit']:,.0f}円",
+    cash = totals.get("cash_jpy", 0)
+    ta_all = totals.get("total_asset_all", ta + cash)
+    lines = ["■ ポートフォリオ概要", f"  証券評価額合計: {ta:,.0f}円"]
+    if cash > 0:
+        lines += [f"  現金残高(MRF等): {cash:,.0f}円",
+                  f"  現金込み総資産: {ta_all:,.0f}円（現金比率 {cash/ta_all*100:.1f}%）"]
+    lines += [
+        f"  税引後含み損益: {totals['total_net_profit']:,.0f}円",
         f"  年間予想配当（税引前）: {totals['total_dividend']:,.0f}円",
-        f"  配当利回り: {totals['avg_dividend_yield']:.2f}%",
+        f"  配当利回り: {totals['avg_dividend_yield']:.2f}%（分母は証券のみ）",
         f"  為替レート: $1 = ¥{jpy_usd_rate:.1f}", f"  銘柄数: {totals['stock_count']}", "",
         "■ 保有銘柄一覧",
     ]
