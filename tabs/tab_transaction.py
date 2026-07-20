@@ -9,7 +9,11 @@ from tabs import pnl_color, pnl_sign
 
 
 def _decode_broker_csv(raw: bytes):
-    """バイト列を shift_jis→cp932→utf-8-sig→utf-8 の順で decode。全滅なら None"""
+    """バイト列を decode。UTF-8 BOM付き(三菱UFJ等)は最優先で判定し、
+    無ければ shift_jis→cp932→utf-8-sig→utf-8 の順で試す。全滅なら None。
+    ※cp932 は UTF-8 バイト列も例外を出さず文字化けデコードするため、BOM 判定を先に置く"""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
     csv_text = None
     for enc in ["shift_jis", "cp932", "utf-8-sig", "utf-8"]:
         try: csv_text = raw.decode(enc); break
@@ -18,20 +22,30 @@ def _decode_broker_csv(raw: bytes):
 
 
 def _normalize_mufj(csv_df):
-    """三菱UFJeスマート証券(投信)を統一カラム(_name/_qty/_price/_fee/_code/_market/_取引種別/_口座区分)へ"""
-    # 三菱UFJeスマート証券フォーマット（投信）
-    csv_df["_取引種別"] = csv_df["売買"].apply(lambda v: "売却" if "売" in str(v) else "買い増し")
+    """三菱UFJeスマート証券(投信 注文履歴)を統一カラム(_name/_qty/_price/_fee/_code/_market/_取引種別/_口座区分)へ。
+    実際の注文履歴CSVは 取引種別/預り区分/約定数量、旧想定は 売買/課税区分/数量 — 双方に対応"""
+    buy_col = "取引種別" if "取引種別" in csv_df.columns else "売買"
+    tax_col = "預り区分" if "預り区分" in csv_df.columns else "課税区分"
+    qty_col = "約定数量" if "約定数量" in csv_df.columns else "数量"
+
+    # 約定済みの明細のみ取り込む（取消済・失効・注文中を除外）
+    if "注文状況" in csv_df.columns:
+        csv_df = csv_df[csv_df["注文状況"].astype(str).str.contains("完了|約定")].copy()
+
+    csv_df["_取引種別"] = csv_df[buy_col].apply(lambda v: "売却" if ("売" in str(v) or "解約" in str(v)) else "買い増し")
     def _tax_mufj(v):
         v = str(v)
         if "つみたて" in v or "積立" in v: return "NISA(積立投資枠)"
         if "NISA" in v or "成長" in v: return "NISA(成長投資枠)"
         return "特定口座"
-    csv_df["_口座区分"] = csv_df["課税区分"].apply(_tax_mufj)
-    for nc in ["数量", "約定単価", "受渡金額", "手数料(税込)", "売買損益"]:
+    csv_df["_口座区分"] = csv_df[tax_col].apply(_tax_mufj)
+    if "手数料(税込)" not in csv_df.columns:
+        csv_df["手数料(税込)"] = 0
+    for nc in [qty_col, "約定単価", "受渡金額", "手数料(税込)", "売買損益"]:
         if nc in csv_df.columns:
             csv_df[nc] = csv_df[nc].astype(str).str.replace(",", "").str.replace("-", "0")
             csv_df[nc] = pd.to_numeric(csv_df[nc], errors="coerce").fillna(0)
-    csv_df = csv_df.rename(columns={"ファンド名": "_name", "数量": "_qty",
+    csv_df = csv_df.rename(columns={"ファンド名": "_name", qty_col: "_qty",
                                      "約定単価": "_price", "手数料(税込)": "_fee"})
     csv_df["_code"] = ""
     csv_df["_market"] = "投資信託"
@@ -87,11 +101,15 @@ def _parse_broker_csv(csv_file):
     lines = csv_text.splitlines()
     header_idx = None
     for i, line in enumerate(lines):
-        if "約定日" in line and ("銘柄" in line or "ファンド名" in line): header_idx = i; break
+        # 三菱UFJ(投信 注文履歴)は日付列が「発注日」、株式系は「約定日」
+        if ("約定日" in line or "発注日" in line) and ("銘柄" in line or "ファンド名" in line): header_idx = i; break
     if header_idx is None: return None, None, "ヘッダー行が見つかりませんでした。"
 
     body_text = "\n".join(lines[header_idx:])
     csv_df = pd.read_csv(io.StringIO(body_text), encoding_errors="ignore")
+    # 発注日しか無いフォーマットは約定日に寄せて以降の処理を共通化
+    if "約定日" not in csv_df.columns and "発注日" in csv_df.columns:
+        csv_df = csv_df.rename(columns={"発注日": "約定日"})
     csv_df = csv_df.dropna(subset=["約定日"], how="all")
     csv_df = csv_df[csv_df["約定日"].astype(str).str.match(r"^\d{4}/")]
     if csv_df.empty: return None, None, "有効な約定データが見つかりませんでした。"

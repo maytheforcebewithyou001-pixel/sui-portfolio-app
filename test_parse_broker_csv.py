@@ -38,16 +38,27 @@ class TestParseBrokerCsv:
         assert df["_qty"].iloc[0] == 10.0
 
     def test_mufj_fund(self):
+        # 実際の投信「注文履歴」CSV（UTF-8 BOM付き・前置きブロックあり）
         text = (
-            "約定日,ファンド名,売買,課税区分,数量,約定単価,受渡金額,手数料(税込),売買損益\n"
-            "2026/04/01,ｅＭＡＸＩＳ Ｓｌｉｍ 全世界株式,買付,つみたてNISA,41234,25000,103085,0,0\n"
+            "注文履歴\n\n"
+            "商品指定,発注開始年月日,発注終了年月日,預り区分,注文状況,明細数,明細指定開始,明細指定終了\n"
+            "\"投資信託\",\"2026年07月09日\",\"2026年07月09日\",\"すべて\",\"すべて\",2,1,2\n\n\n"
+            "\"（注）明細数はご指定された期間の合計です。\"\n\n"
+            "発注日,注文番号,注文状況,ファンド名,協会コード,預り区分,取引種別,注文数量,利用ポイント,約定金額,受渡金額,約定単価,約定数量\n"
+            "\"2026/07/09\",\"176\",\"完了\",\"ＳＢＩ・全世界株式インデックス・ファンド\",\"8931217C\",\"NISA (つみたて)\",\"カード積立買\",50000,\"0ポイント\",50000,50000,35784,13973\n"
+            "\"2026/07/09\",\"175\",\"取消済\",\"ＳＢＩ・Ｖ・Ｓ＆Ｐ５００\",\"89311199\",\"NISA (つみたて)\",\"カード積立買\",20000,\"0ポイント\",0,0,0,0\n"
         )
-        df, broker, err = _parse_broker_csv(_file(text))
+        df, broker, err = _parse_broker_csv(_file(text, enc="utf-8-sig"))
         assert err is None and broker == "三菱UFJeスマート証券"
+        # 取消済の明細は除外され、完了分のみ取り込まれる
+        assert len(df) == 1
         assert df["_口座区分"].iloc[0] == "NISA(積立投資枠)"
+        assert df["_取引種別"].iloc[0] == "買い増し"
         assert df["_market"].iloc[0] == "投資信託"
         assert df["_code"].iloc[0] == ""
-        assert df["_qty"].iloc[0] == 41234.0
+        assert df["_qty"].iloc[0] == 13973.0
+        assert df["_price"].iloc[0] == 35784.0
+        assert df["約定日"].iloc[0] == "2026/07/09"
 
     def test_no_header_returns_error(self):
         df, broker, err = _parse_broker_csv(_file("これはCSVではない\nただのテキスト\n"))
