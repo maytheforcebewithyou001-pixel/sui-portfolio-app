@@ -35,11 +35,13 @@ def main() -> int:
             except Exception:
                 continue
 
-        # Streamlitランタイムの読み込みを確認
+        # Streamlitランタイムの読み込みを確認（DOM構造のバージョン差に備え複数候補＋動的タイトル）
         deadline = time.time() + 180
         ok = False
         while time.time() < deadline:
-            if page.locator('[data-testid="stApp"]').count() > 0:
+            if page.locator(
+                '.stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"]'
+            ).count() > 0 or "· Streamlit" in page.title():
                 ok = True
                 break
             page.wait_for_timeout(5_000)
