@@ -1,0 +1,29 @@
+name: keepalive
+
+on:
+  schedule:
+    # 毎日 6:23 JST (21:23 UTC 前日)。Community Cloudの休止(7日無トラフィック)対策
+    - cron: "23 21 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: true
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+      - name: Visit app
+        env:
+          KEEPALIVE_URL: ${{ vars.KEEPALIVE_URL }}
+        run: python .github/scripts/keepalive.py
