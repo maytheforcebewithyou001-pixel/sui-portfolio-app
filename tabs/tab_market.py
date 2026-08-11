@@ -30,11 +30,37 @@ _INVESTOR_COLORS = {
 }
 
 
+def _flow_streak(series):
+    """直近から同符号(買越/売越)が何週連続しているかと、その間の累計額を返す。"""
+    s = series.dropna()
+    if s.empty or s.iloc[-1] == 0:
+        return None
+    sign = 1 if s.iloc[-1] > 0 else -1
+    n, cum = 0, 0.0
+    for v in reversed(s.tolist()):
+        if v * sign > 0:
+            n += 1
+            cum += float(v)
+        else:
+            break
+    return {"sign": sign, "weeks": n, "cum": cum, "latest": float(s.iloc[-1])}
+
+
 def _render_investor_flow():
     """投資部門別売買フロー (TSEPrime)"""
     st.markdown("---")
     st.markdown("### 📡 投資部門別 売買フロー (TSEPrime)")
-    st.caption("海外投資家・個人・信託銀行などの週次ネット買越額。需給転換シグナルの確認に使用。")
+    st.caption("誰が買い、誰が売っているか（週次ネット買越額）。公表は翌週木曜のため約1週遅れ。中期の地合い確認用で、短期売買のトリガーには使えない。")
+
+    with st.expander("📖 この指標の読み方"):
+        st.markdown(
+            "- **海外投資家 = 方向性のドライバー**。プライム売買代金の6〜7割を占め、TOPIXの中期トレンドは"
+            "海外勢の連続買越/売越とかなり連動する。単週の額より「**何週連続・累計いくら**」を見る。\n"
+            "- **個人 = 逆張り指標**。下落時に買い、上昇時に売る構造的傾向がある。"
+            "個人の大幅買越=下値を拾っている（底堅い）、大幅売越=上昇の戻り売り。\n"
+            "- **信託銀行 = 年金のリバランス**。3月・9月の期末前後は機械的売買が出るためカレンダー要因として割り引く。\n"
+            "- 投資信託・事業法人などは単独ではノイズが多く、補助的に見る程度でいい。"
+        )
 
     pc1, pc2 = st.columns([1, 3])
     with pc1:
@@ -51,7 +77,24 @@ def _render_investor_flow():
         st.info("投資部門データのカラム構造が想定と違う。スキップ。")
         return
 
-    default_picks = [c for c in ["FrgnBal", "IndBal", "TrstBnkBal", "InvTrBal"] if c in available_cols]
+    # ワンライナー要約: 海外・個人の連続週数と累計額
+    summary_parts = []
+    for col, icon in (("FrgnBal", "🌐"), ("IndBal", "👤")):
+        if col in df.columns:
+            stk = _flow_streak(df[col])
+            if stk:
+                word = "買越" if stk["sign"] > 0 else "売越"
+                color = "#26A69A" if stk["sign"] > 0 else "#EF5350"
+                summary_parts.append(
+                    f"<span style='color:#B0B8C0'>{icon} {_INVESTOR_LABELS[col]}:</span> "
+                    f"<span style='color:{color};font-weight:bold'>{stk['weeks']}週連続{word}</span> "
+                    f"<span style='color:{color}'>累計 {stk['cum']/1e8:+,.0f}億円</span> "
+                    f"<span style='color:#78909C;font-size:0.85em'>(直近週 {stk['latest']/1e8:+,.0f}億)</span>"
+                )
+    if summary_parts:
+        st.markdown("&nbsp;&nbsp;｜&nbsp;&nbsp;".join(summary_parts), unsafe_allow_html=True)
+
+    default_picks = [c for c in ["FrgnBal", "IndBal"] if c in available_cols]
     picked = st.multiselect(
         "表示する投資部門を選択",
         options=available_cols,
@@ -63,9 +106,20 @@ def _render_investor_flow():
         st.caption("部門を1つ以上選択してね")
         return
 
-    show_cumulative = st.checkbox("累積買越額グラフを表示（マネー流入の中長期トレンド）", value=False, key="investor_cumulative")
+    show_cumulative = st.checkbox("累積買越額グラフを表示（TOPIXと重ねてマネー流入の中長期トレンドを確認）", value=True, key="investor_cumulative")
 
     chart_df = df[["EnDate"] + picked].copy()
+
+    # TOPIX重ね描き用データ（フロー表示期間に合わせて切り出し。取得失敗時はスキップ）
+    topix = jquants.get_topix_ohlc(period_days=weeks * 7 + 30)
+    if topix is not None and not topix.empty and "Close" in topix.columns:
+        t0 = chart_df["EnDate"].min() - pd.Timedelta(days=6)
+        t1 = chart_df["EnDate"].max()
+        topix = topix[(topix["Date"] >= t0) & (topix["Date"] <= t1)]
+        if topix.empty:
+            topix = None
+    else:
+        topix = None
 
     fig = go.Figure()
     for col in picked:
@@ -76,15 +130,24 @@ def _render_investor_flow():
             marker_color=_INVESTOR_COLORS.get(col, "#888"),
         ))
     fig.add_hline(y=0, line_color="#777", line_width=1)
+    if topix is not None:
+        fig.add_trace(go.Scatter(
+            x=topix["Date"], y=topix["Close"], mode="lines",
+            name="TOPIX (右軸)", yaxis="y2",
+            line=dict(color="#EF9A9A", width=1.5),
+        ))
     fig.update_layout(
         plot_bgcolor="#12161E", paper_bgcolor="#12161E",
-        margin=dict(l=50, r=10, t=10, b=40), height=360,
+        margin=dict(l=50, r=50, t=10, b=40), height=360,
         barmode="group",
         xaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
                    tickformat="%Y/%m" if weeks > 26 else "%m/%d", tickfont=dict(color="#9E9E9E", size=10)),
         yaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
                    tickformat=",.0f", tickfont=dict(color="#9E9E9E", size=10),
                    title=dict(text="ネット買越額 (億円)", font=dict(color="#9E9E9E", size=11))),
+        yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                    tickformat=",.0f", tickfont=dict(color="#EF9A9A", size=10),
+                    title=dict(text="TOPIX", font=dict(color="#EF9A9A", size=11))),
         legend=dict(orientation="h", x=0, y=-0.15, font=dict(color="#B0B8C0", size=11)),
     )
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
@@ -99,17 +162,29 @@ def _render_investor_flow():
                 line=dict(color=_INVESTOR_COLORS.get(col, "#888"), width=2),
             ))
         fig_c.add_hline(y=0, line_color="#777", line_width=1)
+        if topix is not None:
+            fig_c.add_trace(go.Scatter(
+                x=topix["Date"], y=topix["Close"], mode="lines",
+                name="TOPIX (右軸)", yaxis="y2",
+                line=dict(color="#EF9A9A", width=1.5),
+            ))
         fig_c.update_layout(
             plot_bgcolor="#12161E", paper_bgcolor="#12161E",
-            margin=dict(l=50, r=10, t=10, b=40), height=320,
+            margin=dict(l=50, r=50, t=10, b=40), height=320,
             xaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
                        tickformat="%Y/%m", tickfont=dict(color="#9E9E9E", size=10)),
             yaxis=dict(showgrid=True, gridcolor="#2B3240", griddash="dot",
                        tickformat=",.0f", tickfont=dict(color="#9E9E9E", size=10),
                        title=dict(text="累積買越額 (億円)", font=dict(color="#9E9E9E", size=11))),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                        tickformat=",.0f", tickfont=dict(color="#EF9A9A", size=10),
+                        title=dict(text="TOPIX", font=dict(color="#EF9A9A", size=11))),
             legend=dict(orientation="h", x=0, y=-0.15, font=dict(color="#B0B8C0", size=11)),
         )
         st.plotly_chart(fig_c, width="stretch", config={"displayModeBar": False})
+
+    if "TrstBnkBal" in picked:
+        st.caption("※ 信託銀行は年金基金の売買を反映。3月・9月の期末前後は機械的なリバランス売買が出やすく、相場観のシグナルではない。")
 
     # 直近4週の数値テーブル
     st.markdown("**直近4週 ネット買越額 (億円)**")
