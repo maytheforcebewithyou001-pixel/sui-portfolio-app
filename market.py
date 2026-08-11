@@ -60,14 +60,15 @@ def get_cached_market_data(tickers_tuple, period="1y"):
     if other_tickers:
         df_other = _yf_close_df(other_tickers, period)
         if not df_other.empty:
-            closes = df_other.ffill().bfill()
+            closes = df_other.ffill()  # bfillしない（上場前の価格捏造防止、末尾で一括ffill済）
 
     # ── 日本株 → J-Quants優先 ──
-    if jp_tickers and jquants.is_available():
+    # periodをJ-Quantsの日数に変換。5yはLightプランの5年ローリング窓に収まる日数に丸める。
+    # 10y/max は窓外のため J-Quants をスキップし yfinance フォールバックに全履歴を取らせる
+    period_days = {"5d": 10, "1mo": 40, "3mo": 100, "6mo": 200, "1y": 370, "2y": 740, "5y": 1780}
+    jq_days = period_days.get(period)
+    if jp_tickers and jquants.is_available() and jq_days is not None:
         codes = [t.replace(".T", "") for t in jp_tickers]
-        # periodをJ-Quantsの日数に変換（終値＋前日比に必要な最小限）
-        period_days = {"5d": 10, "1mo": 40, "3mo": 100, "1y": 370}
-        jq_days = period_days.get(period, 370)
         jq_quotes = jquants.get_daily_quotes(codes, days=jq_days)
         for code, entries in jq_quotes.items():
             ticker = f"{code}.T"
@@ -87,7 +88,9 @@ def get_cached_market_data(tickers_tuple, period="1y"):
             closes[col] = fb[col]
 
     if not closes.empty:
-        closes = closes.ffill().bfill()
+        # ffillのみ: 休日等の中間欠損は前値で埋めるが、上場前・データ開始前の先頭は
+        # bfillで埋めない（存在しない過去価格の捏造になり、取得日起点チャートが平坦化する）
+        closes = closes.ffill()
         # 最終価格をSheetsに保存（障害時フォールバック用）
         try:
             last_prices = {}

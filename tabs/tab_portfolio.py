@@ -312,8 +312,11 @@ def _render_stock_detail(display_df, sel):
                 try:
                     bd = pd.to_datetime(buy_date_str)
                     days_held = (pd.Timestamp.now() - bd).days
-                    if days_held > 1800: chart_period = "max"
-                    elif days_held > 365: chart_period = f"{min(days_held + 30, 3650)}d"
+                    # yfinanceのperiodは固定値のみ有効("2y"等)。任意の"Nd"は受け付けない
+                    if days_held > 3650: chart_period = "max"
+                    elif days_held > 1800: chart_period = "10y"
+                    elif days_held > 730: chart_period = "5y"
+                    elif days_held > 365: chart_period = "2y"
                 except Exception:
                     pass
             # 株価データ取得
