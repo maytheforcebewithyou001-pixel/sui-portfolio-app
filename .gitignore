@@ -38,3 +38,9 @@ transactions_*.csv
 !static/**/*.png
 !static/**/*.jpg
 
+
+# 証券会社エクスポートCSV(実データ、コミット禁止)
+summaryAll*.csv
+DISTRIBUTION*.csv
+tradehistory*.csv
+SaveFile*.csv
