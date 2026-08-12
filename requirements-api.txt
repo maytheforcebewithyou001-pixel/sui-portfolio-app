@@ -1,0 +1,7 @@
+# FastAPI版(Phase 3)の依存。既存ロジック(data/calc/market/jquants)再利用のため
+# requirements.txt(streamlit含む)を丸ごと引き継ぐ — st.cache_data等はbareモードで動作する。
+# P3-3(Cloud Run化)でスリム化を検討。
+-r requirements.txt
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27  # テスト(TestClient)用

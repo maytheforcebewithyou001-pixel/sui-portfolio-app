@@ -5,6 +5,7 @@
   #1 バッチ読み込み — 全シートを1回で取得しsession_stateにキャッシュ (API呼び出し1/4)
   #2 安全な保存 — clear→writeの間にデータ消失しない batch_update 方式
 """
+import os
 import streamlit as st
 import pandas as pd
 import json
@@ -20,7 +21,9 @@ from config import logger, EXPECTED_COLS, normalize_broker, normalize_tax
 @st.cache_resource
 def init_gspread():
     try:
-        creds_json = json.loads(st.secrets["gcp_credentials"])
+        # 環境変数優先(FastAPI等のStreamlit外実行用)、無ければ st.secrets
+        raw_creds = os.environ.get("GCP_CREDENTIALS_JSON", "") or st.secrets["gcp_credentials"]
+        creds_json = json.loads(raw_creds)
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         credentials = Credentials.from_service_account_info(creds_json, scopes=scopes)
         return gspread.authorize(credentials)
@@ -33,7 +36,13 @@ def init_gspread():
 # ユーザー別シート分離
 # ══════════════════════════════════════════
 def _current_user() -> str:
-    """session_state からユーザー名を取得（未設定時は 'default'）"""
+    """session_state からユーザー名を取得（未設定時は 'default'）
+
+    環境変数 FC_API_USER が設定されていればそれを優先(Streamlit外実行用)。
+    """
+    env_user = os.environ.get("FC_API_USER", "")
+    if env_user:
+        return env_user
     try:
         return st.session_state.get("username") or "default"
     except Exception:
@@ -44,7 +53,13 @@ def _sheet_name_for(user: str) -> str:
     return "PortfolioData" if user == "default" else f"PortfolioData_{user}"
 
 def _get_sheet_id_for(user: str) -> Optional[str]:
-    """secrets の [sheet_ids] セクションからスプレッドシートIDを取得（なければNone）"""
+    """secrets の [sheet_ids] セクションからスプレッドシートIDを取得（なければNone）
+
+    環境変数 FC_SHEET_ID が設定されていればそれを優先(Streamlit外実行用)。
+    """
+    env_id = os.environ.get("FC_SHEET_ID", "")
+    if env_id:
+        return env_id
     try:
         sheet_ids = st.secrets.get("sheet_ids", {})
         return sheet_ids.get(user)

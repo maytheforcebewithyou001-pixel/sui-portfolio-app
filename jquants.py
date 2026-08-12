@@ -33,7 +33,14 @@ else:
 # ══════════════════════════════════════════
 def _api_key():
     # CLI は .env / credentials.json から自動読み込みするため secrets 不要
-    return os.environ.get("JQUANTS_API_KEY", "") or st.secrets.get("jquants_api_key", "")
+    key = os.environ.get("JQUANTS_API_KEY", "")
+    if key:
+        return key
+    try:
+        return st.secrets.get("jquants_api_key", "")
+    except Exception:
+        # secrets.toml自体が無い環境(Streamlit外実行)では .get() でも例外になる
+        return ""
 
 
 # ══════════════════════════════════════════
