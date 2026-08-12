@@ -429,7 +429,8 @@ if tfx != 0 or tsg != 0:
 
 # 大幅変動アラート
 if not display_df.empty and "前日比" in display_df.columns:
-    for _, mv in display_df[display_df["前日比"].apply(lambda x: abs(x) >= 3.0 if pd.notna(x) else False)].iterrows():
+    _movers = display_df[display_df["前日比"].apply(lambda x: abs(x) >= 3.0 if pd.notna(x) else False)]
+    for _, mv in _movers.drop_duplicates(subset=["銘柄コード", "銘柄名"]).iterrows():
         d = mv["前日比"]; cls = "alert-up" if d > 0 else "alert-down"; arrow = "▲" if d > 0 else "▼"
         _name = html.escape(str(mv['銘柄名'])); _code = html.escape(str(mv['銘柄コード']))
         st.markdown(f"<div class='alert-bar {cls}'>{arrow} <b>{_name}</b>（{_code}）が前日比 {d:+.2f}% の大幅変動</div>", unsafe_allow_html=True)
