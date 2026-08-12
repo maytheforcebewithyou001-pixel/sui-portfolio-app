@@ -118,14 +118,15 @@ def calculate_holding(row, closes_df, info_dict, fund_prices, jpy_usd_rate, gas_
     div_rate = info.get("div_rate", 0.0)
     div_yield = info.get("div_yield", 0.0)
 
-    # 投信・その他・暗号・コモディティは配当0（債券は手動利回りで対応可）
-    if market_type in ("投資信託", "その他資産", "暗号資産", "コモディティ"):
-        dividend = 0.0
-        effective_yield = 0.0
     # 優先順位: ①年間配当金(円/株)手入力 → ②yfinance div_rate → ③手動利回り(%) → ④yfinance div_yield
-    elif annual_div_per_share > 0:
+    # ①のみ投信にも適用（分配型ファンド対応。投信は保有株数=万口なので円/万口で入力する）
+    # ①未入力の投信・その他・暗号・コモディティは配当0（債券は手動利回りで対応可）
+    if annual_div_per_share > 0:
         dividend = annual_div_per_share * shares * (jpy_usd_rate if market_type == "米国株" else 1)
         effective_yield = (dividend / value * 100) if value > 0 else 0.0
+    elif market_type in ("投資信託", "その他資産", "暗号資産", "コモディティ"):
+        dividend = 0.0
+        effective_yield = 0.0
     elif div_rate > 0:
         dividend = div_rate * shares * (jpy_usd_rate if market_type == "米国株" else 1)
         effective_yield = (dividend / value * 100) if value > 0 else 0.0

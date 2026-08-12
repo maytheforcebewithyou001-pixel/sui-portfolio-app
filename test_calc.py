@@ -113,6 +113,23 @@ class TestCalculateHolding:
         expected_after_tax = 5000 * (1 - 0.20315)
         assert abs(result["税引後配当(円)"] - expected_after_tax) < 1
 
+    def test_fund_dividend_annual_per_share(self):
+        """分配型投信: 年間配当金(円/株)手入力があれば投信でも配当計算する(円/万口×万口)"""
+        row = self._make_row(銘柄コード="FUND002", 市場="投資信託", 口座区分="NISA(成長投資枠)",
+                             取得単価=11332, 保有株数=56.8394)
+        row["年間配当金(円/株)"] = 560.0  # 140円/万口×年4回
+        result = calculate_holding(row, pd.DataFrame(), {}, {"FUND002": 16928}, 150.0)
+        assert abs(result["予想配当(円)"] - 560 * 56.8394) < 1  # 31,830
+        assert result["税引後配当(円)"] == result["予想配当(円)"]  # NISA → 非課税
+
+    def test_fund_without_annual_dividend_stays_zero(self):
+        """投信で年間配当金が未入力なら従来通り配当0(手動利回りが入っていても)"""
+        row = self._make_row(銘柄コード="FUND001", 市場="投資信託", 取得単価=15000, 保有株数=50)
+        row["手動配当利回り(%)"] = 3.2
+        result = calculate_holding(row, pd.DataFrame(), {}, {"FUND001": 18000}, 150.0)
+        assert result["予想配当(円)"] == 0.0
+        assert result["実質利回り(%)"] == 0.0
+
 
 class TestRoundUp3:
     def test_integer(self):
