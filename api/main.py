@@ -154,6 +154,27 @@ def ai_lifeplan_generate(req: LifeplanRequest, user: str = Depends(require_auth)
     return _ai_errors(lambda: svc.generate_lifeplan(req.inputs))
 
 
+# ── 世界指標 / 投資部門フロー / ランク ──
+
+@app.get("/api/market/indices")
+def market_indices(period: str = "1ヶ月", user: str = Depends(require_auth)):
+    if period not in svc.PERIOD_MAP:
+        raise HTTPException(status_code=422, detail=f"period は {tuple(svc.PERIOD_MAP)} のいずれか")
+    return svc.get_world_indices(period)
+
+
+@app.get("/api/market/investor-flow")
+def market_investor_flow(weeks: int = 12, user: str = Depends(require_auth)):
+    if weeks not in (12, 26, 52):
+        raise HTTPException(status_code=422, detail="weeks は 12/26/52 のいずれか")
+    return svc.get_investor_flow(weeks)
+
+
+@app.get("/api/rank")
+def rank(user: str = Depends(require_auth)):
+    return svc.get_rank_state()
+
+
 # ── 取引履歴 ──
 import base64  # noqa: E402
 

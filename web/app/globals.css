@@ -602,3 +602,147 @@ button.ghost.wide { width: 100%; padding: 0.55rem; }
 }
 
 .fileinput::file-selector-button:hover { border-color: var(--accent); }
+
+/* ── 世界指標タブ ── */
+.idxgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .idxgrid { grid-template-columns: 1fr; }
+}
+
+.idxcard {
+  display: flex;
+  align-items: center;
+  background: #12161e;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 0.6rem;
+}
+
+.idxinfo { flex: 1; min-width: 120px; padding-left: 0.5rem; }
+
+.idxinfo .nm { color: #b0b8c0; font-size: 14px; font-weight: 700; margin: 0; }
+
+.idxinfo .val { color: #fff; font-size: 1.4rem; font-weight: 700; margin: 5px 0 0; }
+
+.idxinfo .chg { font-size: 13px; font-weight: 700; margin: 0; }
+
+.idxchart { flex: 1.5; min-width: 0; }
+
+.flowsummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+  font-size: 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.flowsummary .lbl { color: #b0b8c0; }
+
+.flowsummary .sub { color: #78909c; font-size: 0.85em; }
+
+.pickrow { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.7rem; }
+
+button.pick {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  border-radius: 20px;
+  padding: 0.25rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+button.pick.on { background: rgba(255, 255, 255, 0.04); }
+
+.chkrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin: 0.7rem 0;
+}
+
+.readme { font-size: 0.85rem; line-height: 1.7; padding-left: 1.2rem; color: var(--text); }
+
+.readme li { margin: 0.3em 0; }
+
+/* ── ランクタブ ── */
+.rankhero { text-align: center; padding: 2rem 1rem 1.5rem; }
+
+.rankhero .cap {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  letter-spacing: 3px;
+  margin-bottom: 8px;
+}
+
+.rankhero .name {
+  font-family: "Courier New", monospace;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: 6px;
+}
+
+.rankhero .name.unranked {
+  font-size: 28px;
+  color: rgba(255, 255, 255, 0.25);
+  letter-spacing: 4px;
+}
+
+.rankhero .bars {
+  margin: 12px 0 8px;
+  font-family: "Courier New", monospace;
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+.rankhero .lv { color: rgba(255, 255, 255, 0.4); font-size: 13px; letter-spacing: 1px; }
+
+.rankhero .next { color: rgba(255, 255, 255, 0.5); font-size: 13px; margin-top: 12px; }
+
+.allranks {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-align: center;
+  margin: 1.2rem 0 16px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 1.2rem;
+}
+
+.ranktier {
+  border-radius: 6px;
+  padding: 10px 16px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ranktier .left { display: flex; align-items: center; gap: 12px; }
+
+.ranktier .lvlabel {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.25);
+  min-width: 28px;
+}
+
+.ranktier .tname { font-family: "Courier New", monospace; font-size: 14px; letter-spacing: 2px; }
+
+.ranktier .now { font-size: 10px; letter-spacing: 1px; }
+
+.ranktier .check { font-size: 10px; }
+
+.ranktier .amt { font-family: "Courier New", monospace; font-size: 13px; }

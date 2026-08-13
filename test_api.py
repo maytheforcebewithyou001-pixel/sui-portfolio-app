@@ -238,6 +238,20 @@ class TestEndpoints:
         assert r.status_code == 200
         assert saved["memo"] == "  2498は売却確定  "  # strip は service 側の責務
 
+    def test_market_and_rank_validation(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "get_world_indices", lambda p: {"period": p, "indices": []})
+        monkeypatch.setattr(m.svc, "get_investor_flow", lambda w: {"available": True, "weeks": w})
+        monkeypatch.setattr(m.svc, "get_rank_state", lambda: {"total_asset": 0, "rank": None, "tiers": []})
+        token = self._token(client)
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/market/indices?period=謎", headers=h).status_code == 422
+        assert client.get("/api/market/indices?period=1年", headers=h).json()["period"] == "1年"
+        assert client.get("/api/market/investor-flow?weeks=13", headers=h).status_code == 422
+        assert client.get("/api/market/investor-flow?weeks=52", headers=h).json()["weeks"] == 52
+        assert client.get("/api/rank", headers=h).status_code == 200
+        assert client.get("/api/rank").status_code == 401
+
     def test_transactions_record_wiring_and_validation(self, client, monkeypatch):
         import api.main as m
         monkeypatch.setattr(m.svc, "record_manual_transaction",
@@ -285,6 +299,78 @@ class TestEndpoints:
         assert client.post("/api/ai/lifeplan/generate", json={"inputs": {"年齢": 40}}, headers=h).status_code == 422
         r = client.post("/api/ai/lifeplan/generate", json={"inputs": {"本人年齢": "40歳"}}, headers=h)
         assert r.status_code == 200
+
+
+class TestRankAndMarket:
+    def test_rank_boundaries(self):
+        from config import RANK_TIERS, get_rank
+        assert get_rank(999_999) is None
+        assert get_rank(1_000_000)[0] == "CADET"
+        assert get_rank(1_000_000)[2] == 1
+        top = RANK_TIERS[-1]
+        assert get_rank(top[0])[0] == top[1]
+        assert get_rank(top[0])[2] == len(RANK_TIERS)
+        # 現資産帯(3,300万) = GENERAL(3000万〜4000万)
+        assert get_rank(33_000_000)[0] == "GENERAL"
+
+    def test_investor_flow_transform(self, monkeypatch):
+        """get_investor_flow の変換(億円換算・要約・TOPIX切り出し・シグナル)をモックで検証。
+        ローカルにJ-Quantsキーが無く実データで確認できないため、ここで担保する"""
+        import api.service as svc
+        dates = pd.date_range("2026-05-01", periods=10, freq="W-FRI")
+        # 海外: 直近2週が買越(前週マイナス→転換シグナル)、個人: 全週一定
+        frgn = [1e10] * 7 + [-2e10, 3e10, 5e10]
+        ind = [-1e9] * 10
+        df = pd.DataFrame({"EnDate": dates, "FrgnBal": frgn, "IndBal": ind, "TrstBnkBal": [0.0] * 10})
+        topix = pd.DataFrame({"Date": dates, "Close": [2700.0 + i for i in range(10)]})
+        monkeypatch.setattr(svc.jquants, "get_investor_types", lambda weeks: df)
+        monkeypatch.setattr(svc.jquants, "get_topix_ohlc", lambda period_days: topix)
+
+        r = svc.get_investor_flow(12)
+        assert r["available"] is True
+        assert [c["key"] for c in r["columns"]] == ["FrgnBal", "IndBal", "TrstBnkBal"]
+        # 億円換算(1e10円 = 100億)
+        assert r["rows"][-1]["FrgnBal"] == 500.0
+        assert r["rows"][-1]["IndBal"] == -10.0
+        assert r["rows"][-1]["date"] == "2026-07-03"
+        # 要約: 海外は直近2週連続買越(累計 300+500=800億)
+        frgn_sum = next(s for s in r["summary"] if s["col"] == "FrgnBal")
+        assert frgn_sum["sign"] == 1 and frgn_sum["weeks"] == 2
+        assert frgn_sum["cum_oku"] == 800.0 and frgn_sum["latest_oku"] == 500.0
+        # 個人は10週連続売越
+        ind_sum = next(s for s in r["summary"] if s["col"] == "IndBal")
+        assert ind_sum["sign"] == -1 and ind_sum["weeks"] == 10
+        assert len(r["topix"]) == 10 and r["topix"][0]["close"] == 2700.0
+        # シグナル: 海外の売越→買越転換は出ない(前週=300億で既に買越)
+        assert all("売越転換" not in s for s in r["signals"])
+
+    def test_investor_flow_unavailable(self, monkeypatch):
+        import api.service as svc
+        monkeypatch.setattr(svc.jquants, "get_investor_types", lambda weeks: pd.DataFrame())
+        r = svc.get_investor_flow(12)
+        assert r["available"] is False and "取得できなかった" in r["reason"]
+
+    def test_investor_flow_signal_turn(self, monkeypatch):
+        """前週売越→今週買越 で買越転換シグナルが出る"""
+        import api.service as svc
+        dates = pd.date_range("2026-05-01", periods=3, freq="W-FRI")
+        df = pd.DataFrame({"EnDate": dates, "FrgnBal": [1e10, -2e10, 3e10]})
+        monkeypatch.setattr(svc.jquants, "get_investor_types", lambda weeks: df)
+        monkeypatch.setattr(svc.jquants, "get_topix_ohlc", lambda period_days: None)
+        r = svc.get_investor_flow(12)
+        assert any("買越転換" in s for s in r["signals"])
+        assert r["topix"] == []
+
+    def test_flow_streak(self):
+        from tabs.tab_market import _flow_streak
+        s = pd.Series([100.0, -50.0, 200.0, 300.0])
+        r = _flow_streak(s)
+        assert r["sign"] == 1 and r["weeks"] == 2 and r["cum"] == 500.0 and r["latest"] == 300.0
+        s2 = pd.Series([100.0, -50.0, -30.0])
+        r2 = _flow_streak(s2)
+        assert r2["sign"] == -1 and r2["weeks"] == 2 and r2["cum"] == -80.0
+        assert _flow_streak(pd.Series([0.0])) is None
+        assert _flow_streak(pd.Series(dtype=float)) is None
 
 
 class TestTransactionLogic:

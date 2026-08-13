@@ -262,6 +262,115 @@ def get_lifeplan_state() -> dict:
 
 
 # ══════════════════════════════════════════
+# 世界指標 / 投資部門フロー / ランク
+# ══════════════════════════════════════════
+import jquants  # noqa: E402
+from config import RANK_TIERS, WORLD_INDICES, get_rank  # noqa: E402
+from tabs.tab_market import _INVESTOR_COLORS, _INVESTOR_LABELS, _flow_streak  # noqa: E402
+
+PERIOD_MAP = {"1週間": "5d", "1ヶ月": "1mo", "3ヶ月": "3mo", "1年": "1y"}
+
+
+def get_world_indices(period_label: str) -> dict:
+    """tab_market.render の指標カード部と同一(最終値・前日比・スパークライン系列)"""
+    sp = PERIOD_MAP.get(period_label, "1mo")
+    closes = get_cached_market_data(tuple(sorted(WORLD_INDICES.values())), period=sp)
+    out = []
+    for name, tk in WORLD_INDICES.items():
+        item = {"name": name, "ticker": tk, "status": "ok"}
+        if tk not in closes.columns:
+            item["status"] = "取得失敗"
+        else:
+            ser = closes[tk].dropna()
+            if len(ser) < 2:
+                item["status"] = "データ不足"
+            else:
+                last, prev = float(ser.iloc[-1]), float(ser.iloc[-2])
+                item.update({
+                    "last": last,
+                    "diff": last - prev,
+                    "pct": ((last / prev) - 1) * 100,
+                    "series": [{"t": str(idx)[:10], "v": float(v)} for idx, v in ser.items()],
+                })
+        out.append(item)
+    return {"period": period_label, "indices": out}
+
+
+def get_investor_flow(weeks: int) -> dict:
+    """tab_market._render_investor_flow と同一(要約・系列・直近4週・シグナル)"""
+    df = jquants.get_investor_types(weeks=weeks)
+    if df is None or df.empty:
+        return {"available": False, "reason": "J-Quants 投資部門別売買データが取得できなかったわ。プラン契約範囲を確認して。"}
+    cols = [c for c in _INVESTOR_LABELS if c in df.columns]
+    if "EnDate" not in df.columns or not cols:
+        return {"available": False, "reason": "投資部門データのカラム構造が想定と違う。スキップ。"}
+
+    summary = []
+    for col in ("FrgnBal", "IndBal"):
+        if col in df.columns:
+            stk = _flow_streak(df[col])
+            if stk:
+                summary.append({
+                    "col": col, "label": _INVESTOR_LABELS[col], "sign": stk["sign"],
+                    "weeks": stk["weeks"], "cum_oku": stk["cum"] / 1e8, "latest_oku": stk["latest"] / 1e8,
+                })
+
+    rows = []
+    for _, r in df.iterrows():
+        row = {"date": str(r["EnDate"])[:10]}
+        for c in cols:
+            v = r[c]
+            row[c] = None if pd.isna(v) else float(v) / 1e8  # 億円
+        rows.append(row)
+
+    topix = jquants.get_topix_ohlc(period_days=weeks * 7 + 30)
+    topix_rows = []
+    if topix is not None and not topix.empty and "Close" in topix.columns:
+        t0 = df["EnDate"].min() - pd.Timedelta(days=6)
+        t1 = df["EnDate"].max()
+        t = topix[(topix["Date"] >= t0) & (topix["Date"] <= t1)]
+        topix_rows = [{"date": str(d)[:10], "close": float(c)} for d, c in zip(t["Date"], t["Close"])]
+
+    signals = []
+    if "FrgnBal" in df.columns:
+        f = df["FrgnBal"].dropna()
+        if len(f) >= 2:
+            prev, curr = f.iloc[-2], f.iloc[-1]
+            if prev < 0 and curr > 0:
+                signals.append(f"🟢 海外投資家がネット買越転換 ({prev/1e8:+,.0f}億 → {curr/1e8:+,.0f}億) — 買い好機")
+            elif prev > 0 and curr < 0:
+                signals.append(f"🔴 海外投資家がネット売越転換 ({prev/1e8:+,.0f}億 → {curr/1e8:+,.0f}億) — 警戒")
+    if "IndBal" in df.columns:
+        ind = df["IndBal"].dropna()
+        if len(ind) >= 8:
+            mean_, std_ = ind.iloc[:-1].mean(), ind.iloc[:-1].std()
+            latest = ind.iloc[-1]
+            if std_ and std_ > 0:
+                z = (latest - mean_) / std_
+                if z > 1.5:
+                    signals.append(f"⚠️ 個人ネット買越過熱 (Z={z:+.2f}) — 戻り売り圧力警戒")
+                elif z < -1.5:
+                    signals.append(f"⚠️ 個人ネット売越過熱 (Z={z:+.2f}) — 逆張り好機の可能性")
+
+    return {
+        "available": True, "weeks": weeks,
+        "columns": [{"key": c, "label": _INVESTOR_LABELS[c], "color": _INVESTOR_COLORS.get(c, "#888")} for c in cols],
+        "rows": rows, "topix": topix_rows, "summary": summary, "signals": signals,
+    }
+
+
+def get_rank_state() -> dict:
+    totals = _compute_state()["totals"]
+    ta = totals.get("total_asset_all", totals["total_asset"])
+    rank = get_rank(ta)
+    return {
+        "total_asset": ta,
+        "rank": None if rank is None else {"name": rank[0], "color": rank[1], "level": rank[2], "max_level": rank[3]},
+        "tiers": [{"threshold": t, "name": n, "color": c} for t, n, c in RANK_TIERS],
+    }
+
+
+# ══════════════════════════════════════════
 # 取引履歴 (tab_transaction.py の共有関数を再利用)
 # ══════════════════════════════════════════
 import io as _io  # noqa: E402

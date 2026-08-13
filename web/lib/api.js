@@ -60,6 +60,10 @@ export function apiPut(path, payload) {
   return apiFetch(path, { method: "PUT", body: JSON.stringify(payload) });
 }
 
+export function apiGet(path) {
+  return apiFetch(path);
+}
+
 // タブ間遷移で再フェッチしないためのモジュールキャッシュ(更新ボタンで force)
 let _snapshot = null;
 
