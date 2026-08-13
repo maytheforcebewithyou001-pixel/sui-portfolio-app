@@ -8,3 +8,11 @@ export const fmtInt = (n) => Math.round(n).toLocaleString("ja-JP");
 // Streamlitのテーブル表示 int(x) と揃えるための切り捨て版(tab_analysis.py:61,75)
 export const fmtIntTrunc = (n) => Math.trunc(n).toLocaleString("ja-JP");
 export const fmtPct1 = (n) => `${n.toFixed(1)}%`;
+// Python "{:+,.0f}円" 相当
+export const signedYenInt = (n) =>
+  `${n >= 0 ? "+" : "-"}${Math.round(Math.abs(n)).toLocaleString("ja-JP")}円`;
+// Python "{:,.4g}" 相当(有効4桁+カンマ)
+export const fmtG4 = (n) =>
+  typeof n === "number"
+    ? Number(n.toPrecision(4)).toLocaleString("ja-JP", { maximumFractionDigits: 10 })
+    : n ?? "-";

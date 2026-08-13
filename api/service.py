@@ -89,12 +89,22 @@ def build_snapshot() -> dict:
     totals["cash_jpy"] = cash_jpy
     totals["total_asset_all"] = totals["total_asset"] + cash_jpy
 
+    def _fnum(key, default):
+        try:
+            return float(settings.get(key, default) or default)
+        except (TypeError, ValueError):
+            return float(default)
+
+    target_jpy_pct = _fnum("target_jpy_pct", 50)  # app.py:195-196と同一の既定値
+    target_usd_pct = _fnum("target_usd_pct", 50)
+
     return {
         "rows": _df_to_records(display_df),
         "totals": totals,
         "jpy_usd_rate": float(jpy_usd_rate),
         "gas_last_updated": gas_last_updated,
         "warnings": warnings,
+        "targets": {"jpy_pct": target_jpy_pct, "usd_pct": target_usd_pct},
         "nisa_limits": {
             "growth_annual": NISA_GROWTH_ANNUAL,
             "growth_lifetime": NISA_GROWTH_LIFETIME,

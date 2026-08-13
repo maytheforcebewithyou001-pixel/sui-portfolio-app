@@ -353,3 +353,67 @@ main h3 {
 }
 
 .targetgrid input:focus { outline: none; border-color: var(--accent); }
+
+/* ── 通貨配分タブ ── */
+.grid2even {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.cardsrow {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .grid2even { grid-template-columns: 1fr; }
+  .cardsrow { flex-direction: column; }
+}
+
+.subtabs {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.7rem 0;
+}
+
+.subtabs button {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.subtabs button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 210, 255, 0.05);
+}
+
+.inlineinput {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin: 0.6rem 0;
+}
+
+.inlineinput input {
+  display: block;
+  width: 180px;
+  margin-top: 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+}
+
+.inlineinput input:focus { outline: none; border-color: var(--accent); }
+
+.scard p { font-size: 0.85rem; margin: 0.25rem 0; }
