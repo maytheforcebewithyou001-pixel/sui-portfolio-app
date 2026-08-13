@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from api import auth
-from api.service import build_snapshot
+from api.service import build_snapshot, future_simulation_yearly, withdrawal_simulation
 
 app = FastAPI(title="FORCE CAPITAL API", version="0.1.0")
 
@@ -65,3 +65,38 @@ def login(req: LoginRequest):
 @app.get("/api/portfolio")
 def portfolio(user: str = Depends(require_auth)):
     return build_snapshot()
+
+
+class FutureSimRequest(BaseModel):
+    initial: float
+    annual_rate: float  # 例 0.06
+    years: int
+    yearly_addition: float
+
+
+@app.post("/api/simulate/future")
+def simulate_future(req: FutureSimRequest, user: str = Depends(require_auth)):
+    if not (0 < req.years <= 60):
+        raise HTTPException(status_code=422, detail="years は 1〜60 で指定")
+    return {"rows": future_simulation_yearly(req.initial, req.annual_rate, req.years, req.yearly_addition)}
+
+
+class WithdrawalSimRequest(BaseModel):
+    initial: float
+    annual_rate: float
+    mode: str  # fixed | rate | inflation
+    annual_withdrawal: float = 0.0
+    withdrawal_rate: float = 0.0
+    inflation_rate: float = 0.0
+    max_years: int = 40
+
+
+@app.post("/api/simulate/withdrawal")
+def simulate_withdrawal_ep(req: WithdrawalSimRequest, user: str = Depends(require_auth)):
+    if req.mode not in ("fixed", "rate", "inflation"):
+        raise HTTPException(status_code=422, detail="mode は fixed/rate/inflation")
+    if not (1 <= req.max_years <= 60):
+        raise HTTPException(status_code=422, detail="max_years は 1〜60 で指定")
+    return {"rows": withdrawal_simulation(req.initial, req.annual_rate, req.mode,
+                                          req.annual_withdrawal, req.withdrawal_rate,
+                                          req.inflation_rate, req.max_years)}

@@ -26,7 +26,12 @@ from data import (
     load_settings,
 )
 from market import get_cached_market_data, get_cached_ticker_info
-from calc import calculate_portfolio, get_portfolio_totals
+from calc import (
+    calculate_portfolio,
+    get_future_simulation,
+    get_portfolio_totals,
+    simulate_withdrawal,
+)
 
 EMPTY_TOTALS = dict(
     total_asset=0, total_net_profit=0, total_gross_profit=0, total_dividend=0,
@@ -40,6 +45,27 @@ def _df_to_records(df: pd.DataFrame) -> list:
     if df.empty:
         return []
     return json.loads(df.to_json(orient="records", force_ascii=False))
+
+
+def future_simulation_yearly(initial: float, annual_rate: float, years: int, yearly_addition: float) -> list:
+    """tab_simulation.py:30-32/67-71 と同一の年次グルーピング(各年の最終月・経過年数ラベル)"""
+    sdl = get_future_simulation(initial, annual_rate, years, yearly_addition)
+    sdl["年"] = sdl["日時"].dt.year
+    yd = sdl.groupby("年").last().reset_index()
+    by = yd["年"].iloc[0]
+    yd["経過年数"] = yd["年"].apply(lambda y: f"{y - by}年目" if y > by else "現在")
+    return _df_to_records(yd[["経過年数", "予測評価額(円)", "積立元本(円)", "運用益(円)"]])
+
+
+def withdrawal_simulation(initial: float, annual_rate: float, mode: str,
+                          annual_withdrawal: float, withdrawal_rate: float,
+                          inflation_rate: float, max_years: int) -> list:
+    sim = simulate_withdrawal(initial, annual_rate, mode,
+                              annual_withdrawal=annual_withdrawal,
+                              withdrawal_rate=withdrawal_rate,
+                              inflation_rate=inflation_rate,
+                              max_years=max_years)
+    return _df_to_records(sim)
 
 
 def build_snapshot() -> dict:

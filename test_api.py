@@ -166,6 +166,49 @@ class TestEndpoints:
         assert r.status_code == 200
         assert r.json() == fake
 
+    def _token(self, client):
+        return client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
+
+    def test_simulate_future(self, client):
+        """calc.get_future_simulation を実物で通す配線テスト(年利0なら評価額=元本)"""
+        token = self._token(client)
+        r = client.post("/api/simulate/future",
+                        json={"initial": 1000000, "annual_rate": 0.0, "years": 2, "yearly_addition": 120000},
+                        headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        rows = r.json()["rows"]
+        assert rows[0]["経過年数"] == "現在"
+        last = rows[-1]
+        assert last["予測評価額(円)"] == pytest.approx(last["積立元本(円)"])
+        assert last["運用益(円)"] == pytest.approx(0)
+
+    def test_simulate_future_validation(self, client):
+        token = self._token(client)
+        r = client.post("/api/simulate/future",
+                        json={"initial": 1, "annual_rate": 0.05, "years": 0, "yearly_addition": 0},
+                        headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 422
+
+    def test_simulate_withdrawal_fixed_depletes(self, client):
+        """固定額500万/年×資産1000万・年利0 → 2年で枯渇"""
+        token = self._token(client)
+        r = client.post("/api/simulate/withdrawal",
+                        json={"initial": 10000000, "annual_rate": 0.0, "mode": "fixed",
+                              "annual_withdrawal": 5000000, "max_years": 40},
+                        headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        rows = r.json()["rows"]
+        assert rows[-1]["年"] == 2
+        assert rows[-1]["残高(円)"] == 0
+        assert rows[-1]["累計取崩(円)"] == 10000000
+
+    def test_simulate_withdrawal_bad_mode(self, client):
+        token = self._token(client)
+        r = client.post("/api/simulate/withdrawal",
+                        json={"initial": 1, "annual_rate": 0.0, "mode": "oops"},
+                        headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 422
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

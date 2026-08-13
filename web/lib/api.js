@@ -33,11 +33,16 @@ export async function login(username, password) {
   return data;
 }
 
-export async function apiFetch(path) {
+export async function apiFetch(path, options = {}) {
   const token = getToken();
   if (!token) throw new AuthError("未ログイン");
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
   });
   if (res.status === 401) {
     clearToken();
@@ -45,6 +50,10 @@ export async function apiFetch(path) {
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+export function apiPost(path, payload) {
+  return apiFetch(path, { method: "POST", body: JSON.stringify(payload) });
 }
 
 // タブ間遷移で再フェッチしないためのモジュールキャッシュ(更新ボタンで force)
