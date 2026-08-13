@@ -231,8 +231,15 @@ function InvestorFlow() {
                       margin={{ top: 10, right: 50, bottom: 30, left: 20 }}
                     >
                       <CartesianGrid stroke="#2B3240" strokeDasharray="2 2" />
-                      <XAxis dataKey="date" tick={AXIS_TICK} stroke="#2B3240" minTickGap={20}
-                        tickFormatter={(t) => t.slice(0, 7).replace("-", "/")} />
+                      <XAxis
+                        dataKey="date" tick={AXIS_TICK} stroke="#2B3240" minTickGap={20}
+                        // 月表記は重複するため、月が変わる週だけラベルを出す(Plotlyの自動間引き相当)
+                        tickFormatter={(t, i) => {
+                          const rows = data.rows;
+                          const prev = i > 0 ? rows[i - 1]?.date?.slice(0, 7) : null;
+                          return t.slice(0, 7) === prev ? "" : t.slice(0, 7).replace("-", "/");
+                        }}
+                      />
                       <YAxis tick={AXIS_TICK} stroke="#2B3240" width={80}
                         tickFormatter={(v) => Math.round(v).toLocaleString("ja-JP")}
                         label={{ value: "累積買越額 (億円)", angle: -90, position: "insideLeft", fill: "#9E9E9E", fontSize: 11, offset: -10 }} />
