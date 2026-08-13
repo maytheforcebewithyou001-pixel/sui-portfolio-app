@@ -238,6 +238,24 @@ class TestEndpoints:
         assert r.status_code == 200
         assert saved["memo"] == "  2498は売却確定  "  # strip は service 側の責務
 
+    def test_settings_endpoints(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "get_app_settings",
+                            lambda: {"target_jpy_pct": 30.0, "target_usd_pct": 70.0, "cash_balance_jpy": 2000000.0})
+
+        def fake_save(j, u, c):
+            if j is not None and (j + (u or 0)) != 100:
+                raise m.svc.SettingsError("合計を100%にしてね")
+            return {"target_jpy_pct": j, "target_usd_pct": u, "cash_balance_jpy": c}
+        monkeypatch.setattr(m.svc, "save_app_settings", fake_save)
+        token = self._token(client)
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/settings", headers=h).json()["target_jpy_pct"] == 30.0
+        assert client.get("/api/settings").status_code == 401
+        assert client.put("/api/settings", json={"target_jpy_pct": 30, "target_usd_pct": 70}, headers=h).status_code == 200
+        r = client.put("/api/settings", json={"target_jpy_pct": 30, "target_usd_pct": 60}, headers=h)
+        assert r.status_code == 422 and "100%" in r.json()["detail"]
+
     def test_market_and_rank_validation(self, client, monkeypatch):
         import api.main as m
         monkeypatch.setattr(m.svc, "get_world_indices", lambda p: {"period": p, "indices": []})
@@ -299,6 +317,55 @@ class TestEndpoints:
         assert client.post("/api/ai/lifeplan/generate", json={"inputs": {"年齢": 40}}, headers=h).status_code == 422
         r = client.post("/api/ai/lifeplan/generate", json={"inputs": {"本人年齢": "40歳"}}, headers=h)
         assert r.status_code == 200
+
+
+class TestAppSettings:
+    """サイドバー相当の設定保存(app.py:198-227 のバリデーションと同一)"""
+
+    def _patch(self, monkeypatch, current=None):
+        import api.service as svc
+        saved = {}
+        store = dict(current or {})
+        monkeypatch.setattr(svc, "load_settings", lambda: store)
+        monkeypatch.setattr(svc, "save_settings", lambda u: (saved.update(u), store.update({k: str(v) for k, v in u.items()})))
+        return svc, saved
+
+    def test_get_defaults(self, monkeypatch):
+        svc, _ = self._patch(monkeypatch, {})
+        assert svc.get_app_settings() == {"target_jpy_pct": 50.0, "target_usd_pct": 50.0, "cash_balance_jpy": 0.0}
+
+    def test_get_parses_strings(self, monkeypatch):
+        svc, _ = self._patch(monkeypatch, {"target_jpy_pct": "30", "target_usd_pct": "70", "cash_balance_jpy": "2000000"})
+        assert svc.get_app_settings() == {"target_jpy_pct": 30.0, "target_usd_pct": 70.0, "cash_balance_jpy": 2000000.0}
+
+    def test_save_targets_ok(self, monkeypatch):
+        svc, saved = self._patch(monkeypatch, {})
+        svc.save_app_settings(target_jpy_pct=30, target_usd_pct=70)
+        assert saved == {"target_jpy_pct": 30, "target_usd_pct": 70}
+
+    def test_save_targets_rejects_non_100(self, monkeypatch):
+        svc, saved = self._patch(monkeypatch, {})
+        with pytest.raises(svc.SettingsError, match="100%"):
+            svc.save_app_settings(target_jpy_pct=30, target_usd_pct=60)
+        assert saved == {}  # 保存されない
+
+    def test_save_targets_requires_both(self, monkeypatch):
+        svc, saved = self._patch(monkeypatch, {})
+        with pytest.raises(svc.SettingsError):
+            svc.save_app_settings(target_jpy_pct=100)
+        assert saved == {}
+
+    def test_save_cash_range(self, monkeypatch):
+        svc, saved = self._patch(monkeypatch, {})
+        svc.save_app_settings(cash_balance_jpy=2_000_000)
+        assert saved == {"cash_balance_jpy": 2_000_000}
+        with pytest.raises(svc.SettingsError):
+            svc.save_app_settings(cash_balance_jpy=-1)
+
+    def test_save_nothing_raises(self, monkeypatch):
+        svc, _ = self._patch(monkeypatch, {})
+        with pytest.raises(svc.SettingsError):
+            svc.save_app_settings()
 
 
 class TestRankAndMarket:

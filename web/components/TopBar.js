@@ -14,6 +14,7 @@ const TABS = [
   { href: "/transactions", label: "取引履歴" },
   { href: "/market", label: "世界指標" },
   { href: "/rank", label: "ランク" },
+  { href: "/settings", label: "設定" },
 ];
 
 export default function TopBar({ loadedAt, loading, onReload }) {

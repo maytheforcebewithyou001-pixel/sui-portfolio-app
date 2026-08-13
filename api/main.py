@@ -175,6 +175,27 @@ def rank(user: str = Depends(require_auth)):
     return svc.get_rank_state()
 
 
+# ── アプリ設定(Streamlit版サイドバー相当) ──
+
+@app.get("/api/settings")
+def get_settings(user: str = Depends(require_auth)):
+    return svc.get_app_settings()
+
+
+class SettingsRequest(BaseModel):
+    target_jpy_pct: float | None = None
+    target_usd_pct: float | None = None
+    cash_balance_jpy: float | None = None
+
+
+@app.put("/api/settings")
+def put_settings(req: SettingsRequest, user: str = Depends(require_auth)):
+    try:
+        return svc.save_app_settings(req.target_jpy_pct, req.target_usd_pct, req.cash_balance_jpy)
+    except svc.SettingsError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 # ── 取引履歴 ──
 import base64  # noqa: E402
 

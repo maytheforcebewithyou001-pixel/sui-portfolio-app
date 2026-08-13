@@ -359,6 +359,51 @@ def get_investor_flow(weeks: int) -> dict:
     }
 
 
+# ══════════════════════════════════════════
+# アプリ設定 (Streamlit版サイドバー相当)
+# ══════════════════════════════════════════
+class SettingsError(Exception):
+    pass
+
+
+def get_app_settings() -> dict:
+    s = load_settings()
+
+    def _f(key, default):
+        try:
+            return float(s.get(key, default) or default)
+        except (TypeError, ValueError):
+            return float(default)
+
+    return {
+        "target_jpy_pct": _f("target_jpy_pct", 50),
+        "target_usd_pct": _f("target_usd_pct", 50),
+        "cash_balance_jpy": _f("cash_balance_jpy", 0),
+    }
+
+
+def save_app_settings(target_jpy_pct=None, target_usd_pct=None, cash_balance_jpy=None) -> dict:
+    """サイドバーの保存ボタン相当。目標配分は合計100%でなければ保存しない(app.py:207 のdisabled条件と同一)"""
+    updates = {}
+    if target_jpy_pct is not None or target_usd_pct is not None:
+        if target_jpy_pct is None or target_usd_pct is None:
+            raise SettingsError("JPY目標とUSD目標は同時に指定してください")
+        if not (0 <= target_jpy_pct <= 100) or not (0 <= target_usd_pct <= 100):
+            raise SettingsError("目標配分は0〜100%で指定してください")
+        if abs((target_jpy_pct + target_usd_pct) - 100) > 1e-9:
+            raise SettingsError(f"合計を100%にしてね（現在 {target_jpy_pct + target_usd_pct:.1f}%）")
+        updates["target_jpy_pct"] = target_jpy_pct
+        updates["target_usd_pct"] = target_usd_pct
+    if cash_balance_jpy is not None:
+        if not (0 <= cash_balance_jpy <= 1e10):
+            raise SettingsError("現金残高は0〜100億円で指定してください")
+        updates["cash_balance_jpy"] = cash_balance_jpy
+    if not updates:
+        raise SettingsError("保存対象がありません")
+    save_settings(updates)
+    return get_app_settings()
+
+
 def get_rank_state() -> dict:
     totals = _compute_state()["totals"]
     ta = totals.get("total_asset_all", totals["total_asset"])
