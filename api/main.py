@@ -152,3 +152,81 @@ def ai_lifeplan_generate(req: LifeplanRequest, user: str = Depends(require_auth)
     if any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 2000 for k, v in req.inputs.items()):
         raise HTTPException(status_code=422, detail="inputs は文字列のキーと値(2,000字以内)で指定")
     return _ai_errors(lambda: svc.generate_lifeplan(req.inputs))
+
+
+# ── 取引履歴 ──
+import base64  # noqa: E402
+
+TX_TYPES = ("買い増し", "売却", "新規購入")
+IMPORT_MODES = ("取引履歴に登録", "保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）")
+MAX_CSV_BYTES = 5 * 1024 * 1024
+
+
+def _tx_errors(fn):
+    try:
+        return fn()
+    except svc.TxError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/transactions")
+def transactions(user: str = Depends(require_auth)):
+    return svc.get_transactions_state()
+
+
+class ManualTxRequest(BaseModel):
+    index: int
+    code: str
+    tx_type: str
+    date: str  # YYYY/MM/DD
+    qty: float
+    price: float
+    fee: float = 0.0
+    broker: str
+    tax: str
+
+
+@app.post("/api/transactions")
+def transactions_record(req: ManualTxRequest, user: str = Depends(require_auth)):
+    if req.tx_type not in TX_TYPES:
+        raise HTTPException(status_code=422, detail=f"取引種別は {TX_TYPES} のいずれか")
+    if not (0 < req.qty <= 100_000_000) or not (0 <= req.price <= 100_000_000) or not (0 <= req.fee <= 10_000_000):
+        raise HTTPException(status_code=422, detail="数量/単価/手数料が範囲外です")
+    import re
+    if not re.match(r"^\d{4}/\d{2}/\d{2}$", req.date):
+        raise HTTPException(status_code=422, detail="日付は YYYY/MM/DD 形式で指定")
+    pnl = _tx_errors(lambda: svc.record_manual_transaction(
+        req.index, req.code, req.tx_type, req.date, req.qty, req.price, req.fee, req.broker, req.tax))
+    return {"pnl_realized": round(pnl, 0)}
+
+
+class CsvRequest(BaseModel):
+    content_b64: str
+
+
+class CsvImportRequest(CsvRequest):
+    mode: str
+
+
+def _decode_csv_b64(content_b64: str) -> bytes:
+    try:
+        raw = base64.b64decode(content_b64, validate=True)
+    except Exception:
+        raise HTTPException(status_code=422, detail="content_b64 が不正です")
+    if len(raw) > MAX_CSV_BYTES:
+        raise HTTPException(status_code=422, detail="CSVが大きすぎます(5MBまで)")
+    return raw
+
+
+@app.post("/api/transactions/import/preview")
+def transactions_import_preview(req: CsvRequest, user: str = Depends(require_auth)):
+    raw = _decode_csv_b64(req.content_b64)
+    return _tx_errors(lambda: svc.preview_broker_csv(raw))
+
+
+@app.post("/api/transactions/import/execute")
+def transactions_import_execute(req: CsvImportRequest, user: str = Depends(require_auth)):
+    if req.mode not in IMPORT_MODES:
+        raise HTTPException(status_code=422, detail=f"mode は {IMPORT_MODES} のいずれか")
+    raw = _decode_csv_b64(req.content_b64)
+    return _tx_errors(lambda: svc.execute_broker_csv(raw, req.mode))

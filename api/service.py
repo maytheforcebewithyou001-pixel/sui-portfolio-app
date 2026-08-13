@@ -261,6 +261,75 @@ def get_lifeplan_state() -> dict:
     return {"history": [{"dt": d, "inputs": ij, "text": t} for d, ij, t in history]}
 
 
+# ══════════════════════════════════════════
+# 取引履歴 (tab_transaction.py の共有関数を再利用)
+# ══════════════════════════════════════════
+import io as _io  # noqa: E402
+
+from config import BROKER_OPTIONS, TAX_OPTIONS  # noqa: E402
+from data import load_transactions  # noqa: E402
+from tabs.tab_transaction import (  # noqa: E402
+    _parse_broker_csv,
+    apply_csv_import,
+    record_transaction,
+)
+
+
+class TxError(Exception):
+    pass
+
+
+def get_transactions_state() -> dict:
+    tx_df = load_transactions()
+    df = load_data()
+    holdings = []
+    for i, row in df.iterrows():
+        holdings.append({
+            "index": int(i),
+            "code": str(row["銘柄コード"]),
+            "name": str(row["銘柄名"]),
+            "market": str(row.get("市場", "-")),
+            "broker": str(row.get("口座", "")),
+            "tax": str(row.get("口座区分", "")),
+        })
+    return {
+        "transactions": _df_to_records(tx_df),
+        "holdings": holdings,
+        "broker_options": list(BROKER_OPTIONS),
+        "tax_options": list(TAX_OPTIONS),
+    }
+
+
+def record_manual_transaction(index: int, code: str, tx_type: str, date_str: str,
+                              qty: float, price: float, fee: float, broker: str, tax: str) -> float:
+    df = load_data()
+    if index not in df.index:
+        raise TxError("指定行が見つかりません(保有データが変わった可能性)。再読込してください")
+    if str(df.at[index, "銘柄コード"]) != code:
+        raise TxError("銘柄コードが一致しません(保有データが変わった可能性)。再読込してください")
+    return record_transaction(df, index, tx_type, date_str, qty, price, fee, broker, tax)
+
+
+def parse_broker_csv_bytes(content: bytes):
+    csv_df, broker, err = _parse_broker_csv(_io.BytesIO(content))
+    if err:
+        raise TxError(err)
+    return csv_df, broker
+
+
+def preview_broker_csv(content: bytes) -> dict:
+    csv_df, broker = parse_broker_csv_bytes(content)
+    cols = [c for c in ["約定日", "_name", "_code", "_取引種別", "_口座区分", "_qty", "_price"] if c in csv_df.columns]
+    return {"broker": broker, "count": len(csv_df), "rows": _df_to_records(csv_df[cols])}
+
+
+def execute_broker_csv(content: bytes, imp_mode: str) -> dict:
+    csv_df, broker = parse_broker_csv_bytes(content)
+    df = load_data()
+    tx_count, upd_count, skip_count = apply_csv_import(csv_df, broker, imp_mode, df)
+    return {"broker": broker, "tx_count": tx_count, "upd_count": upd_count, "skip_count": skip_count}
+
+
 def generate_lifeplan(inputs: dict) -> dict:
     """tab_ai._render_lifeplan の生成ブロックと同一手順(inputsはクライアント整形済み表示文字列)"""
     api_key = _anthropic_api_key()

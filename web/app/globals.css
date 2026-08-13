@@ -581,3 +581,24 @@ button.ghost.wide { width: 100%; padding: 0.55rem; }
   white-space: pre-wrap;
   margin-top: 0.5rem;
 }
+
+/* ── 取引履歴タブ ── */
+.fileinput {
+  display: block;
+  margin: 0.5rem 0 0.8rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.fileinput::file-selector-button {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  margin-right: 0.7rem;
+}
+
+.fileinput::file-selector-button:hover { border-color: var(--accent); }

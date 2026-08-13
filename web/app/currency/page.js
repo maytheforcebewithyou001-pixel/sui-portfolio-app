@@ -328,7 +328,11 @@ export default function Currency() {
         <details
           key={r.ccy} className="expander"
           open={!!openCcy[r.ccy]}
-          onToggle={(e) => setOpenCcy((s) => ({ ...s, [r.ccy]: e.currentTarget.open }))}
+          onToggle={(e) => {
+            // currentTarget は更新関数の実行時には null になるため、ここで値を確定させる
+            const isOpen = e.currentTarget.open;
+            setOpenCcy((s) => ({ ...s, [r.ccy]: isOpen }));
+          }}
         >
           <summary>
             💰 {r.ccy} — {fmtInt(r.value)}円 ({((r.value / TA) * 100).toFixed(1)}%) · {r.count}銘柄

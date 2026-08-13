@@ -238,6 +238,44 @@ class TestEndpoints:
         assert r.status_code == 200
         assert saved["memo"] == "  2498は売却確定  "  # strip は service 側の責務
 
+    def test_transactions_record_wiring_and_validation(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "record_manual_transaction",
+                            lambda *a: 12345.0)
+        token = self._token(client)
+        h = {"Authorization": f"Bearer {token}"}
+        ok = {"index": 0, "code": "7203", "tx_type": "売却", "date": "2026/08/13",
+              "qty": 10, "price": 2500, "fee": 0, "broker": "SBI証券", "tax": "特定口座"}
+        r = client.post("/api/transactions", json=ok, headers=h)
+        assert r.status_code == 200 and r.json()["pnl_realized"] == 12345.0
+        assert client.post("/api/transactions", json={**ok, "tx_type": "謎"}, headers=h).status_code == 422
+        assert client.post("/api/transactions", json={**ok, "date": "2026-08-13"}, headers=h).status_code == 422
+        assert client.post("/api/transactions", json={**ok, "qty": 0}, headers=h).status_code == 422
+
+    def test_transactions_conflict_409(self, client, monkeypatch):
+        import api.main as m
+
+        def boom(*a):
+            raise m.svc.TxError("mismatch")
+        monkeypatch.setattr(m.svc, "record_manual_transaction", boom)
+        token = self._token(client)
+        ok = {"index": 0, "code": "7203", "tx_type": "売却", "date": "2026/08/13",
+              "qty": 10, "price": 2500, "fee": 0, "broker": "SBI証券", "tax": "特定口座"}
+        r = client.post("/api/transactions", json=ok, headers={"Authorization": f"Bearer {self._token(client)}"})
+        assert r.status_code == 409
+
+    def test_transactions_import_validation(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "execute_broker_csv", lambda raw, mode: {"tx_count": 1, "upd_count": 0, "skip_count": 0, "broker": "SBI証券"})
+        token = self._token(client)
+        h = {"Authorization": f"Bearer {token}"}
+        import base64
+        b64 = base64.b64encode(b"dummy").decode()
+        assert client.post("/api/transactions/import/execute", json={"content_b64": b64, "mode": "謎"}, headers=h).status_code == 422
+        assert client.post("/api/transactions/import/execute", json={"content_b64": "!!!", "mode": "取引履歴に登録"}, headers=h).status_code == 422
+        r = client.post("/api/transactions/import/execute", json={"content_b64": b64, "mode": "取引履歴に登録"}, headers=h)
+        assert r.status_code == 200 and r.json()["tx_count"] == 1
+
     def test_ai_lifeplan_generate_validation(self, client, monkeypatch):
         import api.main as m
         monkeypatch.setattr(m.svc, "generate_lifeplan", lambda inputs: {"dt": "d", "text": "t", "truncated": False})
@@ -247,6 +285,62 @@ class TestEndpoints:
         assert client.post("/api/ai/lifeplan/generate", json={"inputs": {"年齢": 40}}, headers=h).status_code == 422
         r = client.post("/api/ai/lifeplan/generate", json={"inputs": {"本人年齢": "40歳"}}, headers=h)
         assert r.status_code == 200
+
+
+class TestTransactionLogic:
+    """tab_transaction.py から抽出した共有実行ロジック(保存系はモック)"""
+
+    def _df(self):
+        return pd.DataFrame([
+            {"銘柄コード": "7203", "銘柄名": "トヨタ", "市場": "日本株", "保有株数": 100.0,
+             "取得単価": 2000.0, "口座": "SBI証券", "口座区分": "特定口座"},
+            {"銘柄コード": "8593", "銘柄名": "三菱HC", "市場": "日本株", "保有株数": 200.0,
+             "取得単価": 900.0, "口座": "SBI証券", "口座区分": "特定口座"},
+        ])
+
+    def _patch_saves(self, monkeypatch):
+        import tabs.tab_transaction as tt
+        calls = {"save_data": [], "save_transaction": [], "batch": []}
+        monkeypatch.setattr(tt, "save_data", lambda df: calls["save_data"].append(df.copy()))
+        monkeypatch.setattr(tt, "save_transaction", lambda tx: calls["save_transaction"].append(tx))
+        monkeypatch.setattr(tt, "save_transactions_batch", lambda b: calls["batch"].append(b))
+        monkeypatch.setattr(tt, "_clear_sheet_cache", lambda: None)
+        return calls
+
+    def test_record_sell(self, monkeypatch):
+        from tabs.tab_transaction import record_transaction
+        calls = self._patch_saves(monkeypatch)
+        df = self._df()
+        pnl = record_transaction(df, 0, "売却", "2026/08/13", 40, 2500.0, 0, "SBI証券", "特定口座")
+        assert pnl == (2500 - 2000) * 40
+        assert df.at[0, "保有株数"] == 60
+        assert calls["save_transaction"][0]["取引種別"] == "売却"
+        assert calls["save_transaction"][0]["損益確定(円)"] == 20000
+
+    def test_record_buy_merges_position(self, monkeypatch):
+        from tabs.tab_transaction import record_transaction
+        self._patch_saves(monkeypatch)
+        df = self._df()
+        pnl = record_transaction(df, 0, "買い増し", "2026/08/13", 100, 3000.0, 0, "SBI証券", "特定口座")
+        assert pnl == 0
+        assert df.at[0, "保有株数"] == 200
+        assert df.at[0, "取得単価"] == 2500  # (100*2000+100*3000)/200
+
+    def test_apply_csv_import_both(self, monkeypatch):
+        from tabs.tab_transaction import apply_csv_import
+        calls = self._patch_saves(monkeypatch)
+        df = self._df()
+        csv_df = pd.DataFrame([
+            {"約定日": "2026/08/01", "_code": "7203", "_name": "トヨタ", "_market": "東証",
+             "_取引種別": "買い増し", "_口座区分": "特定口座", "_qty": 100.0, "_price": 2200.0, "_fee": 0},
+            {"約定日": "2026/08/02", "_code": "9999", "_name": "未保有", "_market": "東証",
+             "_取引種別": "買い増し", "_口座区分": "特定口座", "_qty": 10.0, "_price": 500.0, "_fee": 0},
+        ])
+        tx, upd, skip = apply_csv_import(csv_df, "SBI証券", "両方（取引履歴＋保有銘柄更新）", df)
+        assert (tx, upd, skip) == (2, 1, 1)
+        assert len(calls["batch"][0]) == 2
+        assert df.at[0, "保有株数"] == 200
+        assert df.at[0, "取得単価"] == 2100  # (100*2000+100*2200)/200
 
 
 class TestAIPrompts:

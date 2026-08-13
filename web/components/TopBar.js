@@ -11,6 +11,7 @@ const TABS = [
   { href: "/dividend", label: "配当" },
   { href: "/simulation", label: "シミュレーション" },
   { href: "/ai", label: "AI総評" },
+  { href: "/transactions", label: "取引履歴" },
 ];
 
 export default function TopBar({ loadedAt, loading, onReload }) {

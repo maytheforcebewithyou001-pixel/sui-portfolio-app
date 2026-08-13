@@ -137,6 +137,70 @@ def _parse_broker_csv(csv_file):
     return csv_df, broker, None
 
 
+def record_transaction(df, i, tx_type, date_str, qty, price, fee, broker, tax):
+    """手動取引の記録(保有df更新+TransactionData追記)。renderとAPIが共用。
+    戻り値: pnl_realized(売却時の確定損益)"""
+    tx_code = str(df.at[i, "銘柄コード"])
+    tx_name = str(df.at[i, "銘柄名"])
+    cur_shares = float(df.at[i, "保有株数"])
+    cur_price = float(df.at[i, "取得単価"])
+    pnl_realized = 0.0
+    if tx_type == "売却":
+        df.at[i, "保有株数"] = max(cur_shares - qty, 0)
+        pnl_realized = (price - cur_price) * qty
+    else:
+        new_total, new_price = merge_position(cur_shares, cur_price, qty, price)
+        df.at[i, "取得単価"] = new_price
+        df.at[i, "保有株数"] = new_total
+    save_data(df)
+    save_transaction({"日付": date_str, "銘柄コード": tx_code, "銘柄名": tx_name,
+                      "市場": df.at[i, "市場"] if "市場" in df.columns else "-",
+                      "取引種別": tx_type, "数量": qty, "単価(円)": price,
+                      "手数料": fee, "損益確定(円)": round(pnl_realized, 0),
+                      "口座": broker, "口座区分": tax})
+    _clear_sheet_cache()
+    return pnl_realized
+
+
+def apply_csv_import(csv_df, broker, imp_mode, df):
+    """CSV取込の実行(取引履歴登録/保有更新)。renderとAPIが共用。
+    戻り値: (tx_count, upd_count, skip_count)"""
+    tx_count, upd_count, skip_count = 0, 0, 0
+    if imp_mode in ("取引履歴に登録", "両方（取引履歴＋保有銘柄更新）"):
+        tx_batch = []
+        for _, crow in csv_df.iterrows():
+            code = crow["_code"]
+            market = str(crow.get("_market", "")).replace("nan", "-") or "-"
+            tx_batch.append({"日付": str(crow["約定日"]), "銘柄コード": code,
+                             "銘柄名": str(crow.get("_name", "")).strip(),
+                             "市場": market, "取引種別": crow["_取引種別"],
+                             "数量": crow["_qty"], "単価(円)": crow["_price"],
+                             "手数料": crow.get("_fee", 0), "損益確定(円)": 0,
+                             "口座": broker, "口座区分": crow["_口座区分"]})
+        save_transactions_batch(tx_batch)
+        tx_count = len(tx_batch)
+    if imp_mode in ("保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"):
+        for _, crow in csv_df.iterrows():
+            code = crow["_code"]
+            if not code:
+                skip_count += 1; continue
+            qty, price = float(crow["_qty"]), float(crow["_price"])
+            idx = df[df["銘柄コード"].astype(str) == code].index
+            if len(idx) == 0:
+                skip_count += 1; continue
+            cur_s, cur_p = float(df.at[idx[0], "保有株数"]), float(df.at[idx[0], "取得単価"])
+            if crow["_取引種別"] == "売却":
+                df.at[idx[0], "保有株数"] = max(cur_s - qty, 0)
+            else:
+                new_t, new_p = merge_position(cur_s, cur_p, qty, price)
+                df.at[idx[0], "取得単価"] = new_p
+                df.at[idx[0], "保有株数"] = new_t
+            upd_count += 1
+        save_data(df)
+    _clear_sheet_cache()
+    return tx_count, upd_count, skip_count
+
+
 def render(tab, df):
     with tab:
         st.markdown("#### 📒 取引履歴")
@@ -165,25 +229,9 @@ def render(tab, df):
                     tx_submitted = st.form_submit_button("記録する", width="stretch")
 
                 if tx_submitted and tx_sel_idx is not None:
-                    i = tx_sel_idx
-                    tx_code = str(df.at[i, "銘柄コード"])
-                    tx_name = str(df.at[i, "銘柄名"])
-                    cur_shares = float(df.at[i, "保有株数"]); cur_price = float(df.at[i, "取得単価"])
-                    pnl_realized = 0.0
-                    if tx_type == "売却":
-                        df.at[i, "保有株数"] = max(cur_shares - tx_qty, 0)
-                        pnl_realized = (tx_price - cur_price) * tx_qty
-                    else:
-                        new_total, new_price = merge_position(cur_shares, cur_price, tx_qty, tx_price)
-                        df.at[i, "取得単価"] = new_price
-                        df.at[i, "保有株数"] = new_total
-                    save_data(df)
-                    save_transaction({"日付": tx_date.strftime("%Y/%m/%d"), "銘柄コード": tx_code, "銘柄名": tx_name,
-                                      "市場": df.at[i, "市場"] if "市場" in df.columns else "-",
-                                      "取引種別": tx_type, "数量": tx_qty, "単価(円)": tx_price,
-                                      "手数料": tx_fee, "損益確定(円)": round(pnl_realized, 0),
-                                      "口座": tx_broker, "口座区分": tx_tax})
-                    _clear_sheet_cache(); st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
+                    pnl_realized = record_transaction(df, tx_sel_idx, tx_type, tx_date.strftime("%Y/%m/%d"),
+                                                      tx_qty, tx_price, tx_fee, tx_broker, tx_tax)
+                    st.success(f"✓ {tx_type} 記録完了。保有数を更新しました。")
                     if tx_type == "売却" and pnl_realized != 0:
                         c_ = pnl_color(pnl_realized); s_ = pnl_sign(pnl_realized)
                         cls = "alert-up" if pnl_realized >= 0 else "alert-down"
@@ -205,37 +253,7 @@ def render(tab, df):
 
             imp_mode = st.radio("取込モード", ["取引履歴に登録", "保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"], index=2, key="csv_imp_mode", horizontal=True)
             if st.button("✅ インポート実行", width="stretch", key="csvimport"):
-                tx_count, upd_count, skip_count = 0, 0, 0
-                if imp_mode in ("取引履歴に登録", "両方（取引履歴＋保有銘柄更新）"):
-                    tx_batch = []
-                    for _, crow in csv_df.iterrows():
-                        code = crow["_code"]
-                        market = str(crow.get("_market", "")).replace("nan", "-") or "-"
-                        tx_batch.append({"日付": str(crow["約定日"]), "銘柄コード": code,
-                                          "銘柄名": str(crow.get("_name", "")).strip(),
-                                          "市場": market, "取引種別": crow["_取引種別"],
-                                          "数量": crow["_qty"], "単価(円)": crow["_price"],
-                                          "手数料": crow.get("_fee", 0), "損益確定(円)": 0,
-                                          "口座": broker, "口座区分": crow["_口座区分"]})
-                    save_transactions_batch(tx_batch)
-                    tx_count = len(tx_batch)
-                if imp_mode in ("保有銘柄の数量を更新", "両方（取引履歴＋保有銘柄更新）"):
-                    for _, crow in csv_df.iterrows():
-                        code = crow["_code"]
-                        if not code: skip_count += 1; continue
-                        qty, price = float(crow["_qty"]), float(crow["_price"])
-                        idx = df[df["銘柄コード"].astype(str) == code].index
-                        if len(idx) == 0: skip_count += 1; continue
-                        cur_s, cur_p = float(df.at[idx[0], "保有株数"]), float(df.at[idx[0], "取得単価"])
-                        if crow["_取引種別"] == "売却":
-                            df.at[idx[0], "保有株数"] = max(cur_s - qty, 0)
-                        else:
-                            new_t, new_p = merge_position(cur_s, cur_p, qty, price)
-                            df.at[idx[0], "取得単価"] = new_p
-                            df.at[idx[0], "保有株数"] = new_t
-                        upd_count += 1
-                    save_data(df)
-                _clear_sheet_cache()
+                tx_count, upd_count, skip_count = apply_csv_import(csv_df, broker, imp_mode, df)
                 msgs = []
                 if tx_count > 0: msgs.append(f"取引履歴: {tx_count}件登録")
                 if upd_count > 0: msgs.append(f"保有銘柄: {upd_count}件更新")
