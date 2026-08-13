@@ -47,6 +47,16 @@ export async function apiFetch(path) {
   return res.json();
 }
 
-export function fetchPortfolio() {
-  return apiFetch("/api/portfolio");
+// タブ間遷移で再フェッチしないためのモジュールキャッシュ(更新ボタンで force)
+let _snapshot = null;
+
+export async function fetchPortfolio(force = false) {
+  if (!force && _snapshot) return _snapshot;
+  const data = await apiFetch("/api/portfolio");
+  _snapshot = { ...data, loadedAt: Date.now() };
+  return _snapshot;
+}
+
+export function clearSnapshot() {
+  _snapshot = null;
 }

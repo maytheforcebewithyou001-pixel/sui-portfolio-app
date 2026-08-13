@@ -8,7 +8,14 @@ import json
 
 import pandas as pd
 
-from config import FALLBACK_USDJPY
+from config import (
+    FALLBACK_USDJPY,
+    NISA_GROWTH_ANNUAL,
+    NISA_GROWTH_LIFETIME,
+    NISA_TOTAL_LIFETIME,
+    NISA_TSUMITATE_ANNUAL,
+    NISA_TSUMITATE_LIFETIME,
+)
 from data import (
     get_gas_last_updated,
     load_data,
@@ -88,4 +95,11 @@ def build_snapshot() -> dict:
         "jpy_usd_rate": float(jpy_usd_rate),
         "gas_last_updated": gas_last_updated,
         "warnings": warnings,
+        "nisa_limits": {
+            "growth_annual": NISA_GROWTH_ANNUAL,
+            "growth_lifetime": NISA_GROWTH_LIFETIME,
+            "tsumitate_annual": NISA_TSUMITATE_ANNUAL,
+            "tsumitate_lifetime": NISA_TSUMITATE_LIFETIME,
+            "total_lifetime": NISA_TOTAL_LIFETIME,
+        },
     }

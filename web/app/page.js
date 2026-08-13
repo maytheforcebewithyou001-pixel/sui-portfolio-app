@@ -1,15 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AuthError, clearToken, fetchPortfolio } from "../lib/api";
-
-// ── 表示ヘルパー ──
-const fmtYen = (n) => `¥${Math.round(Math.abs(n)).toLocaleString("ja-JP")}`;
-const signed = (n) => `${n >= 0 ? "+" : "-"}${fmtYen(n)}`;
-const pnlCls = (n) => (n >= 0 ? "pos" : "neg");
-const fmtNum = (n) =>
-  typeof n === "number" ? n.toLocaleString("ja-JP", { maximumFractionDigits: 4 }) : n ?? "-";
+import { useMemo, useState } from "react";
+import TopBar from "../components/TopBar";
+import { useSnapshot } from "../lib/useSnapshot";
+import { fmtYen, signed, pnlCls, fmtNum } from "../lib/format";
 
 // 保有一覧の表示列(display_dfの列名そのまま)
 const COLUMNS = [
@@ -58,34 +52,8 @@ function concentration(rows, totalAsset) {
 }
 
 export default function Dashboard() {
-  const router = useRouter();
-  const [snap, setSnap] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const { snap, error, loading, reload } = useSnapshot();
   const [sort, setSort] = useState({ key: "評価額(円)", dir: -1 });
-  const [loadedAt, setLoadedAt] = useState(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await fetchPortfolio();
-      setSnap(data);
-      setLoadedAt(new Date());
-    } catch (err) {
-      if (err instanceof AuthError) {
-        router.push("/login");
-        return;
-      }
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const rows = useMemo(() => {
     if (!snap) return [];
@@ -113,25 +81,7 @@ export default function Dashboard() {
 
   return (
     <main>
-      <div className="topbar">
-        <span className="logo">
-          <span className="dim">&lt;</span> FORCE <span className="dim">&gt; CAPITAL</span>
-        </span>
-        <span className="spacer" />
-        {loadedAt && <span className="ts">{loadedAt.toLocaleString("ja-JP")} 取得</span>}
-        <button className="ghost" onClick={load} disabled={loading}>
-          {loading ? "更新中..." : "🔄 更新"}
-        </button>
-        <button
-          className="ghost"
-          onClick={() => {
-            clearToken();
-            router.push("/login");
-          }}
-        >
-          ログアウト
-        </button>
-      </div>
+      <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />
 
       <div className="metrics">
         <div className="metric">
