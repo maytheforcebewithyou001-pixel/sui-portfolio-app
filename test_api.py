@@ -209,6 +209,78 @@ class TestEndpoints:
                         headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 422
 
+    def test_ai_review_generate_wiring(self, client, monkeypatch):
+        import api.main as m
+        fake = {"dt": "2026/08/13 23:00", "text": "テスト総評", "truncated": False}
+        monkeypatch.setattr(m.svc, "generate_ai_review", lambda: fake)
+        token = self._token(client)
+        r = client.post("/api/ai/review/generate", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        assert r.json() == fake
+
+    def test_ai_review_no_key_503(self, client, monkeypatch):
+        import api.main as m
+
+        def boom():
+            raise m.svc.AIKeyMissing("no key")
+        monkeypatch.setattr(m.svc, "generate_ai_review", boom)
+        token = self._token(client)
+        r = client.post("/api/ai/review/generate", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 503
+
+    def test_ai_policy_memo_saved(self, client, monkeypatch):
+        import api.main as m
+        saved = {}
+        monkeypatch.setattr(m.svc, "save_policy_memo", lambda memo: saved.update(memo=memo))
+        token = self._token(client)
+        r = client.put("/api/ai/policy-memo", json={"memo": "  2498は売却確定  "},
+                       headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        assert saved["memo"] == "  2498は売却確定  "  # strip は service 側の責務
+
+    def test_ai_lifeplan_generate_validation(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "generate_lifeplan", lambda inputs: {"dt": "d", "text": "t", "truncated": False})
+        token = self._token(client)
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.post("/api/ai/lifeplan/generate", json={"inputs": {}}, headers=h).status_code == 422
+        assert client.post("/api/ai/lifeplan/generate", json={"inputs": {"年齢": 40}}, headers=h).status_code == 422
+        r = client.post("/api/ai/lifeplan/generate", json={"inputs": {"本人年齢": "40歳"}}, headers=h)
+        assert r.status_code == 200
+
+
+class TestAIPrompts:
+    """tab_ai.py から抽出した共有プロンプトビルダーの条件分岐回帰"""
+
+    def test_review_prompt_memo_and_past_conditionals(self):
+        from tabs.tab_ai import build_review_system_prompt
+        base = build_review_system_prompt("", False)
+        with_memo = build_review_system_prompt("2498売却確定", False)
+        with_past = build_review_system_prompt("", True)
+        assert "【運用方針メモの扱い】" not in base
+        assert "【運用方針メモの扱い】" in with_memo
+        assert "6. 前回からの変化点" not in base
+        assert "6. 前回からの変化点" in with_past
+        # 固定ブロックの存在(退行検知)
+        for frag in ("牧瀬紅莉栖", "【投資信託の評価ルール（重要）】", "【現金の扱い】", "アクション提案（3〜5つ、優先度付き）"):
+            assert frag in base
+
+    def test_review_user_content_composition(self):
+        from tabs.tab_ai import build_review_user_content
+        uc = build_review_user_content("PTXT", "MEMO", "\nHIST")
+        assert "PTXT" in uc and "■ 運用方針メモ（投資家の既決事項）\nMEMO" in uc and "HIST" in uc
+        uc2 = build_review_user_content("PTXT", "", "")
+        assert "運用方針メモ" not in uc2
+
+    def test_lifeplan_prompt_fixed_blocks(self):
+        from tabs.tab_ai import build_lifeplan_system_prompt, build_lifeplan_user_content
+        sp = build_lifeplan_system_prompt()
+        for frag in ("ライフプランニング", "【出力構成（この順序で、見出し付きで）】", "7. 解決案"):
+            assert frag in sp
+        uc = build_lifeplan_user_content({"本人年齢": "40歳", "配偶者": "36歳"})
+        assert uc.startswith("以下の家族・家計条件から")
+        assert "- 本人年齢: 40歳" in uc and "- 配偶者: 36歳" in uc
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

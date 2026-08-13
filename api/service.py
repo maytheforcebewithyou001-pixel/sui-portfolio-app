@@ -68,7 +68,8 @@ def withdrawal_simulation(initial: float, annual_rate: float, mode: str,
     return _df_to_records(sim)
 
 
-def build_snapshot() -> dict:
+def _compute_state() -> dict:
+    """スナップショットの内部計算(DataFrameのまま返す)。build_snapshot と AI総評生成が共用"""
     df = load_data()
     fund_prices = load_fund_prices()
     gas_prices = load_gas_prices()
@@ -125,6 +126,26 @@ def build_snapshot() -> dict:
     target_usd_pct = _fnum("target_usd_pct", 50)
 
     return {
+        "display_df": display_df,
+        "totals": totals,
+        "jpy_usd_rate": float(jpy_usd_rate),
+        "gas_last_updated": gas_last_updated,
+        "warnings": warnings,
+        "targets": {"jpy_pct": target_jpy_pct, "usd_pct": target_usd_pct},
+    }
+
+
+def build_snapshot() -> dict:
+    state = _compute_state()
+    display_df = state["display_df"]
+    totals = state["totals"]
+    jpy_usd_rate = state["jpy_usd_rate"]
+    gas_last_updated = state["gas_last_updated"]
+    warnings = state["warnings"]
+    target_jpy_pct = state["targets"]["jpy_pct"]
+    target_usd_pct = state["targets"]["usd_pct"]
+
+    return {
         "rows": _df_to_records(display_df),
         "totals": totals,
         "jpy_usd_rate": float(jpy_usd_rate),
@@ -139,3 +160,115 @@ def build_snapshot() -> dict:
             "total_lifetime": NISA_TOTAL_LIFETIME,
         },
     }
+
+
+# ══════════════════════════════════════════
+# AI総評 / ライフプラン (tab_ai.py の共有関数を再利用)
+# ══════════════════════════════════════════
+import json as _json  # noqa: E402
+import os as _os  # noqa: E402
+from datetime import datetime as _dt  # noqa: E402
+from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: E402
+
+from calc import build_portfolio_summary_text  # noqa: E402
+from data import (  # noqa: E402
+    load_ai_review,
+    load_ai_review_history,
+    load_history,
+    load_lifeplan_history,
+    save_ai_review,
+    save_lifeplan,
+    save_settings,
+)
+from tabs.tab_ai import (  # noqa: E402
+    _build_history_context,
+    _call_claude,
+    build_lifeplan_system_prompt,
+    build_lifeplan_user_content,
+    build_review_system_prompt,
+    build_review_user_content,
+)
+
+_JST = _ZoneInfo("Asia/Tokyo")
+
+
+class AIKeyMissing(Exception):
+    pass
+
+
+class AIGenerationError(Exception):
+    pass
+
+
+def _anthropic_api_key() -> str:
+    key = _os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        try:
+            import streamlit as st
+            key = st.secrets.get("anthropic_api_key", "")
+        except Exception:
+            key = ""
+    if not key:
+        raise AIKeyMissing("ANTHROPIC_API_KEY が未設定です(環境変数またはsecrets)")
+    return key
+
+
+def get_ai_review_state(include_summary: bool = True) -> dict:
+    dt, text = load_ai_review()
+    history = load_ai_review_history(10)
+    summary_text = ""
+    if include_summary:
+        state = _compute_state()
+        if not state["display_df"].empty:
+            summary_text = build_portfolio_summary_text(
+                state["display_df"], state["totals"], state["jpy_usd_rate"], history_df=load_history())
+    return {
+        "review_dt": dt,
+        "review_text": text,
+        "history": [{"dt": d, "text": t} for d, t in history],
+        "policy_memo": load_settings().get("ai_policy_memo", ""),
+        "summary_text": summary_text,
+    }
+
+
+def generate_ai_review() -> dict:
+    """tab_ai._render_review の生成ブロックと同一手順(プロンプトは共有関数)"""
+    api_key = _anthropic_api_key()
+    state = _compute_state()
+    if state["display_df"].empty or state["totals"]["total_asset"] <= 0:
+        raise AIGenerationError("銘柄がないため総評を生成できません")
+    ptxt = build_portfolio_summary_text(
+        state["display_df"], state["totals"], state["jpy_usd_rate"], history_df=load_history())
+    past_reviews = load_ai_review_history(10)
+    history_context = _build_history_context(past_reviews)
+    policy_memo = load_settings().get("ai_policy_memo", "").strip()
+    system_prompt = build_review_system_prompt(policy_memo, bool(past_reviews))
+    user_content = build_review_user_content(ptxt, policy_memo, history_context)
+    ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=4000)
+    if not ok:
+        raise AIGenerationError(result)
+    ns = _dt.now(_JST).strftime("%Y/%m/%d %H:%M")
+    save_ai_review(ns, result)
+    return {"dt": ns, "text": result, "truncated": stop == "max_tokens"}
+
+
+def save_policy_memo(memo: str) -> None:
+    save_settings({"ai_policy_memo": memo.strip()})
+
+
+def get_lifeplan_state() -> dict:
+    history = load_lifeplan_history(10)
+    return {"history": [{"dt": d, "inputs": ij, "text": t} for d, ij, t in history]}
+
+
+def generate_lifeplan(inputs: dict) -> dict:
+    """tab_ai._render_lifeplan の生成ブロックと同一手順(inputsはクライアント整形済み表示文字列)"""
+    api_key = _anthropic_api_key()
+    system_prompt = build_lifeplan_system_prompt()
+    user_content = build_lifeplan_user_content(inputs)
+    ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=8000)
+    if not ok:
+        raise AIGenerationError(result)
+    ns = _dt.now(_JST).strftime("%Y/%m/%d %H:%M")
+    save_lifeplan(ns, _json.dumps(inputs, ensure_ascii=False), result)
+    return {"dt": ns, "text": result, "truncated": stop == "max_tokens"}

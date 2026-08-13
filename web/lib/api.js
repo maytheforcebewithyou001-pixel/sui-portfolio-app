@@ -53,7 +53,11 @@ export async function apiFetch(path, options = {}) {
 }
 
 export function apiPost(path, payload) {
-  return apiFetch(path, { method: "POST", body: JSON.stringify(payload) });
+  return apiFetch(path, { method: "POST", body: JSON.stringify(payload ?? {}) });
+}
+
+export function apiPut(path, payload) {
+  return apiFetch(path, { method: "PUT", body: JSON.stringify(payload) });
 }
 
 // タブ間遷移で再フェッチしないためのモジュールキャッシュ(更新ボタンで force)

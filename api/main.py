@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from api import auth
+from api import service as svc
 from api.service import build_snapshot, future_simulation_yearly, withdrawal_simulation
 
 app = FastAPI(title="FORCE CAPITAL API", version="0.1.0")
@@ -100,3 +101,54 @@ def simulate_withdrawal_ep(req: WithdrawalSimRequest, user: str = Depends(requir
     return {"rows": withdrawal_simulation(req.initial, req.annual_rate, req.mode,
                                           req.annual_withdrawal, req.withdrawal_rate,
                                           req.inflation_rate, req.max_years)}
+
+
+# ── AI総評 / ライフプラン ──
+
+def _ai_errors(fn):
+    try:
+        return fn()
+    except svc.AIKeyMissing as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except svc.AIGenerationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/ai/review")
+def ai_review(user: str = Depends(require_auth)):
+    return svc.get_ai_review_state()
+
+
+@app.post("/api/ai/review/generate")
+def ai_review_generate(user: str = Depends(require_auth)):
+    return _ai_errors(svc.generate_ai_review)
+
+
+class PolicyMemoRequest(BaseModel):
+    memo: str
+
+
+@app.put("/api/ai/policy-memo")
+def ai_policy_memo(req: PolicyMemoRequest, user: str = Depends(require_auth)):
+    if len(req.memo) > 20000:
+        raise HTTPException(status_code=422, detail="メモが長すぎます(20,000字まで)")
+    svc.save_policy_memo(req.memo)
+    return {"status": "ok"}
+
+
+@app.get("/api/ai/lifeplan")
+def ai_lifeplan(user: str = Depends(require_auth)):
+    return svc.get_lifeplan_state()
+
+
+class LifeplanRequest(BaseModel):
+    inputs: dict
+
+
+@app.post("/api/ai/lifeplan/generate")
+def ai_lifeplan_generate(req: LifeplanRequest, user: str = Depends(require_auth)):
+    if not req.inputs or len(req.inputs) > 30:
+        raise HTTPException(status_code=422, detail="inputs が不正です")
+    if any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 2000 for k, v in req.inputs.items()):
+        raise HTTPException(status_code=422, detail="inputs は文字列のキーと値(2,000字以内)で指定")
+    return _ai_errors(lambda: svc.generate_lifeplan(req.inputs))

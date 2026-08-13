@@ -487,3 +487,97 @@ main h3 {
 }
 
 .paramrow .inlineinput input { width: 150px; }
+
+.paramrow .inlineinput select,
+.paramrow .inlineinput textarea {
+  display: block;
+  width: 100%;
+  min-width: 180px;
+  margin-top: 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.paramrow .inlineinput .chk { width: auto; margin-top: 0.55rem; }
+
+/* ── AI総評タブ ── */
+.aireport {
+  background: #12161e;
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.aireport .ttl { color: var(--accent); font-weight: 700; margin-bottom: 0.8rem; }
+
+.aireport .ts { color: #b0b8c0; font-size: 0.75rem; margin-bottom: 1rem; }
+
+.md { line-height: 1.75; font-size: 0.9rem; }
+
+.md h1, .md h2, .md h3, .md h4 {
+  margin: 1.1em 0 0.5em;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.md h1 { font-size: 1.15rem; }
+
+.md p, .md ul, .md ol { margin: 0.5em 0; }
+
+.md ul, .md ol { padding-left: 1.4em; }
+
+.md li { margin: 0.25em 0; }
+
+.md table { margin: 0.6em 0; font-size: 0.85rem; }
+
+.md code {
+  background: #1e232f;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+}
+
+.md blockquote {
+  border-left: 3px solid #4a5060;
+  margin: 0.6em 0;
+  padding-left: 0.8em;
+  color: var(--text-dim);
+}
+
+.memoarea {
+  display: block;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  margin: 0.5rem 0;
+  resize: vertical;
+}
+
+.memoarea:focus { outline: none; border-color: var(--accent); }
+
+.savedmark { color: var(--up); font-size: 0.8rem; margin-left: 0.7rem; }
+
+button.ghost.wide { width: 100%; padding: 0.55rem; }
+
+.pre {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 0.8rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  margin-top: 0.5rem;
+}
