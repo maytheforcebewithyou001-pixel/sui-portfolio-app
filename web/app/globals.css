@@ -417,3 +417,59 @@ main h3 {
 .inlineinput input:focus { outline: none; border-color: var(--accent); }
 
 .scard p { font-size: 0.85rem; margin: 0.25rem 0; }
+
+/* ── 配当タブ ── */
+.grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+}
+
+.monthgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+}
+
+@media (max-width: 900px) {
+  .grid4 { grid-template-columns: repeat(2, 1fr); }
+  .monthgrid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.monthcell {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 0.7rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  cursor: default;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.monthcell.has { cursor: pointer; }
+
+.monthcell.has:hover, .monthcell.active { border-color: var(--gold); }
+
+.monthcell .mlabel { font-size: 0.72rem; color: var(--text-dim); }
+
+.monthcell .mamount { font-size: 0.95rem; font-weight: 700; color: var(--gold); }
+
+.monthcell .mamount.dim { color: var(--text-dim); font-weight: 400; }
+
+.monthcell .msub { font-size: 0.62rem; color: var(--text-dim); }
+
+.divrow {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid #1e232f;
+  font-size: 0.85rem;
+}
+
+.divrow .name { color: #b0b8c0; }
+
+.divrow .amt { color: var(--gold); font-weight: 700; }

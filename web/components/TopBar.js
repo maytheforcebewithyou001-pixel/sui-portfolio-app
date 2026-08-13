@@ -8,6 +8,7 @@ const TABS = [
   { href: "/", label: "ポートフォリオ" },
   { href: "/analysis", label: "分析" },
   { href: "/currency", label: "通貨配分" },
+  { href: "/dividend", label: "配当" },
 ];
 
 export default function TopBar({ loadedAt, loading, onReload }) {
