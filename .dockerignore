@@ -1,0 +1,23 @@
+# Cloud Run イメージに入れないもの(秘密情報・不要物)
+.git
+.gitignore
+.streamlit
+credentials
+*.env
+.env*
+web
+node_modules
+.next
+__pycache__
+**/__pycache__
+*.pyc
+backups
+scripts
+test_*.py
+app.py
+portfolio.csv
+*.csv
+*.md
+Dockerfile
+.dockerignore
+.github
