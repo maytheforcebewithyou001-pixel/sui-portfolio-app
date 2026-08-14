@@ -40,6 +40,13 @@ main {
   margin-bottom: 1rem;
 }
 
+/* スマホ幅: ヘッダーは行折り返し(ボタン・時刻の文字縦折れ防止)、余白を圧縮 */
+@media (max-width: 640px) {
+  .container { padding: 0.9rem 0.9rem 2.5rem; }
+  .topbar { flex-wrap: wrap; gap: 0.5rem 0.8rem; }
+  .topbar .ts { font-size: 0.72rem; }
+}
+
 .logo {
   font-weight: 700;
   letter-spacing: 0.35em;
@@ -55,7 +62,7 @@ main {
 
 .topbar .spacer { flex: 1; }
 
-.topbar .ts { color: var(--text-dim); font-size: 0.78rem; }
+.topbar .ts { color: var(--text-dim); font-size: 0.78rem; white-space: nowrap; }
 
 button.ghost {
   background: transparent;
@@ -65,6 +72,8 @@ button.ghost {
   padding: 0.35rem 0.9rem;
   cursor: pointer;
   font-size: 0.82rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 button.ghost:hover { border-color: var(--accent); }
@@ -219,7 +228,12 @@ tbody tr:hover { background: rgba(0, 210, 255, 0.04); }
   display: flex;
   gap: 0.2rem;
   margin-bottom: 1.1rem;
+  overflow-x: auto;                 /* 狭幅では横スクロール(タブ縦折れ防止) */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;            /* Firefox */
 }
+
+.tabnav::-webkit-scrollbar { display: none; }  /* Chrome/Safari */
 
 .tabnav a {
   color: var(--text-dim);
@@ -228,6 +242,8 @@ tbody tr:hover { background: rgba(0, 210, 255, 0.04); }
   padding: 0.35rem 0.9rem;
   border-radius: 6px 6px 0 0;
   border-bottom: 2px solid transparent;
+  white-space: nowrap;              /* ページ名の2行折れ禁止 */
+  flex-shrink: 0;
 }
 
 .tabnav a:hover { color: var(--text); }
