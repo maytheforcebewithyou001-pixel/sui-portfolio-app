@@ -81,7 +81,7 @@ export default function Dashboard() {
 
   return (
     <main>
-      <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />
+      <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />
 
       <div className="metrics">
         <div className="metric">

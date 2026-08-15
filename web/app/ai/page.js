@@ -338,7 +338,7 @@ export default function AI() {
 
   return (
     <main>
-      <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />
+      <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />
       <div className="subtabs" style={{ marginTop: "0.4rem" }}>
         <button className={sub === "review" ? "active" : ""} onClick={() => setSub("review")}>🤖 ポートフォリオ総評</button>
         <button className={sub === "life" ? "active" : ""} onClick={() => setSub("life")}>👨‍👩‍👧‍👦 ライフプラン試算</button>

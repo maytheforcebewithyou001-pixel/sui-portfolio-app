@@ -155,6 +155,8 @@ class TestBuildSnapshot:
 
     def _patch_loaders(self, monkeypatch, df, closes, info, settings=None):
         import api.service as svc
+        from datetime import datetime
+        from marketstore import JST
         monkeypatch.setattr(svc, "load_data", lambda: df)
         monkeypatch.setattr(svc, "load_fund_prices", lambda: {})
         monkeypatch.setattr(svc, "load_gas_prices", lambda: {})
@@ -162,8 +164,9 @@ class TestBuildSnapshot:
         monkeypatch.setattr(svc, "load_prev_fund_prices", lambda: {})
         monkeypatch.setattr(svc, "load_settings", lambda: settings or {})
         monkeypatch.setattr(svc, "load_last_prices_full", lambda: {})
-        monkeypatch.setattr(svc, "get_cached_market_data", lambda t, period="1y": closes)
-        monkeypatch.setattr(svc, "get_cached_ticker_info", lambda t: info)
+        fetched = datetime(2026, 8, 16, 6, 30, tzinfo=JST)
+        monkeypatch.setattr(svc.marketstore, "get_market_bundle",
+                            lambda t, force=False: (closes, info, fetched, None))
         return svc
 
     def _jp_stock_df(self):
@@ -246,7 +249,7 @@ class TestEndpoints:
     def test_portfolio_with_token(self, client, monkeypatch):
         import api.main as m
         fake = {"rows": [], "totals": dict(total_asset=0), "jpy_usd_rate": 150.0, "gas_last_updated": None, "warnings": []}
-        monkeypatch.setattr(m, "build_snapshot", lambda: fake)
+        monkeypatch.setattr(m, "build_snapshot", lambda **kw: fake)
         token = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
         r = client.get("/api/portfolio", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
@@ -424,7 +427,7 @@ class TestMultiUserEndpoints:
     def test_request_user_follows_token(self, client, monkeypatch):
         import api.main as m
         import data
-        monkeypatch.setattr(m, "build_snapshot", lambda: {"seen_user": data._current_user()})
+        monkeypatch.setattr(m, "build_snapshot", lambda **kw: {"seen_user": data._current_user()})
         t_admin = self._token(client, "admin", TEST_PASSWORD)
         t_father = self._token(client, "father", FATHER_PASSWORD)
         assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_admin}"}).json()["seen_user"] == "admin"
@@ -457,6 +460,100 @@ class TestMultiUserEndpoints:
         for name in ("ghost1", "ghost2", "ghost3"):
             client.post("/api/auth/login", json={"username": name, "password": "x"})
         assert set(m._login_backoff) == {"__unknown__"}
+
+
+class TestMarketStorePolicy:
+    """marketstore の更新ポリシー(1日2回自動+手動30分制限) — 全てオフライン"""
+
+    def _dt(self, y, mo, d, h, mi):
+        from datetime import datetime
+        from marketstore import JST
+        return datetime(y, mo, d, h, mi, tzinfo=JST)
+
+    def test_latest_boundary(self):
+        import marketstore as ms
+        # 10:00 → 当日6:10 / 16:00 → 当日15:40 / 5:00 → 前日15:40
+        assert ms.latest_boundary(self._dt(2026, 8, 16, 10, 0)) == self._dt(2026, 8, 16, 6, 10)
+        assert ms.latest_boundary(self._dt(2026, 8, 16, 16, 0)) == self._dt(2026, 8, 16, 15, 40)
+        assert ms.latest_boundary(self._dt(2026, 8, 16, 5, 0)) == self._dt(2026, 8, 15, 15, 40)
+
+    def test_is_fresh(self):
+        import marketstore as ms
+        now = self._dt(2026, 8, 16, 10, 0)
+        assert ms.is_fresh(self._dt(2026, 8, 16, 7, 0), now) is True    # 当日境界後
+        assert ms.is_fresh(self._dt(2026, 8, 15, 16, 0), now) is False  # 当日6:10境界より古い
+        assert ms.is_fresh(None, now) is False
+
+    def _setup(self, monkeypatch, p_closes, p_info, p_fetched, live_called):
+        import marketstore as ms
+        import pandas as pd
+        monkeypatch.setattr(ms, "load_persistent", lambda: (p_closes, p_info, p_fetched))
+        monkeypatch.setattr(ms, "save_persistent", lambda c, i, f: None)
+        import market
+        live_closes = pd.DataFrame({"7203.T": [100.0]}, index=pd.to_datetime(["2026-08-15"]))
+        monkeypatch.setattr(market, "get_cached_market_data",
+                            lambda t, period="1y": (live_called.append("data"), live_closes)[1])
+        monkeypatch.setattr(market, "get_cached_ticker_info",
+                            lambda t: (live_called.append("info"), {"7203.T": {}})[1])
+        ms._mem.update(closes=None, info=None, fetched_at=None)  # プロセス内キャッシュをリセット
+        return ms
+
+    def _cache(self):
+        import pandas as pd
+        closes = pd.DataFrame({"7203.T": [99.0]}, index=pd.to_datetime(["2026-08-15"]))
+        return closes, {"7203.T": {"sector": "x"}}
+
+    def test_fresh_cache_serves_without_live_fetch(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=1)  # 直近取得=確実にfresh
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",))
+        assert live == [] and f == fetched and notice is None
+        assert c["7203.T"].iloc[0] == 99.0
+
+    def test_force_within_30min_returns_cache_with_notice(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=10)
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",), force=True)
+        assert live == [] and "30分" in notice
+
+    def test_force_after_30min_fetches_live(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=31)
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",), force=True)
+        assert set(live) == {"data", "info"} and notice is None
+        assert c["7203.T"].iloc[0] == 100.0  # ライブ値
+
+    def test_stale_cache_fetches_live(self, monkeypatch):
+        import marketstore as ms_mod
+        live = []
+        closes, info = self._cache()
+        stale = ms_mod.latest_boundary(__import__("datetime").datetime.now(ms_mod.JST)) - \
+            __import__("datetime").timedelta(minutes=5)
+        ms = self._setup(monkeypatch, closes, info, stale, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",))
+        assert set(live) == {"data", "info"}
+
+    def test_uncovered_ticker_fetches_live(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=1)
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        ms.get_market_bundle(("7203.T", "9999.T"))  # 9999.T はキャッシュ未収録
+        assert set(live) == {"data", "info"}
 
 
 class TestAppSettings:

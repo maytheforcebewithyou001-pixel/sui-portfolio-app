@@ -300,7 +300,7 @@ export default function Transactions() {
 
   return (
     <main>
-      <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />
+      <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />
       <h3 style={{ borderTop: "none", paddingTop: 0 }}>📒 取引履歴</h3>
       {txError && <div className="alert down">エラー: {txError}</div>}
       {!state ? (

@@ -80,8 +80,8 @@ def login(req: LoginRequest):
 
 
 @app.get("/api/portfolio")
-def portfolio(user: str = Depends(require_auth)):
-    return build_snapshot()
+def portfolio(refresh: int = 0, user: str = Depends(require_auth)):
+    return build_snapshot(force_refresh=bool(refresh))
 
 
 class FutureSimRequest(BaseModel):

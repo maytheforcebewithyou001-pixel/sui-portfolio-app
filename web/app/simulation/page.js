@@ -231,7 +231,7 @@ export default function Simulation() {
   if (error && !snap) return <main><p className="status">エラー: {error}</p></main>;
   if (!snap) return null;
 
-  const header = <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />;
+  const header = <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />;
   if (!snap.rows.length || TA <= 0) {
     return (
       <main>

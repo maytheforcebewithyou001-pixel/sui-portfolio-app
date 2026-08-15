@@ -25,6 +25,7 @@ from data import (
     load_prev_fund_prices,
     load_settings,
 )
+import marketstore
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import (
     calculate_portfolio,
@@ -68,14 +69,19 @@ def withdrawal_simulation(initial: float, annual_rate: float, mode: str,
     return _df_to_records(sim)
 
 
-def _compute_state() -> dict:
-    """スナップショットの内部計算(DataFrameのまま返す)。build_snapshot と AI総評生成が共用"""
+def _compute_state(force_refresh: bool = False) -> dict:
+    """スナップショットの内部計算(DataFrameのまま返す)。build_snapshot と AI総評生成が共用
+
+    市場データは marketstore のポリシー層経由(自動更新は1日2回・手動は30分間隔、
+    それ以外は永続キャッシュ供給)。force_refresh=True は手動更新ボタン相当
+    """
     df = load_data()
     fund_prices = load_fund_prices()
     gas_prices = load_gas_prices()
     gas_last_updated = get_gas_last_updated()
     prev_fund_prices = load_prev_fund_prices()
     warnings = []
+    market_fetched_at = None
 
     if df.empty:
         display_df = pd.DataFrame()
@@ -90,8 +96,10 @@ def _compute_state() -> dict:
             elif m in ("米国株", "暗号資産"):
                 tickers.append(c)
         unique_tickers = tuple(sorted(set(tickers)))
-        closes_df = get_cached_market_data(unique_tickers, period="1y")
-        info_dict = get_cached_ticker_info(unique_tickers)
+        closes_df, info_dict, market_fetched_at, notice = marketstore.get_market_bundle(
+            unique_tickers, force=force_refresh)
+        if notice:
+            warnings.append(notice)
         s = closes_df["JPY=X"].dropna() if "JPY=X" in closes_df.columns else pd.Series()
         # 2点未満はmarket.pyが前回値で最終行のみ補完した系列(=取得失敗)とみなす — app.pyと同一判定
         if len(s) >= 2:
@@ -132,11 +140,12 @@ def _compute_state() -> dict:
         "gas_last_updated": gas_last_updated,
         "warnings": warnings,
         "targets": {"jpy_pct": target_jpy_pct, "usd_pct": target_usd_pct},
+        "market_fetched_at": market_fetched_at.isoformat() if market_fetched_at else None,
     }
 
 
-def build_snapshot() -> dict:
-    state = _compute_state()
+def build_snapshot(force_refresh: bool = False) -> dict:
+    state = _compute_state(force_refresh)
     display_df = state["display_df"]
     totals = state["totals"]
     jpy_usd_rate = state["jpy_usd_rate"]
@@ -151,6 +160,7 @@ def build_snapshot() -> dict:
         "jpy_usd_rate": float(jpy_usd_rate),
         "gas_last_updated": gas_last_updated,
         "warnings": warnings,
+        "market_fetched_at": state["market_fetched_at"],
         "targets": {"jpy_pct": target_jpy_pct, "usd_pct": target_usd_pct},
         "nisa_limits": {
             "growth_annual": NISA_GROWTH_ANNUAL,
