@@ -419,6 +419,7 @@ def save_app_settings(target_jpy_pct=None, target_usd_pct=None, cash_balance_jpy
 # ══════════════════════════════════════════
 from calc import calc_risk_metrics  # noqa: E402
 from market import get_stock_detail as _get_stock_detail  # noqa: E402
+from tabs.tab_portfolio import build_fin_view  # noqa: E402
 
 
 def _f_or_none(v):
@@ -503,63 +504,15 @@ def get_stock_detail_bundle(code: str, market_type: str, shares: float,
             pass
 
     # ── 業績推移(日本株のみ、過去8期) + 業績修正検出 ──
-    # カラム名はJ-Quants V2短縮名を優先しV1名にフォールバック(V1名のみ見ていた
-    # tab_portfolio.pyはV2移行後サイレントに非表示になっていた=潜在バグの修正)
-    _ALIAS = {
-        "date": ("DiscDate", "DisclosedDate"),
-        "period": ("CurPerType", "TypeOfCurrentPeriod"),
-        "売上": ("Sales", "NetSales"),
-        "営業利益": ("OP", "OperatingProfit"),
-        "純利益": ("NP", "Profit"),
-        "EPS": ("EPS", "EarningsPerShare"),
-        "f_sales": ("FSales", "ForecastNetSales"),
-        "f_profit": ("FNP", "ForecastProfit"),
-    }
+    # 整形・修正検出は tabs.tab_portfolio.build_fin_view と共用(V2短縮カラム対応/
+    # FY行限定の乖離判定を両系で単一実装に)
     if market_type == "日本株":
         try:
             fin_hist = jquants.get_fin_statements_history(code, limit=8)
-            if fin_hist is not None and not fin_hist.empty:
-                def col(key):
-                    return next((c for c in _ALIAS[key] if c in fin_hist.columns), None)
-                date_col, period_col = col("date"), col("period")
-                available = [(col(label), label) for label in ("売上", "営業利益", "純利益", "EPS") if col(label)]
-                if date_col and available:
-                    for k, _ in available:
-                        fin_hist[k] = pd.to_numeric(fin_hist[k], errors="coerce")
-                    xlabel = pd.to_datetime(fin_hist[date_col]).dt.strftime("%Y/%m")
-                    if period_col:
-                        xlabel = xlabel + " (" + fin_hist[period_col].astype(str) + ")"
-                    rows = []
-                    for i in range(len(fin_hist)):
-                        row = {"label": xlabel.iloc[i]}
-                        for k, label in available:
-                            v = fin_hist[k].iloc[i]
-                            # 売上/利益は億円換算、EPSは円のまま(tab_portfolio.py:409-418と同一)
-                            row[label] = None if pd.isna(v) else round(float(v) / 1e8, 2) if label != "EPS" else round(float(v), 2)
-                        rows.append(row)
-                    out["fin"] = {"rows": rows, "metrics": [label for _, label in available]}
-
-                rev_msgs = []
-                fs_col, sales_col, fp_col = col("f_sales"), col("売上"), col("f_profit")
-                # 実績vs予想の乖離判定は通期(FY)行のみ — 四半期行は累計実績と通期予想の
-                # 比較になり必ず偽の「下振れ」が出るため(移植時に発見した休眠欠陥の修正)
-                is_fy = (str(fin_hist.iloc[-1].get(period_col, "")) == "FY") if period_col else False
-                if fs_col and sales_col and is_fy:
-                    last = fin_hist.iloc[-1]
-                    fc = pd.to_numeric(last.get(fs_col), errors="coerce")
-                    ac = pd.to_numeric(last.get(sales_col), errors="coerce")
-                    if pd.notna(fc) and pd.notna(ac) and fc > 0:
-                        diff = (ac / fc - 1) * 100
-                        if abs(diff) >= 3:
-                            rev_msgs.append(f"{'🟢 上振れ' if diff > 0 else '🔴 下振れ'}：直近期の売上が予想比 {diff:+.1f}%")
-                if fp_col and len(fin_hist) >= 2:
-                    prev_fc = pd.to_numeric(fin_hist.iloc[-2].get(fp_col), errors="coerce")
-                    curr_fc = pd.to_numeric(fin_hist.iloc[-1].get(fp_col), errors="coerce")
-                    if pd.notna(prev_fc) and pd.notna(curr_fc) and prev_fc != 0:
-                        rev = (curr_fc / abs(prev_fc) - (1 if prev_fc > 0 else -1)) * 100
-                        if abs(rev) >= 5:
-                            rev_msgs.append(f"{'🟢 通期純利益予想を上方修正' if rev > 0 else '🔴 通期純利益予想を下方修正'}：前回比 {rev:+.1f}%")
-                out["revisions"] = rev_msgs
+            fin_rows, fin_metrics, rev_msgs = build_fin_view(fin_hist)
+            if fin_rows:
+                out["fin"] = {"rows": fin_rows, "metrics": fin_metrics}
+            out["revisions"] = rev_msgs
         except Exception:
             pass
 
