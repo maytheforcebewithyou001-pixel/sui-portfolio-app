@@ -414,6 +414,143 @@ def save_app_settings(target_jpy_pct=None, target_usd_pct=None, cash_balance_jpy
     return get_app_settings()
 
 
+# ══════════════════════════════════════════
+# 銘柄詳細 (tab_portfolio._render_stock_detail と同一手順)
+# ══════════════════════════════════════════
+from calc import calc_risk_metrics  # noqa: E402
+from market import get_stock_detail as _get_stock_detail  # noqa: E402
+
+
+def _f_or_none(v):
+    try:
+        f = float(v)
+        return None if pd.isna(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
+def get_stock_detail_bundle(code: str, market_type: str, shares: float,
+                            buy_price: float, buy_date: str) -> dict:
+    """銘柄詳細タブのデータ一式。計算手順は tab_portfolio.py:202-451 と同一"""
+    out = {"detail": None, "risk": None, "chart": None, "fin": None, "revisions": []}
+
+    # ── 指標カード ──
+    try:
+        d = _get_stock_detail(code, market_type)
+        out["detail"] = d or None
+    except Exception:
+        out["detail"] = None
+
+    # ── リスク指標(日本株のみ、TOPIX対比) ──
+    if market_type == "日本株":
+        try:
+            ticker_jp = f"{code}.T"
+            risk_closes = get_cached_market_data(tuple(sorted([ticker_jp])), period="1y")
+            topix_df = jquants.get_topix_ohlc(period_days=400)
+            asset_series = risk_closes[ticker_jp].dropna() if ticker_jp in risk_closes.columns else pd.Series(dtype=float)
+            topix_series = topix_df.set_index("Date")["Close"] if (topix_df is not None and not topix_df.empty and "Close" in topix_df.columns) else None
+            rm = calc_risk_metrics(asset_series, topix_series)
+            if any(v is not None for v in rm.values()):
+                out["risk"] = {k: _f_or_none(v) for k, v in rm.items()}
+        except Exception as e:
+            logger_msg = f"リスク指標の計算でエラー: {e}"
+            out["risk_error"] = logger_msg
+
+    # ── 損益チャート(取得日〜現在) ──
+    if market_type in ("日本株", "米国株"):
+        ticker = f"{code}.T" if market_type == "日本株" else code
+        chart_period = "1y"
+        if buy_date:
+            try:
+                bd = pd.to_datetime(buy_date)
+                days_held = (pd.Timestamp.now() - bd).days
+                if days_held > 3650:
+                    chart_period = "max"
+                elif days_held > 1800:
+                    chart_period = "10y"
+                elif days_held > 730:
+                    chart_period = "5y"
+                elif days_held > 365:
+                    chart_period = "2y"
+            except Exception:
+                pass
+        try:
+            chart_closes = get_cached_market_data(tuple(sorted([ticker, "JPY=X"])), period=chart_period)
+            if ticker in chart_closes.columns:
+                cs = chart_closes[ticker].dropna()
+                if buy_date:
+                    try:
+                        cs = cs[cs.index >= pd.to_datetime(buy_date)]
+                    except Exception:
+                        pass
+                if len(cs) >= 2:
+                    cost_total = buy_price * shares
+                    eval_series = cs * shares
+                    if market_type == "米国株" and "JPY=X" in chart_closes.columns:
+                        fx = chart_closes["JPY=X"].reindex(cs.index, method="ffill").fillna(FALLBACK_USDJPY)
+                        eval_series = cs * shares * fx
+                    latest_eval = float(eval_series.iloc[-1])
+                    pnl_val = latest_eval - cost_total
+                    pnl_pct = (pnl_val / cost_total * 100) if cost_total > 0 else 0
+                    out["chart"] = {
+                        "points": [{"t": str(idx)[:10], "v": round(float(v), 2)}
+                                   for idx, v in eval_series.items() if pd.notna(v)],
+                        "cost_total": round(cost_total, 2),
+                        "pnl_val": round(pnl_val, 2),
+                        "pnl_pct": round(pnl_pct, 2),
+                    }
+        except Exception:
+            pass
+
+    # ── 業績推移(日本株のみ、過去8期) + 業績修正検出 ──
+    if market_type == "日本株":
+        try:
+            fin_hist = jquants.get_fin_statements_history(code, limit=8)
+            if fin_hist is not None and not fin_hist.empty:
+                date_col = "DiscDate" if "DiscDate" in fin_hist.columns else "DisclosedDate"
+                period_col = "TypeOfCurrentPeriod" if "TypeOfCurrentPeriod" in fin_hist.columns else None
+                metric_map = {"NetSales": "売上", "OperatingProfit": "営業利益",
+                              "Profit": "純利益", "EarningsPerShare": "EPS"}
+                available = [(k, v) for k, v in metric_map.items() if k in fin_hist.columns]
+                if available:
+                    for k, _ in available:
+                        fin_hist[k] = pd.to_numeric(fin_hist[k], errors="coerce")
+                    xlabel = fin_hist[date_col].dt.strftime("%Y/%m")
+                    if period_col:
+                        xlabel = xlabel + " (" + fin_hist[period_col].astype(str) + ")"
+                    rows = []
+                    for i in range(len(fin_hist)):
+                        row = {"label": xlabel.iloc[i]}
+                        for k, label in available:
+                            v = fin_hist[k].iloc[i]
+                            # 売上/利益は億円換算、EPSは円のまま(tab_portfolio.py:409-418と同一)
+                            row[label] = None if pd.isna(v) else round(float(v) / 1e8, 2) if k != "EarningsPerShare" else round(float(v), 2)
+                        rows.append(row)
+                    out["fin"] = {"rows": rows, "metrics": [v for _, v in available]}
+
+                rev_msgs = []
+                if "ForecastNetSales" in fin_hist.columns and "NetSales" in fin_hist.columns:
+                    last = fin_hist.iloc[-1]
+                    fc = pd.to_numeric(last.get("ForecastNetSales"), errors="coerce")
+                    ac = pd.to_numeric(last.get("NetSales"), errors="coerce")
+                    if pd.notna(fc) and pd.notna(ac) and fc > 0:
+                        diff = (ac / fc - 1) * 100
+                        if abs(diff) >= 3:
+                            rev_msgs.append(f"{'🟢 上振れ' if diff > 0 else '🔴 下振れ'}：直近期の売上が予想比 {diff:+.1f}%")
+                if "ForecastProfit" in fin_hist.columns and len(fin_hist) >= 2:
+                    prev_fc = pd.to_numeric(fin_hist.iloc[-2].get("ForecastProfit"), errors="coerce")
+                    curr_fc = pd.to_numeric(fin_hist.iloc[-1].get("ForecastProfit"), errors="coerce")
+                    if pd.notna(prev_fc) and pd.notna(curr_fc) and prev_fc != 0:
+                        rev = (curr_fc / abs(prev_fc) - (1 if prev_fc > 0 else -1)) * 100
+                        if abs(rev) >= 5:
+                            rev_msgs.append(f"{'🟢 通期純利益予想を上方修正' if rev > 0 else '🔴 通期純利益予想を下方修正'}：前回比 {rev:+.1f}%")
+                out["revisions"] = rev_msgs
+        except Exception:
+            pass
+
+    return out
+
+
 def get_rank_state() -> dict:
     totals = _compute_state()["totals"]
     ta = totals.get("total_asset_all", totals["total_asset"])

@@ -462,6 +462,96 @@ class TestMultiUserEndpoints:
         assert set(m._login_backoff) == {"__unknown__"}
 
 
+class TestStockDetailBundle:
+    """get_stock_detail_bundle — tab_portfolio._render_stock_detail と同一手順の配線テスト"""
+
+    def _patch(self, monkeypatch, closes, topix=None, fin=None, detail=None):
+        import api.service as svc
+        monkeypatch.setattr(svc, "_get_stock_detail", lambda c, m: detail or {})
+        monkeypatch.setattr(svc, "get_cached_market_data", lambda t, period="1y": closes)
+        monkeypatch.setattr(svc.jquants, "get_topix_ohlc", lambda period_days: topix)
+        monkeypatch.setattr(svc.jquants, "get_fin_statements_history", lambda c, limit=8: fin)
+        return svc
+
+    def test_chart_math_jp(self, monkeypatch):
+        idx = pd.date_range("2026-08-01", periods=3)
+        closes = pd.DataFrame({"7203.T": [1900.0, 2000.0, 2500.0], "JPY=X": [150.0] * 3}, index=idx)
+        svc = self._patch(monkeypatch, closes)
+        b = svc.get_stock_detail_bundle("7203", "日本株", 100, 2000.0, "2026/08/02")
+        ch = b["chart"]
+        assert [p["v"] for p in ch["points"]] == [200000.0, 250000.0]  # 取得日でフィルタ済み
+        assert ch["cost_total"] == 200000.0
+        assert ch["pnl_val"] == 50000.0 and ch["pnl_pct"] == 25.0
+
+    def test_chart_us_uses_fx(self, monkeypatch):
+        idx = pd.date_range("2026-08-01", periods=2)
+        closes = pd.DataFrame({"VT": [100.0, 110.0], "JPY=X": [150.0, 160.0]}, index=idx)
+        svc = self._patch(monkeypatch, closes)
+        b = svc.get_stock_detail_bundle("VT", "米国株", 10, 15000.0, "")
+        vals = [p["v"] for p in b["chart"]["points"]]
+        assert vals == [100.0 * 10 * 150.0, 110.0 * 10 * 160.0]
+
+    def test_risk_metrics_wired(self, monkeypatch):
+        idx = pd.date_range("2026-01-01", periods=80, freq="B")
+        prices = pd.Series([1000 + i * 2 for i in range(80)], index=idx)
+        closes = pd.DataFrame({"7203.T": prices, "JPY=X": [150.0] * 80}, index=idx)
+        topix = pd.DataFrame({"Date": idx, "Close": [2700 + i for i in range(80)]})
+        svc = self._patch(monkeypatch, closes, topix=topix)
+        b = svc.get_stock_detail_bundle("7203", "日本株", 100, 1000.0, "")
+        assert b["risk"]["HV20"] is not None and b["risk"]["beta"] is not None
+
+    def test_fin_rows_and_revisions(self, monkeypatch):
+        idx = pd.date_range("2026-08-01", periods=2)
+        closes = pd.DataFrame({"7203.T": [100.0, 101.0]}, index=idx)
+        fin = pd.DataFrame({
+            "DiscDate": pd.to_datetime(["2026-02-10", "2026-08-10"]),
+            "TypeOfCurrentPeriod": ["2Q", "FY"],
+            "NetSales": [5e9, 1.05e10],
+            "OperatingProfit": [5e8, 1.1e9],
+            "Profit": [3e8, 8e8],
+            "EarningsPerShare": [25.0, 66.7],
+            "ForecastNetSales": [1e10, 1e10],
+            "ForecastProfit": [1e9, 1.2e9],
+        })
+        svc = self._patch(monkeypatch, closes, fin=fin)
+        b = svc.get_stock_detail_bundle("7203", "日本株", 100, 100.0, "")
+        rows = b["fin"]["rows"]
+        assert rows[1]["売上"] == 105.0 and rows[1]["EPS"] == 66.7  # 億円換算/EPSは円のまま
+        assert "2026/08 (FY)" == rows[1]["label"]
+        assert any("上振れ" in m for m in b["revisions"])       # 実績105億 vs 予想100億 = +5%
+        assert any("上方修正" in m for m in b["revisions"])     # 純利益予想 10億→12億 = +20%
+
+    def test_mutual_fund_returns_empty(self, monkeypatch):
+        svc = self._patch(monkeypatch, pd.DataFrame())
+        b = svc.get_stock_detail_bundle("eMAXIS", "投資信託", 10, 30000.0, "")
+        assert b["chart"] is None and b["risk"] is None and b["fin"] is None
+
+
+@requires_client
+class TestStockDetailEndpoint:
+    @pytest.fixture
+    def client(self, auth_env):
+        from fastapi.testclient import TestClient
+        import api.main as m
+        m._login_backoff.clear()
+        return TestClient(m.app)
+
+    def test_validation_and_wiring(self, client, monkeypatch):
+        import api.main as m
+        captured = {}
+        monkeypatch.setattr(m.svc, "get_stock_detail_bundle",
+                            lambda code, market, shares, price, date: (captured.update(
+                                code=code, market=market, shares=shares, price=price, date=date) or {"detail": None}))
+        token = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/stock/detail?code=7203&market=投資信託", headers=h).status_code == 422
+        assert client.get("/api/stock/detail?code=&market=日本株", headers=h).status_code == 422
+        assert client.get("/api/stock/detail?code=7203&market=日本株").status_code == 401
+        r = client.get("/api/stock/detail?code=7203&market=日本株&shares=100&buy_price=2000&buy_date=2026/08/02", headers=h)
+        assert r.status_code == 200
+        assert captured == {"code": "7203", "market": "日本株", "shares": 100.0, "price": 2000.0, "date": "2026/08/02"}
+
+
 class TestMarketStorePolicy:
     """marketstore の更新ポリシー(1日2回自動+手動30分制限) — 全てオフライン"""
 

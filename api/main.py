@@ -119,6 +119,20 @@ def simulate_withdrawal_ep(req: WithdrawalSimRequest, user: str = Depends(requir
                                           req.inflation_rate, req.max_years)}
 
 
+# ── 銘柄詳細 ──
+
+@app.get("/api/stock/detail")
+def stock_detail(code: str, market: str, shares: float = 0.0, buy_price: float = 0.0,
+                 buy_date: str = "", user: str = Depends(require_auth)):
+    if market not in ("日本株", "米国株"):
+        raise HTTPException(status_code=422, detail="market は 日本株/米国株 のみ対応")
+    if not code or len(code) > 12:
+        raise HTTPException(status_code=422, detail="code が不正です")
+    if not (0 <= shares <= 100_000_000) or not (0 <= buy_price <= 100_000_000):
+        raise HTTPException(status_code=422, detail="shares/buy_price が範囲外です")
+    return svc.get_stock_detail_bundle(code, market, shares, buy_price, buy_date)
+
+
 # ── AI総評 / ライフプラン ──
 
 def _ai_errors(fn):

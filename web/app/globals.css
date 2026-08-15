@@ -762,3 +762,16 @@ button.pick.on { background: rgba(255, 255, 255, 0.04); }
 .ranktier .check { font-size: 10px; }
 
 .ranktier .amt { font-family: "Courier New", monospace; font-size: 13px; }
+
+/* 銘柄詳細 (P3-4) */
+.grid6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.8rem;
+}
+@media (max-width: 900px) {
+  .grid6 { grid-template-columns: repeat(3, 1fr); }
+}
+tbody tr.clickable { cursor: pointer; }
+tbody tr.selrow { background: rgba(0, 210, 255, 0.1); }
+tbody tr.selrow:hover { background: rgba(0, 210, 255, 0.12); }
