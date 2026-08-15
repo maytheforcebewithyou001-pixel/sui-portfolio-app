@@ -14,6 +14,8 @@ requires_client = pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx未導入
 # テスト用bcryptハッシュ(rounds=4で高速化。本番はデフォルト12)
 TEST_PASSWORD = "testpass"
 TEST_HASH = bcrypt.hashpw(TEST_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
+FATHER_PASSWORD = "chichi-pass"
+FATHER_HASH = bcrypt.hashpw(FATHER_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 
 @pytest.fixture
@@ -21,6 +23,15 @@ def auth_env(monkeypatch):
     monkeypatch.setenv("FC_TOKEN_SECRET", "test-secret-key")
     monkeypatch.setenv("FC_AUTH_USERNAME", "admin")
     monkeypatch.setenv("FC_AUTH_PASSWORD_HASH", TEST_HASH)
+    monkeypatch.delenv("FC_AUTH_USERS_JSON", raising=False)
+
+
+@pytest.fixture
+def multi_auth_env(monkeypatch):
+    import json
+    monkeypatch.setenv("FC_TOKEN_SECRET", "test-secret-key")
+    monkeypatch.setenv("FC_AUTH_USERS_JSON", json.dumps({"admin": TEST_HASH, "father": FATHER_HASH}))
+    monkeypatch.delenv("FC_AUTH_PASSWORD_HASH", raising=False)
 
 
 class TestAuth:
@@ -61,6 +72,82 @@ class TestAuth:
         from api import auth
         assert auth.verify_token("not-a-token") is None
         assert auth.verify_token("") is None
+
+
+class TestMultiUserAuth:
+    def test_both_users_login(self, multi_auth_env):
+        from api import auth
+        assert auth.verify_password("admin", TEST_PASSWORD) is True
+        assert auth.verify_password("father", FATHER_PASSWORD) is True
+        # パスワードの取り違えは両方向とも拒否
+        assert auth.verify_password("admin", FATHER_PASSWORD) is False
+        assert auth.verify_password("father", TEST_PASSWORD) is False
+        assert auth.verify_password("unknown", TEST_PASSWORD) is False
+
+    def test_users_json_overrides_legacy(self, multi_auth_env, monkeypatch):
+        """FC_AUTH_USERS_JSON がある時は単一ユーザー互換変数を一切見ない"""
+        from api import auth
+        monkeypatch.setenv("FC_AUTH_USERNAME", "legacy")
+        monkeypatch.setenv("FC_AUTH_PASSWORD_HASH", TEST_HASH)
+        assert auth.verify_password("legacy", TEST_PASSWORD) is False
+        assert auth.verify_password("admin", TEST_PASSWORD) is True
+
+    def test_bad_users_json_rejects_all(self, multi_auth_env, monkeypatch):
+        from api import auth
+        monkeypatch.setenv("FC_AUTH_USERS_JSON", "{broken json")
+        assert auth.user_hashes() == {}
+        assert auth.verify_password("admin", TEST_PASSWORD) is False
+
+    def test_token_roundtrip_father(self, multi_auth_env):
+        from api import auth
+        assert auth.verify_token(auth.issue_token("father")) == "father"
+
+
+class TestUserContext:
+    """data.py のユーザー解決とシートID分離(外部通信なし)"""
+
+    def test_current_user_priority(self, monkeypatch):
+        import data
+        monkeypatch.setenv("FC_API_USER", "envuser")
+        assert data._current_user() == "envuser"
+        ctx = data.set_request_user("tokenuser")
+        try:
+            assert data._current_user() == "tokenuser"
+        finally:
+            data.reset_request_user(ctx)
+        assert data._current_user() == "envuser"  # reset後は env に戻る
+
+    def test_sheet_id_not_leaked_to_other_user(self, monkeypatch):
+        """単一ユーザー互換の FC_SHEET_ID は FC_API_USER 本人にしか適用されない"""
+        import data
+        monkeypatch.setattr(data.st, "secrets", {}, raising=False)  # 実行環境のsecretsに依存しない
+        monkeypatch.setenv("FC_API_USER", "admin")
+        monkeypatch.setenv("FC_SHEET_ID", "admin-sheet-id")
+        monkeypatch.delenv("FC_SHEET_IDS_JSON", raising=False)
+        assert data._get_sheet_id_for("admin") == "admin-sheet-id"
+        assert data._get_sheet_id_for("father") is None
+
+    def test_sheet_ids_json_per_user(self, monkeypatch):
+        import data
+        monkeypatch.setattr(data.st, "secrets", {}, raising=False)
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", '{"admin": "a-id", "father": "f-id"}')
+        monkeypatch.setenv("FC_SHEET_ID", "legacy-id")
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert data._get_sheet_id_for("admin") == "a-id"  # JSON が互換変数より優先
+        assert data._get_sheet_id_for("father") == "f-id"
+        assert data._get_sheet_id_for("other") is None  # JSONに無い他人は互換IDも貰えない
+
+    def test_sheet_ids_json_broken_falls_through(self, monkeypatch):
+        import data
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", "{broken")
+        monkeypatch.setenv("FC_SHEET_ID", "legacy-id")
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert data._get_sheet_id_for("admin") == "legacy-id"
+
+    def test_sheet_name_for(self):
+        import data
+        assert data._sheet_name_for("default") == "PortfolioData"
+        assert data._sheet_name_for("father") == "PortfolioData_father"
 
 
 class TestBuildSnapshot:
@@ -133,8 +220,7 @@ class TestEndpoints:
     def client(self, auth_env):
         from fastapi.testclient import TestClient
         import api.main as m
-        m._fail_count = 0
-        m._lock_until = 0.0
+        m._login_backoff.clear()
         return TestClient(m.app)
 
     def test_health(self, client):
@@ -317,6 +403,60 @@ class TestEndpoints:
         assert client.post("/api/ai/lifeplan/generate", json={"inputs": {"年齢": 40}}, headers=h).status_code == 422
         r = client.post("/api/ai/lifeplan/generate", json={"inputs": {"本人年齢": "40歳"}}, headers=h)
         assert r.status_code == 200
+
+
+@requires_client
+class TestMultiUserEndpoints:
+    """クロステナント分離のエンドポイントテスト — トークンのユーザーがデータ層に届き、混線しないこと"""
+
+    @pytest.fixture
+    def client(self, multi_auth_env):
+        from fastapi.testclient import TestClient
+        import api.main as m
+        m._login_backoff.clear()
+        return TestClient(m.app)
+
+    def _token(self, client, username, password):
+        r = client.post("/api/auth/login", json={"username": username, "password": password})
+        assert r.status_code == 200
+        return r.json()["token"]
+
+    def test_request_user_follows_token(self, client, monkeypatch):
+        import api.main as m
+        import data
+        monkeypatch.setattr(m, "build_snapshot", lambda: {"seen_user": data._current_user()})
+        t_admin = self._token(client, "admin", TEST_PASSWORD)
+        t_father = self._token(client, "father", FATHER_PASSWORD)
+        assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_admin}"}).json()["seen_user"] == "admin"
+        assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_father}"}).json()["seen_user"] == "father"
+        # 交互アクセスでも直前のユーザーが残留しない
+        assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_admin}"}).json()["seen_user"] == "admin"
+        assert data._request_user.get() is None  # 応答後はreset済み
+
+    def test_token_of_removed_user_rejected(self, client, monkeypatch):
+        """認証辞書から消えたユーザーの既発行トークンは期限内でも401"""
+        import json as _json
+        from api import auth
+        token = self._token(client, "father", FATHER_PASSWORD)
+        monkeypatch.setenv("FC_AUTH_USERS_JSON", _json.dumps({"admin": TEST_HASH}))
+        assert auth.verify_token(token) == "father"  # 署名自体は有効のまま
+        r = client.get("/api/portfolio", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
+
+    def test_backoff_is_per_user(self, client):
+        r1 = client.post("/api/auth/login", json={"username": "father", "password": "wrong"})
+        assert r1.status_code == 401
+        # father がバックオフ中でも admin は即ログインできる
+        r2 = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD})
+        assert r2.status_code == 200
+        r3 = client.post("/api/auth/login", json={"username": "father", "password": FATHER_PASSWORD})
+        assert r3.status_code == 429
+
+    def test_unknown_users_share_one_backoff_slot(self, client):
+        import api.main as m
+        for name in ("ghost1", "ghost2", "ghost3"):
+            client.post("/api/auth/login", json={"username": name, "password": "x"})
+        assert set(m._login_backoff) == {"__unknown__"}
 
 
 class TestAppSettings:

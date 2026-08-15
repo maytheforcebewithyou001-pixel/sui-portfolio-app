@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import data as data_layer
 from api import auth
 from api import service as svc
 from api.service import build_snapshot, future_simulation_yearly, withdrawal_simulation
@@ -24,9 +25,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ログイン失敗の指数バックオフ(Streamlit版と同様、最大30秒・単一ユーザー前提の簡易版)
-_fail_count = 0
-_lock_until = 0.0
+# ログイン失敗の指数バックオフ(Streamlit版と同様、最大30秒)。ユーザー別に管理し、
+# 片方の連続失敗が他ユーザーのログインを巻き込まないようにする。
+# 未知ユーザー名は "__unknown__" の1枠へ集約(辞書の無制限肥大防止)
+_login_backoff: dict = {}  # key -> (fail_count, lock_until)
+
+
+def _backoff_key(username: str) -> str:
+    return username if username in auth.user_hashes() else "__unknown__"
 
 
 class LoginRequest(BaseModel):
@@ -34,13 +40,23 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def require_auth(authorization: str = Header(default="")) -> str:
+async def require_auth(authorization: str = Header(default="")):
+    """Bearerトークンを検証し、認証ユーザーをデータ層のユーザーコンテキストへ設定する。
+
+    シート解決(data._current_user)がログインユーザーに連動する要。応答後に必ずresetする。
+    async必須: 同期依存はスレッドプールのコピーされたコンテキストで走るため、
+    ContextVarの設定がエンドポイントに届かずresetも別コンテキストで失敗する
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="認証トークンがありません")
     user = auth.verify_token(authorization[len("Bearer "):])
-    if not user:
+    if not user or user not in auth.user_hashes():
         raise HTTPException(status_code=401, detail="トークンが無効か期限切れです")
-    return user
+    ctx = data_layer.set_request_user(user)
+    try:
+        yield user
+    finally:
+        data_layer.reset_request_user(ctx)
 
 
 @app.get("/api/health")
@@ -50,16 +66,16 @@ def health():
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    global _fail_count, _lock_until
+    key = _backoff_key(req.username)
+    fail_count, lock_until = _login_backoff.get(key, (0, 0.0))
     now = time.time()
-    if now < _lock_until:
-        raise HTTPException(status_code=429, detail=f"試行間隔を空けてください({int(_lock_until - now) + 1}秒後に再試行)")
+    if now < lock_until:
+        raise HTTPException(status_code=429, detail=f"試行間隔を空けてください({int(lock_until - now) + 1}秒後に再試行)")
     if not auth.verify_password(req.username, req.password):
-        _fail_count += 1
-        _lock_until = now + min(2 ** _fail_count, 30)
+        fail_count += 1
+        _login_backoff[key] = (fail_count, now + min(2 ** fail_count, 30))
         raise HTTPException(status_code=401, detail="ユーザー名またはパスワードが違います")
-    _fail_count = 0
-    _lock_until = 0.0
+    _login_backoff.pop(key, None)
     return {"token": auth.issue_token(req.username), "expires_in": auth.TOKEN_TTL_SEC}
 
 
