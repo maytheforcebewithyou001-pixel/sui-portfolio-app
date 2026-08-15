@@ -10,10 +10,13 @@ export function getToken() {
 
 export function setToken(token) {
   window.localStorage.setItem(TOKEN_KEY, token);
+  // ユーザー切替のログインで前ユーザーのスナップショットを見せない(P3-4 マルチユーザー)
+  clearSnapshot();
 }
 
 export function clearToken() {
   window.localStorage.removeItem(TOKEN_KEY);
+  clearSnapshot();
 }
 
 export class AuthError extends Error {}
