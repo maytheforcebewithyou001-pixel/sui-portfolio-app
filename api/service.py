@@ -25,6 +25,7 @@ from data import (
     load_prev_fund_prices,
     load_settings,
 )
+import marketstore
 from market import get_cached_market_data, get_cached_ticker_info
 from calc import (
     calculate_portfolio,
@@ -68,14 +69,19 @@ def withdrawal_simulation(initial: float, annual_rate: float, mode: str,
     return _df_to_records(sim)
 
 
-def _compute_state() -> dict:
-    """スナップショットの内部計算(DataFrameのまま返す)。build_snapshot と AI総評生成が共用"""
+def _compute_state(force_refresh: bool = False) -> dict:
+    """スナップショットの内部計算(DataFrameのまま返す)。build_snapshot と AI総評生成が共用
+
+    市場データは marketstore のポリシー層経由(自動更新は1日2回・手動は30分間隔、
+    それ以外は永続キャッシュ供給)。force_refresh=True は手動更新ボタン相当
+    """
     df = load_data()
     fund_prices = load_fund_prices()
     gas_prices = load_gas_prices()
     gas_last_updated = get_gas_last_updated()
     prev_fund_prices = load_prev_fund_prices()
     warnings = []
+    market_fetched_at = None
 
     if df.empty:
         display_df = pd.DataFrame()
@@ -90,8 +96,10 @@ def _compute_state() -> dict:
             elif m in ("米国株", "暗号資産"):
                 tickers.append(c)
         unique_tickers = tuple(sorted(set(tickers)))
-        closes_df = get_cached_market_data(unique_tickers, period="1y")
-        info_dict = get_cached_ticker_info(unique_tickers)
+        closes_df, info_dict, market_fetched_at, notice = marketstore.get_market_bundle(
+            unique_tickers, force=force_refresh)
+        if notice:
+            warnings.append(notice)
         s = closes_df["JPY=X"].dropna() if "JPY=X" in closes_df.columns else pd.Series()
         # 2点未満はmarket.pyが前回値で最終行のみ補完した系列(=取得失敗)とみなす — app.pyと同一判定
         if len(s) >= 2:
@@ -132,11 +140,12 @@ def _compute_state() -> dict:
         "gas_last_updated": gas_last_updated,
         "warnings": warnings,
         "targets": {"jpy_pct": target_jpy_pct, "usd_pct": target_usd_pct},
+        "market_fetched_at": market_fetched_at.isoformat() if market_fetched_at else None,
     }
 
 
-def build_snapshot() -> dict:
-    state = _compute_state()
+def build_snapshot(force_refresh: bool = False) -> dict:
+    state = _compute_state(force_refresh)
     display_df = state["display_df"]
     totals = state["totals"]
     jpy_usd_rate = state["jpy_usd_rate"]
@@ -151,6 +160,7 @@ def build_snapshot() -> dict:
         "jpy_usd_rate": float(jpy_usd_rate),
         "gas_last_updated": gas_last_updated,
         "warnings": warnings,
+        "market_fetched_at": state["market_fetched_at"],
         "targets": {"jpy_pct": target_jpy_pct, "usd_pct": target_usd_pct},
         "nisa_limits": {
             "growth_annual": NISA_GROWTH_ANNUAL,
@@ -402,6 +412,111 @@ def save_app_settings(target_jpy_pct=None, target_usd_pct=None, cash_balance_jpy
         raise SettingsError("保存対象がありません")
     save_settings(updates)
     return get_app_settings()
+
+
+# ══════════════════════════════════════════
+# 銘柄詳細 (tab_portfolio._render_stock_detail と同一手順)
+# ══════════════════════════════════════════
+from calc import calc_risk_metrics  # noqa: E402
+from market import get_stock_detail as _get_stock_detail  # noqa: E402
+from tabs.tab_portfolio import build_fin_view  # noqa: E402
+
+
+def _f_or_none(v):
+    try:
+        f = float(v)
+        return None if pd.isna(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
+def get_stock_detail_bundle(code: str, market_type: str, shares: float,
+                            buy_price: float, buy_date: str) -> dict:
+    """銘柄詳細タブのデータ一式。計算手順は tab_portfolio.py:202-451 と同一"""
+    out = {"detail": None, "risk": None, "chart": None, "fin": None, "revisions": []}
+
+    # ── 指標カード ──
+    try:
+        d = _get_stock_detail(code, market_type)
+        out["detail"] = d or None
+    except Exception:
+        out["detail"] = None
+
+    # ── リスク指標(日本株のみ、TOPIX対比) ──
+    if market_type == "日本株":
+        try:
+            ticker_jp = f"{code}.T"
+            risk_closes = get_cached_market_data(tuple(sorted([ticker_jp])), period="1y")
+            topix_df = jquants.get_topix_ohlc(period_days=400)
+            asset_series = risk_closes[ticker_jp].dropna() if ticker_jp in risk_closes.columns else pd.Series(dtype=float)
+            topix_series = topix_df.set_index("Date")["Close"] if (topix_df is not None and not topix_df.empty and "Close" in topix_df.columns) else None
+            rm = calc_risk_metrics(asset_series, topix_series)
+            if any(v is not None for v in rm.values()):
+                out["risk"] = {k: _f_or_none(v) for k, v in rm.items()}
+        except Exception as e:
+            logger_msg = f"リスク指標の計算でエラー: {e}"
+            out["risk_error"] = logger_msg
+
+    # ── 損益チャート(取得日〜現在) ──
+    if market_type in ("日本株", "米国株"):
+        ticker = f"{code}.T" if market_type == "日本株" else code
+        chart_period = "1y"
+        if buy_date:
+            try:
+                bd = pd.to_datetime(buy_date)
+                days_held = (pd.Timestamp.now() - bd).days
+                if days_held > 3650:
+                    chart_period = "max"
+                elif days_held > 1800:
+                    chart_period = "10y"
+                elif days_held > 730:
+                    chart_period = "5y"
+                elif days_held > 365:
+                    chart_period = "2y"
+            except Exception:
+                pass
+        try:
+            chart_closes = get_cached_market_data(tuple(sorted([ticker, "JPY=X"])), period=chart_period)
+            if ticker in chart_closes.columns:
+                cs = chart_closes[ticker].dropna()
+                if buy_date:
+                    try:
+                        cs = cs[cs.index >= pd.to_datetime(buy_date)]
+                    except Exception:
+                        pass
+                if len(cs) >= 2:
+                    cost_total = buy_price * shares
+                    eval_series = cs * shares
+                    if market_type == "米国株" and "JPY=X" in chart_closes.columns:
+                        fx = chart_closes["JPY=X"].reindex(cs.index, method="ffill").fillna(FALLBACK_USDJPY)
+                        eval_series = cs * shares * fx
+                    latest_eval = float(eval_series.iloc[-1])
+                    pnl_val = latest_eval - cost_total
+                    pnl_pct = (pnl_val / cost_total * 100) if cost_total > 0 else 0
+                    out["chart"] = {
+                        "points": [{"t": str(idx)[:10], "v": round(float(v), 2)}
+                                   for idx, v in eval_series.items() if pd.notna(v)],
+                        "cost_total": round(cost_total, 2),
+                        "pnl_val": round(pnl_val, 2),
+                        "pnl_pct": round(pnl_pct, 2),
+                    }
+        except Exception:
+            pass
+
+    # ── 業績推移(日本株のみ、過去8期) + 業績修正検出 ──
+    # 整形・修正検出は tabs.tab_portfolio.build_fin_view と共用(V2短縮カラム対応/
+    # FY行限定の乖離判定を両系で単一実装に)
+    if market_type == "日本株":
+        try:
+            fin_hist = jquants.get_fin_statements_history(code, limit=8)
+            fin_rows, fin_metrics, rev_msgs = build_fin_view(fin_hist)
+            if fin_rows:
+                out["fin"] = {"rows": fin_rows, "metrics": fin_metrics}
+            out["revisions"] = rev_msgs
+        except Exception:
+            pass
+
+    return out
 
 
 def get_rank_state() -> dict:

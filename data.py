@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 import json
 import gspread
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Optional
 from google.oauth2.service_account import Credentials
@@ -35,11 +36,22 @@ def init_gspread():
 # ══════════════════════════════════════════
 # ユーザー別シート分離
 # ══════════════════════════════════════════
-def _current_user() -> str:
-    """session_state からユーザー名を取得（未設定時は 'default'）
+# APIリクエスト単位の認証済みユーザー(FastAPI側が require_auth で設定・応答後にreset)。
+# プロセス全体で共有される環境変数と違い、並行リクエスト間で混線しない
+_request_user: ContextVar[Optional[str]] = ContextVar("fc_request_user", default=None)
 
-    環境変数 FC_API_USER が設定されていればそれを優先(Streamlit外実行用)。
-    """
+def set_request_user(user: Optional[str]):
+    """認証済みユーザーを現在のコンテキストに設定し、reset用トークンを返す"""
+    return _request_user.set(user)
+
+def reset_request_user(token) -> None:
+    _request_user.reset(token)
+
+def _current_user() -> str:
+    """ユーザー名の解決。優先順: リクエストコンテキスト → FC_API_USER → session_state → 'default'"""
+    req_user = _request_user.get()
+    if req_user:
+        return req_user
     env_user = os.environ.get("FC_API_USER", "")
     if env_user:
         return env_user
@@ -53,12 +65,22 @@ def _sheet_name_for(user: str) -> str:
     return "PortfolioData" if user == "default" else f"PortfolioData_{user}"
 
 def _get_sheet_id_for(user: str) -> Optional[str]:
-    """secrets の [sheet_ids] セクションからスプレッドシートIDを取得（なければNone）
-
-    環境変数 FC_SHEET_ID が設定されていればそれを優先(Streamlit外実行用)。
+    """スプレッドシートIDの解決。優先順:
+      1. FC_SHEET_IDS_JSON ({"ユーザー名": "シートID"} のJSON辞書、マルチユーザー用)
+      2. FC_SHEET_ID (単一ユーザー互換) — FC_API_USER と一致するユーザーにのみ適用。
+         無条件に返すと別ユーザーのリクエストにこのIDが漏れるため
+      3. st.secrets [sheet_ids] (Streamlit版)
     """
+    raw = os.environ.get("FC_SHEET_IDS_JSON", "")
+    if raw:
+        try:
+            ids = json.loads(raw)
+            if isinstance(ids, dict) and ids.get(user):
+                return str(ids[user])
+        except ValueError:
+            logger.error("FC_SHEET_IDS_JSON のJSONが不正です(無視して次の解決手段へ)")
     env_id = os.environ.get("FC_SHEET_ID", "")
-    if env_id:
+    if env_id and user == os.environ.get("FC_API_USER", ""):
         return env_id
     try:
         sheet_ids = st.secrets.get("sheet_ids", {})

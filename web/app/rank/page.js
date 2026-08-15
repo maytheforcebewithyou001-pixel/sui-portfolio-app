@@ -25,7 +25,7 @@ export default function Rank() {
   if (error && !snap) return <main><p className="status">エラー: {error}</p></main>;
   if (!snap) return null;
 
-  const header = <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />;
+  const header = <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />;
   if (rankError) return <main>{header}<div className="alert down">エラー: {rankError}</div></main>;
   if (!state) return <main>{header}<p className="status">読み込み中...</p></main>;
 

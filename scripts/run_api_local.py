@@ -9,6 +9,9 @@ J-Quants CLI はカレントディレクトリの .env を見るため、リポ�
 キーが見つからず 403 になる。この読み込みでその問題も解消する。
 
 使い方(リポジトリ直下で): python scripts/run_api_local.py
+
+マルチユーザーの動作確認は起動前に FC_AUTH_USERS_JSON / FC_SHEET_IDS_JSON を
+環境変数で与える(下の setdefault は外部指定を上書きしない)。
 """
 import os
 import secrets

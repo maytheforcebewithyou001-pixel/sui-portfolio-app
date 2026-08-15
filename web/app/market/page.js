@@ -316,7 +316,7 @@ export default function Market() {
 
   return (
     <main>
-      <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />
+      <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />
       <div className="subtabs" style={{ marginTop: "0.4rem" }}>
         {PERIODS.map((p) => (
           <button key={p} className={period === p ? "active" : ""} onClick={() => setPeriod(p)}>{p}</button>

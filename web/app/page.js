@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import StockDetail from "../components/StockDetail";
 import TopBar from "../components/TopBar";
 import { useSnapshot } from "../lib/useSnapshot";
 import { fmtYen, signed, pnlCls, fmtNum } from "../lib/format";
@@ -54,6 +55,7 @@ function concentration(rows, totalAsset) {
 export default function Dashboard() {
   const { snap, error, loading, reload } = useSnapshot();
   const [sort, setSort] = useState({ key: "評価額(円)", dir: -1 });
+  const [selRow, setSelRow] = useState(null);
 
   const rows = useMemo(() => {
     if (!snap) return [];
@@ -81,7 +83,7 @@ export default function Dashboard() {
 
   return (
     <main>
-      <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />
+      <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />
 
       <div className="metrics">
         <div className="metric">
@@ -173,7 +175,11 @@ export default function Dashboard() {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i}>
+              <tr
+                key={i}
+                className={`clickable ${selRow === r ? "selrow" : ""}`}
+                onClick={() => setSelRow(selRow === r ? null : r)}
+              >
                 {COLUMNS.map((c) => {
                   const v = r[c.key];
                   if (c.key === "前日比") {
@@ -204,6 +210,8 @@ export default function Dashboard() {
           </tbody>
         </table>
       </div>
+
+      <StockDetail row={selRow} />
 
       <p className="caption">
         {snap.gas_last_updated && `📡 GAS株価データ 最終更新: ${snap.gas_last_updated} ／ `}

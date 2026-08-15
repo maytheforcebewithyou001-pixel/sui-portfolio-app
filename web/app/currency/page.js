@@ -101,7 +101,7 @@ export default function Currency() {
   if (error && !snap) return <main><p className="status">エラー: {error}</p></main>;
   if (!snap || !d) return null;
 
-  const header = <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />;
+  const header = <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />;
   if (d.empty) {
     return (
       <main>

@@ -10,10 +10,13 @@ export function getToken() {
 
 export function setToken(token) {
   window.localStorage.setItem(TOKEN_KEY, token);
+  // ユーザー切替のログインで前ユーザーのスナップショットを見せない(P3-4 マルチユーザー)
+  clearSnapshot();
 }
 
 export function clearToken() {
   window.localStorage.removeItem(TOKEN_KEY);
+  clearSnapshot();
 }
 
 export class AuthError extends Error {}
@@ -69,7 +72,8 @@ let _snapshot = null;
 
 export async function fetchPortfolio(force = false) {
   if (!force && _snapshot) return _snapshot;
-  const data = await apiFetch("/api/portfolio");
+  // refresh=1 はサーバー側の手動更新要求(実際に再取得されるかは30分間隔ルールでサーバーが判断)
+  const data = await apiFetch(force ? "/api/portfolio?refresh=1" : "/api/portfolio");
   _snapshot = { ...data, loadedAt: Date.now() };
   return _snapshot;
 }

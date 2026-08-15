@@ -40,7 +40,10 @@ class TestConfigFuncs:
     def test_normalize_tax(self):
         assert normalize_tax("NISA 積立") == "NISA(積立投資枠)"
         assert normalize_tax("NISA") == "NISA(成長投資枠)"
-        assert normalize_tax("一般") == "特定口座"
+        # 2026-08-15仕様変更(P3-4): 一般口座は特定口座へ潰さず区別を保持
+        assert normalize_tax("一般") == "一般口座"
+        assert normalize_tax("一般口座") == "一般口座"
+        assert normalize_tax("なんでも") == "特定口座"
 
     def test_get_rank_none_below_1m(self):
         assert get_rank(999_999) is None

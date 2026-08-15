@@ -12,8 +12,8 @@ EXPECTED_COLS = [
 CURRENCY_OPTIONS = ["JPY", "USD"]
 BROKER_OPTIONS = ["SBI証券", "楽天証券", "三菱UFJeスマート証券", "持ち株会(野村證券)",
                   "マネックス証券", "松井証券", "auカブコム証券", "野村證券",
-                  "大和証券", "SMBC日興証券", "PayPay証券"]
-TAX_OPTIONS = ["特定口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
+                  "大和証券", "SMBC日興証券", "PayPay証券", "みずほ証券"]
+TAX_OPTIONS = ["特定口座", "一般口座", "NISA(成長投資枠)", "NISA(積立投資枠)"]
 MARKET_OPTIONS = ["日本株", "米国株", "投資信託", "暗号資産", "債券/国債", "コモディティ", "その他資産"]
 MONTH_OPTIONS = [f"{m}月" for m in range(1, 13)]
 TAX_RATE = 0.20315
@@ -122,4 +122,7 @@ def normalize_tax(val: str) -> str:
     val = str(val)
     if "NISA" in val:
         return "NISA(積立投資枠)" if "積立" in val else "NISA(成長投資枠)"
+    # 一般口座を特定口座へ潰さない — 課税扱いは同じだが取得費証憑の意味が全く違う
+    if "一般" in val:
+        return "一般口座"
     return "特定口座"

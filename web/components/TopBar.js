@@ -17,9 +17,10 @@ const TABS = [
   { href: "/settings", label: "設定" },
 ];
 
-export default function TopBar({ loadedAt, loading, onReload }) {
+export default function TopBar({ loadedAt, marketFetchedAt, loading, onReload }) {
   const router = useRouter();
   const pathname = usePathname();
+  const ts = marketFetchedAt || loadedAt;
 
   return (
     <>
@@ -28,8 +29,11 @@ export default function TopBar({ loadedAt, loading, onReload }) {
           <span className="dim">&lt;</span> FORCE <span className="dim">&gt; CAPITAL</span>
         </span>
         <span className="spacer" />
-        {loadedAt && (
-          <span className="ts">{new Date(loadedAt).toLocaleString("ja-JP")} 取得</span>
+        {ts && (
+          <span className="ts">
+            {marketFetchedAt ? "市場データ " : ""}
+            {new Date(ts).toLocaleString("ja-JP")} 取得
+          </span>
         )}
         <button className="ghost" onClick={onReload} disabled={loading}>
           {loading ? "更新中..." : "🔄 更新"}

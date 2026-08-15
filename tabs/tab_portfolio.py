@@ -12,6 +12,76 @@ from tabs import card, colored_card, pnl_color, pnl_sign, PLOTLY_DARK
 import jquants
 
 
+# ══════════════════════════════════════════
+# 業績推移の共有ロジック(Streamlit版とAPI版=api/service.pyで共用)
+# ══════════════════════════════════════════
+_FIN_ALIASES = {
+    "date": ("DiscDate", "DisclosedDate"),
+    "period": ("CurPerType", "TypeOfCurrentPeriod"),
+    "売上": ("Sales", "NetSales"),
+    "営業利益": ("OP", "OperatingProfit"),
+    "純利益": ("NP", "Profit"),
+    "EPS": ("EPS", "EarningsPerShare"),
+    "f_sales": ("FSales", "ForecastNetSales"),
+    "f_profit": ("FNP", "ForecastProfit"),
+}
+
+
+def build_fin_view(fin_hist):
+    """財務サマリ時系列を表示用に整形し (rows, metrics, revisions) を返す。
+
+    - カラム名はJ-Quants V2短縮名(Sales/OP/NP/EPS/CurPerType)を優先しV1名にフォールバック
+      (V1名のみ参照していた旧実装はV2移行後サイレントに非表示だった)
+    - rows: [{"label": "2026/08 (3Q)", "売上": 737.07(億円), ..., "EPS": 359.8(円)}]
+    - 実績vs予想売上の乖離判定は通期(FY)行のみ — 四半期行は累計実績と通期予想の
+      比較になり必ず偽の「下振れ」が出るため
+    """
+    if fin_hist is None or fin_hist.empty:
+        return [], [], []
+    fin_hist = fin_hist.copy()
+
+    def col(key):
+        return next((c for c in _FIN_ALIASES[key] if c in fin_hist.columns), None)
+
+    date_col, period_col = col("date"), col("period")
+    available = [(col(label), label) for label in ("売上", "営業利益", "純利益", "EPS") if col(label)]
+    rows, metrics = [], []
+    if date_col and available:
+        for k, _ in available:
+            fin_hist[k] = pd.to_numeric(fin_hist[k], errors="coerce")
+        xlabel = pd.to_datetime(fin_hist[date_col]).dt.strftime("%Y/%m")
+        if period_col:
+            xlabel = xlabel + " (" + fin_hist[period_col].astype(str) + ")"
+        for i in range(len(fin_hist)):
+            row = {"label": xlabel.iloc[i]}
+            for k, label in available:
+                v = fin_hist[k].iloc[i]
+                # 売上/利益は億円換算、EPSは円のまま
+                row[label] = None if pd.isna(v) else round(float(v) / 1e8, 2) if label != "EPS" else round(float(v), 2)
+            rows.append(row)
+        metrics = [label for _, label in available]
+
+    rev_msgs = []
+    fs_col, sales_col, fp_col = col("f_sales"), col("売上"), col("f_profit")
+    is_fy = (str(fin_hist.iloc[-1].get(period_col, "")) == "FY") if period_col else False
+    if fs_col and sales_col and is_fy:
+        last = fin_hist.iloc[-1]
+        fc = pd.to_numeric(last.get(fs_col), errors="coerce")
+        ac = pd.to_numeric(last.get(sales_col), errors="coerce")
+        if pd.notna(fc) and pd.notna(ac) and fc > 0:
+            diff = (ac / fc - 1) * 100
+            if abs(diff) >= 3:
+                rev_msgs.append(f"{'🟢 上振れ' if diff > 0 else '🔴 下振れ'}：直近期の売上が予想比 {diff:+.1f}%")
+    if fp_col and len(fin_hist) >= 2:
+        prev_fc = pd.to_numeric(fin_hist.iloc[-2].get(fp_col), errors="coerce")
+        curr_fc = pd.to_numeric(fin_hist.iloc[-1].get(fp_col), errors="coerce")
+        if pd.notna(prev_fc) and pd.notna(curr_fc) and prev_fc != 0:
+            rev = (curr_fc / abs(prev_fc) - (1 if prev_fc > 0 else -1)) * 100
+            if abs(rev) >= 5:
+                rev_msgs.append(f"{'🟢 通期純利益予想を上方修正' if rev > 0 else '🔴 通期純利益予想を下方修正'}：前回比 {rev:+.1f}%")
+    return rows, metrics, rev_msgs
+
+
 def render(tab, df, display_df, totals):
     TA = totals["total_asset"]
     with tab:
@@ -381,72 +451,43 @@ def _render_stock_detail(display_df, sel):
         else:
             st.caption("投資信託・その他資産は株価チャート非対応です。")
 
-        # 業績推移（日本株のみ、J-Quants財務サマリ時系列）
+        # 業績推移（日本株のみ、J-Quants財務サマリ時系列）— 整形と修正検出は build_fin_view と共用
         if market_type == "日本株":
             try:
                 fin_hist = jquants.get_fin_statements_history(code_raw, limit=8)
-                if fin_hist is not None and not fin_hist.empty:
+                fin_rows, fin_metrics, rev_msgs = build_fin_view(fin_hist)
+                if fin_rows:
                     st.markdown("##### 📈 業績推移（過去8期分）")
-                    date_col = "DiscDate" if "DiscDate" in fin_hist.columns else "DisclosedDate"
-                    period_col = "TypeOfCurrentPeriod" if "TypeOfCurrentPeriod" in fin_hist.columns else None
-                    metric_map = {
-                        "NetSales": "売上",
-                        "OperatingProfit": "営業利益",
-                        "Profit": "純利益",
-                        "EarningsPerShare": "EPS",
-                    }
-                    available_metrics = [(k, v) for k, v in metric_map.items() if k in fin_hist.columns]
-                    if available_metrics:
-                        for k, _ in available_metrics:
-                            fin_hist[k] = pd.to_numeric(fin_hist[k], errors="coerce")
-                        xlabel = fin_hist[date_col].dt.strftime("%Y/%m")
-                        if period_col:
-                            xlabel = xlabel + " (" + fin_hist[period_col].astype(str) + ")"
-                        fig_e = go.Figure()
-                        colors_e = ["#00D2FF", "#69F0AE", "#FFD54F", "#FF8F00"]
-                        for ci, (k, label) in enumerate(available_metrics):
-                            yvals = fin_hist[k]
-                            if k == "EarningsPerShare":
-                                fig_e.add_trace(go.Scatter(
-                                    x=xlabel, y=yvals, mode="lines+markers",
-                                    name=label, yaxis="y2",
-                                    line=dict(color=colors_e[ci], width=2, dash="dot"),
-                                    marker=dict(size=7)))
-                            else:
-                                fig_e.add_trace(go.Bar(
-                                    x=xlabel, y=yvals / 1e8,
-                                    name=label, marker_color=colors_e[ci]))
-                        fig_e.update_layout(
-                            **PLOTLY_DARK,
-                            margin=dict(t=10, b=10, l=10, r=10), height=320, barmode="group",
-                            xaxis=dict(showgrid=False, tickfont=dict(size=10)),
-                            yaxis=dict(title=dict(text="売上/利益 (億円)", font=dict(size=11)),
-                                       showgrid=True, gridcolor="#1E232F"),
-                            yaxis2=dict(title=dict(text="EPS (円)", font=dict(size=11)),
-                                        overlaying="y", side="right", showgrid=False),
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
-                        st.plotly_chart(fig_e, width="stretch", config={"displayModeBar": False})
+                    xlabel = [r["label"] for r in fin_rows]
+                    colors_e = {"売上": "#00D2FF", "営業利益": "#69F0AE", "純利益": "#FFD54F", "EPS": "#FF8F00"}
+                    fig_e = go.Figure()
+                    for label in fin_metrics:
+                        yvals = [r.get(label) for r in fin_rows]
+                        if label == "EPS":
+                            fig_e.add_trace(go.Scatter(
+                                x=xlabel, y=yvals, mode="lines+markers",
+                                name=label, yaxis="y2",
+                                line=dict(color=colors_e[label], width=2, dash="dot"),
+                                marker=dict(size=7)))
+                        else:
+                            fig_e.add_trace(go.Bar(
+                                x=xlabel, y=yvals,
+                                name=label, marker_color=colors_e[label]))
+                    fig_e.update_layout(
+                        **PLOTLY_DARK,
+                        margin=dict(t=10, b=10, l=10, r=10), height=320, barmode="group",
+                        xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                        yaxis=dict(title=dict(text="売上/利益 (億円)", font=dict(size=11)),
+                                   showgrid=True, gridcolor="#1E232F"),
+                        yaxis2=dict(title=dict(text="EPS (円)", font=dict(size=11)),
+                                    overlaying="y", side="right", showgrid=False),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"))
+                    st.plotly_chart(fig_e, width="stretch", config={"displayModeBar": False})
 
-                        # 業績修正検出：予想 vs 実績、もしくは予想の更新
-                        rev_msgs = []
-                        if "ForecastNetSales" in fin_hist.columns and "NetSales" in fin_hist.columns:
-                            last = fin_hist.iloc[-1]
-                            fc, ac = pd.to_numeric(last.get("ForecastNetSales"), errors="coerce"), pd.to_numeric(last.get("NetSales"), errors="coerce")
-                            if pd.notna(fc) and pd.notna(ac) and fc > 0:
-                                diff = (ac / fc - 1) * 100
-                                if abs(diff) >= 3:
-                                    rev_msgs.append(f"{'🟢 上振れ' if diff > 0 else '🔴 下振れ'}：直近期の売上が予想比 {diff:+.1f}%")
-                        if "ForecastProfit" in fin_hist.columns and len(fin_hist) >= 2:
-                            prev_fc = pd.to_numeric(fin_hist.iloc[-2].get("ForecastProfit"), errors="coerce")
-                            curr_fc = pd.to_numeric(fin_hist.iloc[-1].get("ForecastProfit"), errors="coerce")
-                            if pd.notna(prev_fc) and pd.notna(curr_fc) and prev_fc != 0:
-                                rev = (curr_fc / abs(prev_fc) - (1 if prev_fc > 0 else -1)) * 100
-                                if abs(rev) >= 5:
-                                    rev_msgs.append(f"{'🟢 通期純利益予想を上方修正' if rev > 0 else '🔴 通期純利益予想を下方修正'}：前回比 {rev:+.1f}%")
-                        if rev_msgs:
-                            st.markdown("**業績修正検出**")
-                            for m in rev_msgs:
-                                st.markdown(f"- {m}")
+                    if rev_msgs:
+                        st.markdown("**業績修正検出**")
+                        for m in rev_msgs:
+                            st.markdown(f"- {m}")
             except Exception as e:
                 st.caption(f"業績推移の取得でエラー: {e}")
 

@@ -14,6 +14,8 @@ requires_client = pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx未導入
 # テスト用bcryptハッシュ(rounds=4で高速化。本番はデフォルト12)
 TEST_PASSWORD = "testpass"
 TEST_HASH = bcrypt.hashpw(TEST_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
+FATHER_PASSWORD = "chichi-pass"
+FATHER_HASH = bcrypt.hashpw(FATHER_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 
 @pytest.fixture
@@ -21,6 +23,15 @@ def auth_env(monkeypatch):
     monkeypatch.setenv("FC_TOKEN_SECRET", "test-secret-key")
     monkeypatch.setenv("FC_AUTH_USERNAME", "admin")
     monkeypatch.setenv("FC_AUTH_PASSWORD_HASH", TEST_HASH)
+    monkeypatch.delenv("FC_AUTH_USERS_JSON", raising=False)
+
+
+@pytest.fixture
+def multi_auth_env(monkeypatch):
+    import json
+    monkeypatch.setenv("FC_TOKEN_SECRET", "test-secret-key")
+    monkeypatch.setenv("FC_AUTH_USERS_JSON", json.dumps({"admin": TEST_HASH, "father": FATHER_HASH}))
+    monkeypatch.delenv("FC_AUTH_PASSWORD_HASH", raising=False)
 
 
 class TestAuth:
@@ -63,11 +74,89 @@ class TestAuth:
         assert auth.verify_token("") is None
 
 
+class TestMultiUserAuth:
+    def test_both_users_login(self, multi_auth_env):
+        from api import auth
+        assert auth.verify_password("admin", TEST_PASSWORD) is True
+        assert auth.verify_password("father", FATHER_PASSWORD) is True
+        # パスワードの取り違えは両方向とも拒否
+        assert auth.verify_password("admin", FATHER_PASSWORD) is False
+        assert auth.verify_password("father", TEST_PASSWORD) is False
+        assert auth.verify_password("unknown", TEST_PASSWORD) is False
+
+    def test_users_json_overrides_legacy(self, multi_auth_env, monkeypatch):
+        """FC_AUTH_USERS_JSON がある時は単一ユーザー互換変数を一切見ない"""
+        from api import auth
+        monkeypatch.setenv("FC_AUTH_USERNAME", "legacy")
+        monkeypatch.setenv("FC_AUTH_PASSWORD_HASH", TEST_HASH)
+        assert auth.verify_password("legacy", TEST_PASSWORD) is False
+        assert auth.verify_password("admin", TEST_PASSWORD) is True
+
+    def test_bad_users_json_rejects_all(self, multi_auth_env, monkeypatch):
+        from api import auth
+        monkeypatch.setenv("FC_AUTH_USERS_JSON", "{broken json")
+        assert auth.user_hashes() == {}
+        assert auth.verify_password("admin", TEST_PASSWORD) is False
+
+    def test_token_roundtrip_father(self, multi_auth_env):
+        from api import auth
+        assert auth.verify_token(auth.issue_token("father")) == "father"
+
+
+class TestUserContext:
+    """data.py のユーザー解決とシートID分離(外部通信なし)"""
+
+    def test_current_user_priority(self, monkeypatch):
+        import data
+        monkeypatch.setenv("FC_API_USER", "envuser")
+        assert data._current_user() == "envuser"
+        ctx = data.set_request_user("tokenuser")
+        try:
+            assert data._current_user() == "tokenuser"
+        finally:
+            data.reset_request_user(ctx)
+        assert data._current_user() == "envuser"  # reset後は env に戻る
+
+    def test_sheet_id_not_leaked_to_other_user(self, monkeypatch):
+        """単一ユーザー互換の FC_SHEET_ID は FC_API_USER 本人にしか適用されない"""
+        import data
+        monkeypatch.setattr(data.st, "secrets", {}, raising=False)  # 実行環境のsecretsに依存しない
+        monkeypatch.setenv("FC_API_USER", "admin")
+        monkeypatch.setenv("FC_SHEET_ID", "admin-sheet-id")
+        monkeypatch.delenv("FC_SHEET_IDS_JSON", raising=False)
+        assert data._get_sheet_id_for("admin") == "admin-sheet-id"
+        assert data._get_sheet_id_for("father") is None
+
+    def test_sheet_ids_json_per_user(self, monkeypatch):
+        import data
+        monkeypatch.setattr(data.st, "secrets", {}, raising=False)
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", '{"admin": "a-id", "father": "f-id"}')
+        monkeypatch.setenv("FC_SHEET_ID", "legacy-id")
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert data._get_sheet_id_for("admin") == "a-id"  # JSON が互換変数より優先
+        assert data._get_sheet_id_for("father") == "f-id"
+        assert data._get_sheet_id_for("other") is None  # JSONに無い他人は互換IDも貰えない
+
+    def test_sheet_ids_json_broken_falls_through(self, monkeypatch):
+        import data
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", "{broken")
+        monkeypatch.setenv("FC_SHEET_ID", "legacy-id")
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert data._get_sheet_id_for("admin") == "legacy-id"
+
+    def test_sheet_name_for(self):
+        import data
+        assert data._sheet_name_for("default") == "PortfolioData"
+        assert data._sheet_name_for("father") == "PortfolioData_father"
+
+
 class TestBuildSnapshot:
     """service.build_snapshot の配線テスト — data層をモックし calc.py は実物を通す"""
 
     def _patch_loaders(self, monkeypatch, df, closes, info, settings=None):
         import api.service as svc
+        from datetime import datetime
+        from marketstore import JST
         monkeypatch.setattr(svc, "load_data", lambda: df)
         monkeypatch.setattr(svc, "load_fund_prices", lambda: {})
         monkeypatch.setattr(svc, "load_gas_prices", lambda: {})
@@ -75,8 +164,9 @@ class TestBuildSnapshot:
         monkeypatch.setattr(svc, "load_prev_fund_prices", lambda: {})
         monkeypatch.setattr(svc, "load_settings", lambda: settings or {})
         monkeypatch.setattr(svc, "load_last_prices_full", lambda: {})
-        monkeypatch.setattr(svc, "get_cached_market_data", lambda t, period="1y": closes)
-        monkeypatch.setattr(svc, "get_cached_ticker_info", lambda t: info)
+        fetched = datetime(2026, 8, 16, 6, 30, tzinfo=JST)
+        monkeypatch.setattr(svc.marketstore, "get_market_bundle",
+                            lambda t, force=False: (closes, info, fetched, None))
         return svc
 
     def _jp_stock_df(self):
@@ -133,8 +223,7 @@ class TestEndpoints:
     def client(self, auth_env):
         from fastapi.testclient import TestClient
         import api.main as m
-        m._fail_count = 0
-        m._lock_until = 0.0
+        m._login_backoff.clear()
         return TestClient(m.app)
 
     def test_health(self, client):
@@ -160,7 +249,7 @@ class TestEndpoints:
     def test_portfolio_with_token(self, client, monkeypatch):
         import api.main as m
         fake = {"rows": [], "totals": dict(total_asset=0), "jpy_usd_rate": 150.0, "gas_last_updated": None, "warnings": []}
-        monkeypatch.setattr(m, "build_snapshot", lambda: fake)
+        monkeypatch.setattr(m, "build_snapshot", lambda **kw: fake)
         token = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
         r = client.get("/api/portfolio", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
@@ -317,6 +406,266 @@ class TestEndpoints:
         assert client.post("/api/ai/lifeplan/generate", json={"inputs": {"年齢": 40}}, headers=h).status_code == 422
         r = client.post("/api/ai/lifeplan/generate", json={"inputs": {"本人年齢": "40歳"}}, headers=h)
         assert r.status_code == 200
+
+
+@requires_client
+class TestMultiUserEndpoints:
+    """クロステナント分離のエンドポイントテスト — トークンのユーザーがデータ層に届き、混線しないこと"""
+
+    @pytest.fixture
+    def client(self, multi_auth_env):
+        from fastapi.testclient import TestClient
+        import api.main as m
+        m._login_backoff.clear()
+        return TestClient(m.app)
+
+    def _token(self, client, username, password):
+        r = client.post("/api/auth/login", json={"username": username, "password": password})
+        assert r.status_code == 200
+        return r.json()["token"]
+
+    def test_request_user_follows_token(self, client, monkeypatch):
+        import api.main as m
+        import data
+        monkeypatch.setattr(m, "build_snapshot", lambda **kw: {"seen_user": data._current_user()})
+        t_admin = self._token(client, "admin", TEST_PASSWORD)
+        t_father = self._token(client, "father", FATHER_PASSWORD)
+        assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_admin}"}).json()["seen_user"] == "admin"
+        assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_father}"}).json()["seen_user"] == "father"
+        # 交互アクセスでも直前のユーザーが残留しない
+        assert client.get("/api/portfolio", headers={"Authorization": f"Bearer {t_admin}"}).json()["seen_user"] == "admin"
+        assert data._request_user.get() is None  # 応答後はreset済み
+
+    def test_token_of_removed_user_rejected(self, client, monkeypatch):
+        """認証辞書から消えたユーザーの既発行トークンは期限内でも401"""
+        import json as _json
+        from api import auth
+        token = self._token(client, "father", FATHER_PASSWORD)
+        monkeypatch.setenv("FC_AUTH_USERS_JSON", _json.dumps({"admin": TEST_HASH}))
+        assert auth.verify_token(token) == "father"  # 署名自体は有効のまま
+        r = client.get("/api/portfolio", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
+
+    def test_backoff_is_per_user(self, client):
+        r1 = client.post("/api/auth/login", json={"username": "father", "password": "wrong"})
+        assert r1.status_code == 401
+        # father がバックオフ中でも admin は即ログインできる
+        r2 = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD})
+        assert r2.status_code == 200
+        r3 = client.post("/api/auth/login", json={"username": "father", "password": FATHER_PASSWORD})
+        assert r3.status_code == 429
+
+    def test_unknown_users_share_one_backoff_slot(self, client):
+        import api.main as m
+        for name in ("ghost1", "ghost2", "ghost3"):
+            client.post("/api/auth/login", json={"username": name, "password": "x"})
+        assert set(m._login_backoff) == {"__unknown__"}
+
+
+class TestStockDetailBundle:
+    """get_stock_detail_bundle — tab_portfolio._render_stock_detail と同一手順の配線テスト"""
+
+    def _patch(self, monkeypatch, closes, topix=None, fin=None, detail=None):
+        import api.service as svc
+        monkeypatch.setattr(svc, "_get_stock_detail", lambda c, m: detail or {})
+        monkeypatch.setattr(svc, "get_cached_market_data", lambda t, period="1y": closes)
+        monkeypatch.setattr(svc.jquants, "get_topix_ohlc", lambda period_days: topix)
+        monkeypatch.setattr(svc.jquants, "get_fin_statements_history", lambda c, limit=8: fin)
+        return svc
+
+    def test_chart_math_jp(self, monkeypatch):
+        idx = pd.date_range("2026-08-01", periods=3)
+        closes = pd.DataFrame({"7203.T": [1900.0, 2000.0, 2500.0], "JPY=X": [150.0] * 3}, index=idx)
+        svc = self._patch(monkeypatch, closes)
+        b = svc.get_stock_detail_bundle("7203", "日本株", 100, 2000.0, "2026/08/02")
+        ch = b["chart"]
+        assert [p["v"] for p in ch["points"]] == [200000.0, 250000.0]  # 取得日でフィルタ済み
+        assert ch["cost_total"] == 200000.0
+        assert ch["pnl_val"] == 50000.0 and ch["pnl_pct"] == 25.0
+
+    def test_chart_us_uses_fx(self, monkeypatch):
+        idx = pd.date_range("2026-08-01", periods=2)
+        closes = pd.DataFrame({"VT": [100.0, 110.0], "JPY=X": [150.0, 160.0]}, index=idx)
+        svc = self._patch(monkeypatch, closes)
+        b = svc.get_stock_detail_bundle("VT", "米国株", 10, 15000.0, "")
+        vals = [p["v"] for p in b["chart"]["points"]]
+        assert vals == [100.0 * 10 * 150.0, 110.0 * 10 * 160.0]
+
+    def test_risk_metrics_wired(self, monkeypatch):
+        idx = pd.date_range("2026-01-01", periods=80, freq="B")
+        prices = pd.Series([1000 + i * 2 for i in range(80)], index=idx)
+        closes = pd.DataFrame({"7203.T": prices, "JPY=X": [150.0] * 80}, index=idx)
+        topix = pd.DataFrame({"Date": idx, "Close": [2700 + i for i in range(80)]})
+        svc = self._patch(monkeypatch, closes, topix=topix)
+        b = svc.get_stock_detail_bundle("7203", "日本株", 100, 1000.0, "")
+        assert b["risk"]["HV20"] is not None and b["risk"]["beta"] is not None
+
+    def test_fin_rows_and_revisions(self, monkeypatch):
+        idx = pd.date_range("2026-08-01", periods=2)
+        closes = pd.DataFrame({"7203.T": [100.0, 101.0]}, index=idx)
+        fin = pd.DataFrame({
+            "DiscDate": pd.to_datetime(["2026-02-10", "2026-08-10"]),
+            "TypeOfCurrentPeriod": ["2Q", "FY"],
+            "NetSales": [5e9, 1.05e10],
+            "OperatingProfit": [5e8, 1.1e9],
+            "Profit": [3e8, 8e8],
+            "EarningsPerShare": [25.0, 66.7],
+            "ForecastNetSales": [1e10, 1e10],
+            "ForecastProfit": [1e9, 1.2e9],
+        })
+        svc = self._patch(monkeypatch, closes, fin=fin)
+        b = svc.get_stock_detail_bundle("7203", "日本株", 100, 100.0, "")
+        rows = b["fin"]["rows"]
+        assert rows[1]["売上"] == 105.0 and rows[1]["EPS"] == 66.7  # 億円換算/EPSは円のまま
+        assert "2026/08 (FY)" == rows[1]["label"]
+        assert any("上振れ" in m for m in b["revisions"])       # 実績105億 vs 予想100億 = +5%
+        assert any("上方修正" in m for m in b["revisions"])     # 純利益予想 10億→12億 = +20%
+
+    def test_fin_v2_short_columns(self, monkeypatch):
+        """J-Quants V2短縮カラム名(Sales/OP/NP/EPS/CurPerType)でも業績が出る"""
+        idx = pd.date_range("2026-08-01", periods=2)
+        closes = pd.DataFrame({"2498.T": [3000.0, 3300.0]}, index=idx)
+        fin = pd.DataFrame({
+            "DiscDate": pd.to_datetime(["2026-05-15", "2026-08-14"]),
+            "CurPerType": ["2Q", "3Q"],
+            "Sales": [4.8e10, 7.37e10],
+            "OP": [3.5e9, 5.69e9],
+            "NP": [2.7e9, 4.32e9],
+            "EPS": [290.62, 359.8],
+            "FSales": [1.0e11, 1.0e11],
+            "FNP": [3.85e9, 3.85e9],
+        })
+        svc = self._patch(monkeypatch, closes, fin=fin)
+        b = svc.get_stock_detail_bundle("2498", "日本株", 100, 1127.0, "")
+        assert b["fin"]["metrics"] == ["売上", "営業利益", "純利益", "EPS"]
+        assert b["fin"]["rows"][1]["売上"] == 737.0 and b["fin"]["rows"][1]["EPS"] == 359.8
+        assert b["fin"]["rows"][1]["label"] == "2026/08 (3Q)"
+        # 四半期行(3Q累計 737億) vs 通期予想(1,000億)で偽の「下振れ」を出さない
+        assert not any("下振れ" in m for m in b["revisions"])
+
+    def test_mutual_fund_returns_empty(self, monkeypatch):
+        svc = self._patch(monkeypatch, pd.DataFrame())
+        b = svc.get_stock_detail_bundle("eMAXIS", "投資信託", 10, 30000.0, "")
+        assert b["chart"] is None and b["risk"] is None and b["fin"] is None
+
+
+@requires_client
+class TestStockDetailEndpoint:
+    @pytest.fixture
+    def client(self, auth_env):
+        from fastapi.testclient import TestClient
+        import api.main as m
+        m._login_backoff.clear()
+        return TestClient(m.app)
+
+    def test_validation_and_wiring(self, client, monkeypatch):
+        import api.main as m
+        captured = {}
+        monkeypatch.setattr(m.svc, "get_stock_detail_bundle",
+                            lambda code, market, shares, price, date: (captured.update(
+                                code=code, market=market, shares=shares, price=price, date=date) or {"detail": None}))
+        token = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
+        h = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/stock/detail?code=7203&market=投資信託", headers=h).status_code == 422
+        assert client.get("/api/stock/detail?code=&market=日本株", headers=h).status_code == 422
+        assert client.get("/api/stock/detail?code=7203&market=日本株").status_code == 401
+        r = client.get("/api/stock/detail?code=7203&market=日本株&shares=100&buy_price=2000&buy_date=2026/08/02", headers=h)
+        assert r.status_code == 200
+        assert captured == {"code": "7203", "market": "日本株", "shares": 100.0, "price": 2000.0, "date": "2026/08/02"}
+
+
+class TestMarketStorePolicy:
+    """marketstore の更新ポリシー(1日2回自動+手動30分制限) — 全てオフライン"""
+
+    def _dt(self, y, mo, d, h, mi):
+        from datetime import datetime
+        from marketstore import JST
+        return datetime(y, mo, d, h, mi, tzinfo=JST)
+
+    def test_latest_boundary(self):
+        import marketstore as ms
+        # 10:00 → 当日6:10 / 16:00 → 当日15:40 / 5:00 → 前日15:40
+        assert ms.latest_boundary(self._dt(2026, 8, 16, 10, 0)) == self._dt(2026, 8, 16, 6, 10)
+        assert ms.latest_boundary(self._dt(2026, 8, 16, 16, 0)) == self._dt(2026, 8, 16, 15, 40)
+        assert ms.latest_boundary(self._dt(2026, 8, 16, 5, 0)) == self._dt(2026, 8, 15, 15, 40)
+
+    def test_is_fresh(self):
+        import marketstore as ms
+        now = self._dt(2026, 8, 16, 10, 0)
+        assert ms.is_fresh(self._dt(2026, 8, 16, 7, 0), now) is True    # 当日境界後
+        assert ms.is_fresh(self._dt(2026, 8, 15, 16, 0), now) is False  # 当日6:10境界より古い
+        assert ms.is_fresh(None, now) is False
+
+    def _setup(self, monkeypatch, p_closes, p_info, p_fetched, live_called):
+        import marketstore as ms
+        import pandas as pd
+        monkeypatch.setattr(ms, "load_persistent", lambda: (p_closes, p_info, p_fetched))
+        monkeypatch.setattr(ms, "save_persistent", lambda c, i, f: None)
+        import market
+        live_closes = pd.DataFrame({"7203.T": [100.0]}, index=pd.to_datetime(["2026-08-15"]))
+        monkeypatch.setattr(market, "get_cached_market_data",
+                            lambda t, period="1y": (live_called.append("data"), live_closes)[1])
+        monkeypatch.setattr(market, "get_cached_ticker_info",
+                            lambda t: (live_called.append("info"), {"7203.T": {}})[1])
+        ms._mem.update(closes=None, info=None, fetched_at=None)  # プロセス内キャッシュをリセット
+        return ms
+
+    def _cache(self):
+        import pandas as pd
+        closes = pd.DataFrame({"7203.T": [99.0]}, index=pd.to_datetime(["2026-08-15"]))
+        return closes, {"7203.T": {"sector": "x"}}
+
+    def test_fresh_cache_serves_without_live_fetch(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=1)  # 直近取得=確実にfresh
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",))
+        assert live == [] and f == fetched and notice is None
+        assert c["7203.T"].iloc[0] == 99.0
+
+    def test_force_within_30min_returns_cache_with_notice(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=10)
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",), force=True)
+        assert live == [] and "30分" in notice
+
+    def test_force_after_30min_fetches_live(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=31)
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",), force=True)
+        assert set(live) == {"data", "info"} and notice is None
+        assert c["7203.T"].iloc[0] == 100.0  # ライブ値
+
+    def test_stale_cache_fetches_live(self, monkeypatch):
+        import marketstore as ms_mod
+        live = []
+        closes, info = self._cache()
+        stale = ms_mod.latest_boundary(__import__("datetime").datetime.now(ms_mod.JST)) - \
+            __import__("datetime").timedelta(minutes=5)
+        ms = self._setup(monkeypatch, closes, info, stale, live)
+        c, i, f, notice = ms.get_market_bundle(("7203.T",))
+        assert set(live) == {"data", "info"}
+
+    def test_uncovered_ticker_fetches_live(self, monkeypatch):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        live = []
+        closes, info = self._cache()
+        fetched = datetime.now(JST) - timedelta(minutes=1)
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        ms.get_market_bundle(("7203.T", "9999.T"))  # 9999.T はキャッシュ未収録
+        assert set(live) == {"data", "info"}
 
 
 class TestAppSettings:

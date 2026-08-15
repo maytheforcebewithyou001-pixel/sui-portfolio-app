@@ -214,7 +214,7 @@ export default function Analysis() {
   if (error && !snap) return <main><p className="status">エラー: {error}</p></main>;
   if (!snap || !derived) return null;
 
-  const header = <TopBar loadedAt={snap.loadedAt} loading={loading} onReload={reload} />;
+  const header = <TopBar loadedAt={snap.loadedAt} marketFetchedAt={snap.market_fetched_at} loading={loading} onReload={reload} />;
   if (derived.empty) {
     return (
       <main>

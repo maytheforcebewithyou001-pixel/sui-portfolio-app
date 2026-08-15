@@ -38,6 +38,22 @@ Streamlit Cloud Secrets / ローカル .env から Cloud Run へ移す。**キ�
 
 > `FC_TOKEN_SECRET` を変えると既存ログインは全て無効化される（トークン署名が変わるため）。ローカル検証で毎回再ログインが必要だったのはこの仕様。
 
+### 1-b. マルチユーザー化（P3-4 父アカウント・案A）で追加された環境変数
+
+| # | 環境変数名 | 形式 | 用途 |
+|---|---|---|---|
+| 10 | `FC_AUTH_USERS_JSON` | `{"admin": "<bcryptハッシュ>", "<父ユーザー名>": "<bcryptハッシュ>"}` | マルチユーザー認証辞書。**設定すると #5/#6 は無視される**。ハッシュを含むため Secret Manager 登録（例: `fc-auth-users`） |
+| 11 | `FC_SHEET_IDS_JSON` | `{"admin": "<シートID>", "<父ユーザー名>": "<父シートID>"}` | ユーザー別スプレッドシートID。シートIDは秘密情報ではないため `--set-env-vars` でよい |
+
+挙動の要点:
+
+- **後方互換**: #10/#11 を設定しない限り従来の単一ユーザー構成（#2/#3/#5/#6）のまま動く。現行本番は無変更で影響ゼロ
+- **ID漏洩防止**: 単一ユーザー互換の `FC_SHEET_ID` は `FC_API_USER` と一致するユーザーにしか適用されない。父ログインが admin のシートへ到達する経路は存在しない（test_api.py `TestUserContext` / `TestMultiUserEndpoints` で担保）
+- ログインユーザーは HMAC トークンに入り、リクエスト単位の ContextVar 経由で `data._current_user()` に届く（環境変数 `FC_API_USER` より優先）
+- `FC_SHEET_IDS_JSON` に無いユーザーは名前解決（`PortfolioData_<ユーザー名>`）になり、初回アクセス時にサービスアカウントの Drive に**空シートが自動作成される**。父シートは事前に作成して ID を登録する運用を推奨
+- 認証辞書から削除したユーザーは、発行済みトークンが期限内でも 401 になる（require_auth で照合）
+- 父パスワードのハッシュ生成: `python -c "import bcrypt,getpass; print(bcrypt.hashpw(getpass.getpass().encode(), bcrypt.gensalt()).decode())"`（値はチャット非経由でパイプ直行）
+
 ---
 
 ## 2. Cloud Run へデプロイ（岡部が実行）
