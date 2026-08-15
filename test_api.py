@@ -521,6 +521,28 @@ class TestStockDetailBundle:
         assert any("上振れ" in m for m in b["revisions"])       # 実績105億 vs 予想100億 = +5%
         assert any("上方修正" in m for m in b["revisions"])     # 純利益予想 10億→12億 = +20%
 
+    def test_fin_v2_short_columns(self, monkeypatch):
+        """J-Quants V2短縮カラム名(Sales/OP/NP/EPS/CurPerType)でも業績が出る"""
+        idx = pd.date_range("2026-08-01", periods=2)
+        closes = pd.DataFrame({"2498.T": [3000.0, 3300.0]}, index=idx)
+        fin = pd.DataFrame({
+            "DiscDate": pd.to_datetime(["2026-05-15", "2026-08-14"]),
+            "CurPerType": ["2Q", "3Q"],
+            "Sales": [4.8e10, 7.37e10],
+            "OP": [3.5e9, 5.69e9],
+            "NP": [2.7e9, 4.32e9],
+            "EPS": [290.62, 359.8],
+            "FSales": [1.0e11, 1.0e11],
+            "FNP": [3.85e9, 3.85e9],
+        })
+        svc = self._patch(monkeypatch, closes, fin=fin)
+        b = svc.get_stock_detail_bundle("2498", "日本株", 100, 1127.0, "")
+        assert b["fin"]["metrics"] == ["売上", "営業利益", "純利益", "EPS"]
+        assert b["fin"]["rows"][1]["売上"] == 737.0 and b["fin"]["rows"][1]["EPS"] == 359.8
+        assert b["fin"]["rows"][1]["label"] == "2026/08 (3Q)"
+        # 四半期行(3Q累計 737億) vs 通期予想(1,000億)で偽の「下振れ」を出さない
+        assert not any("下振れ" in m for m in b["revisions"])
+
     def test_mutual_fund_returns_empty(self, monkeypatch):
         svc = self._patch(monkeypatch, pd.DataFrame())
         b = svc.get_stock_detail_bundle("eMAXIS", "投資信託", 10, 30000.0, "")
