@@ -6,6 +6,20 @@
 
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $repo
+
+# Grant runtime SA access to the multi-user secrets (idempotent; needed once).
+$sa = "serviceAccount:344263534586-compute@developer.gserviceaccount.com"
+foreach ($sec in @("fc-auth-users", "fc-sheet-ids")) {
+  Write-Host "Granting secretAccessor on $sec ..."
+  gcloud secrets add-iam-policy-binding $sec `
+    --member $sa `
+    --role "roles/secretmanager.secretAccessor" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "NG: IAM grant failed on $sec" -ForegroundColor Red
+    exit 1
+  }
+}
+
 Write-Host "Deploying fc-api from: $repo"
 
 gcloud run deploy fc-api `
