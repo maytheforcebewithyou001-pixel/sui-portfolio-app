@@ -1,7 +1,14 @@
 """FC_AUTH_USERS_JSON 組み立てスクリプト — 秘密情報をチャット・画面に出さないための道具
 
 使い方(⚠ Claude Code の `!` 経由ではなく、別ウィンドウの PowerShell で。リポジトリ直下):
-  python scripts\make_auth_users_json.py | clip
+  python scripts\make_auth_users_json.py --out "$env:TEMP\fc_auth_users.json"
+  gcloud secrets versions add fc-auth-users --data-file="$env:TEMP\fc_auth_users.json"
+  Remove-Item "$env:TEMP\fc_auth_users.json"
+
+--out 推奨: PowerShell はパイプ・リダイレクトでテキストを再エンコードするため
+(5.1の `>` はUTF-16、`| clip` もBOM混入の恐れ)、Python から UTF-8(BOMなし)で
+直接ファイルに書き、gcloud にはそのファイルを渡すのが確実。
+--out を省略すると従来どおり stdout に出す(| clip 用)。
 
 対話プロンプトは stderr に出るので clip に混ざらない。完成した JSON だけが
 クリップボードに入り、Secret Manager (例: fc-auth-users) やローカル環境変数へ
@@ -13,6 +20,7 @@
   g = gcloud で Secret Manager から取得(admin の現行ハッシュ fc-auth-hash 用。
       事前に gcloud auth login 済みであること)
 """
+import argparse
 import getpass
 import json
 import subprocess
@@ -79,6 +87,9 @@ def hash_from_gcloud() -> str:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default=None, help="JSONの出力先ファイル(UTF-8/BOMなし)。省略時はstdout")
+    args = parser.parse_args()
     users = {}
     eprint("=== FC_AUTH_USERS_JSON 組み立て ===")
     eprint("ユーザーを順に登録します(admin も忘れずに)。ユーザー名を空 Enter で確定・出力。")
@@ -103,8 +114,15 @@ def main():
     if not users:
         eprint("登録なし。終了。")
         raise SystemExit(1)
-    print(json.dumps(users, ensure_ascii=False), end="")
-    eprint(f"\n✓ {len(users)}人分の JSON を stdout に出力しました(| clip 推奨)。")
+    payload = json.dumps(users, ensure_ascii=False)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8", newline="") as f:
+            f.write(payload)
+        eprint(f"\n✓ {len(users)}人分の JSON を {args.out} に書き出しました(UTF-8/BOMなし)。")
+        eprint("  gcloud 登録後に Remove-Item で削除すること。")
+    else:
+        print(payload, end="")
+        eprint(f"\n✓ {len(users)}人分の JSON を stdout に出力しました(| clip 推奨)。")
     eprint("  登録ユーザー: " + ", ".join(users))
 
 
