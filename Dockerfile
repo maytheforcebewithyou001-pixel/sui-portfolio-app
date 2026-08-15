@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements-api.txt
 # APIが参照する層のみコピー(web/ や証券CSV等は .dockerignore で除外)
 COPY api/ ./api/
 COPY tabs/ ./tabs/
-COPY calc.py config.py data.py jquants.py market.py ./
+COPY calc.py config.py data.py jquants.py market.py marketstore.py ./
 
 # Cloud Run は $PORT を注入する(既定8080)。--workers 1 = scale-to-zero前提の単一ユーザー用途
 ENV PORT=8080
