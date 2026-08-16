@@ -521,6 +521,38 @@ def save_lifeplan(dt_str, inputs_json, text):
         st.warning(f"保存エラー: {e}")
 
 # ══════════════════════════════════════════
+# ライフプランMC 実行履歴 (LifeplanHistory シート)
+# 列: 日時 | メモ | スコア | 主要指標JSON | パラメータJSON
+# パラメータ丸ごと保存=前提変更(年金平均値化等)をまたいでも条件を完全再現できる
+# ══════════════════════════════════════════
+def load_lifeplan_mc_history(n=50):
+    """直近n件 [(日時, メモ, スコア, 主要指標JSON, パラメータJSON), ...]"""
+    try:
+        vals = _get_sheet_values("LifeplanHistory")
+        if not vals or len(vals) < 2:
+            return []
+        rows = [tuple(r[:5]) for r in vals[1:] if len(r) >= 5 and r[0].strip()]
+        return rows[-n:]
+    except Exception as e:
+        logger.debug("ライフプランMC履歴読み込みスキップ: %s", e)
+        return []
+
+def save_lifeplan_mc(dt_str, memo, score, metrics_json, params_json):
+    """MC実行結果を追記保存（年次スコア記録用）"""
+    sh = get_spreadsheet()
+    if sh is None: return
+    try:
+        try: ws = sh.worksheet("LifeplanHistory")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="LifeplanHistory", rows="500", cols="5")
+            ws.append_row(["日時", "メモ", "スコア", "主要指標", "パラメータ"])
+        ws.append_row([dt_str, memo, score, metrics_json, params_json],
+                      value_input_option="RAW")
+        _clear_sheet_cache()
+    except Exception as e:
+        logger.error("ライフプランMC履歴保存エラー: %s", e)
+
+# ══════════════════════════════════════════
 # #3 yfinance障害用フォールバック: 最終取得価格を保存・復元
 # ══════════════════════════════════════════
 # 取引履歴 (TransactionData シート)

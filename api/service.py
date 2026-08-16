@@ -654,3 +654,227 @@ def generate_lifeplan(inputs: dict) -> dict:
     ns = _dt.now(_JST).strftime("%Y/%m/%d %H:%M")
     save_lifeplan(ns, _json.dumps(inputs, ensure_ascii=False), result)
     return {"dt": ns, "text": result, "truncated": stop == "max_tokens"}
+
+
+# ══════════════════════════════════════════
+# ライフプランMC (lifeplan_montecarlo_20260717 のエンジンを共有)
+# ══════════════════════════════════════════
+import math as _math  # noqa: E402
+
+from data import load_lifeplan_mc_history, save_lifeplan_mc  # noqa: E402
+from lifeplan_montecarlo_20260717 import (  # noqa: E402
+    historical_sequences as lifeplan_historical_sequences,
+    simulate as lifeplan_simulate,
+)
+
+# simulate() 引数のパススルー許可リスト(track は常にTrue)。
+# hist_returns/returns_seq の系列直接注入はAPIでは受けない(リプレイはPhase C)
+_LP_FLOAT_KEYS = frozenset({
+    "mu", "sigma", "save", "spend", "spend_after70", "pension_scale",
+    "risk0", "cash0", "pension_self", "pension_spouse", "reemploy_income",
+    "cash_real", "crash_year1", "tax_rate", "calm65_if_above", "ar1_rho", "mu_sd",
+    "edu_inflow"})
+_LP_INT_KEYS = frozenset({
+    "retire_age", "spouse_from", "age_end", "reemploy_until", "pension_from",
+    "block_len", "n_paths", "seed", "spend_change_age"})
+_LP_TUPLE_KEYS = {"calm65": 2, "guardrail": 2, "ideco": 5, "bonus_risk": 3,
+                  "disable_risk": 2, "death": 4, "crash_at": 2, "save_cut": 3}
+
+
+def _lp_num(v, name):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} は数値で指定")
+    if not _math.isfinite(f):
+        raise ValueError(f"{name} が有限の数値でない")
+    return f
+
+
+def _lp_coerce(params: dict) -> dict:
+    """検証+型変換して simulate() に渡せる kw を返す。
+
+    数値パリティの肝: 変換は型合わせのみで値の丸め・補正はしない。
+    既定値の適用はエンジン側に任せる(キー未指定=simulate()の既定)。"""
+    if not isinstance(params, dict):
+        raise ValueError("params はオブジェクトで指定")
+    allowed = (_LP_FLOAT_KEYS | _LP_INT_KEYS | set(_LP_TUPLE_KEYS)
+               | {"edu_track", "deterministic", "ret_model", "edu_plan", "shocks"})
+    unknown = set(params) - allowed
+    if unknown:
+        raise ValueError(f"未対応パラメータ: {sorted(unknown)}")
+    kw = {}
+    for k, v in params.items():
+        if v is None:
+            continue
+        if k in _LP_FLOAT_KEYS:
+            kw[k] = _lp_num(v, k)
+        elif k in _LP_INT_KEYS:
+            kw[k] = int(_lp_num(v, k))
+        elif k in _LP_TUPLE_KEYS:
+            n = _LP_TUPLE_KEYS[k]
+            if not isinstance(v, (list, tuple)) or len(v) != n:
+                raise ValueError(f"{k} は要素{n}の配列で指定")
+            kw[k] = tuple(_lp_num(x, k) for x in v)
+        elif k == "shocks":
+            if not isinstance(v, (list, tuple)) or len(v) > 200:
+                raise ValueError("shocks は [[年齢, 万円], ...] 形式(200件まで)")
+            rows = []
+            for item in v:
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    raise ValueError("shocks の各要素は [年齢, 万円]")
+                rows.append((int(_lp_num(item[0], "shocks.年齢")),
+                             _lp_num(item[1], "shocks.金額")))
+            kw[k] = tuple(rows)
+        elif k == "edu_plan":
+            if (not isinstance(v, dict) or set(v) != {"c1", "c2"}
+                    or any(not isinstance(v[c], (list, tuple)) or len(v[c]) != 4
+                           for c in ("c1", "c2"))):
+                raise ValueError('edu_plan は {"c1": [中,高,大,下宿], "c2": [...]} で指定')
+            kw[k] = {c: tuple(_lp_num(x, f"edu_plan.{c}") for x in v[c])
+                     for c in ("c1", "c2")}
+        elif k == "edu_track":
+            if v not in ("private", "light"):
+                raise ValueError('edu_track は "private" か "light"')
+            kw[k] = v
+        elif k == "ret_model":
+            if v not in ("iid", "bootstrap"):
+                raise ValueError('ret_model は "iid" か "bootstrap"')
+            kw[k] = v
+        elif k == "deterministic":
+            kw[k] = bool(v)
+    # 計算量ガード(Cloud Run 1リクエストの上限)
+    if not (90 <= kw.get("age_end", 95) <= 110):
+        raise ValueError("age_end は 90〜110")
+    if not (1 <= kw.get("n_paths", 20_000) <= 20_000):
+        raise ValueError("n_paths は 1〜20,000")
+    if not (1 <= kw.get("block_len", 5) <= 20):
+        raise ValueError("block_len は 1〜20")
+    if not (0 <= kw.get("edu_inflow", 21.0) <= 100):
+        raise ValueError("edu_inflow は 0〜100")
+    if not (55 <= kw.get("spend_change_age", 70) <= 105):
+        raise ValueError("spend_change_age は 55〜105")
+    return kw
+
+
+def run_lifeplan_mc(params: dict) -> dict:
+    """POST /api/lifeplan/mc 本体。simulate(track=True) を実行して軌跡込みで返す"""
+    kw = _lp_coerce(params)
+    r = lifeplan_simulate(track=True, **kw)
+    t = r.pop("trajectory")
+    r["trajectory"] = {
+        "ages": [int(a) for a in t["ages"]],
+        **{p: [float(x) for x in t[p]] for p in ("p5", "p25", "p50", "p75", "p95")},
+        "depletion": [float(x) for x in t["depletion"]],
+    }
+    # seq_score は序盤逆風の試行が無いと NaN → JSONにできないので null に落とす
+    if not _math.isfinite(r.get("seq_score", 0.0) or 0.0):
+        r["seq_score"] = None
+    return r
+
+
+# 開始年総当たりリプレイでは無効な設定(注入系列が全年のリターンを決めるため)。
+# エンジン側は指定するとValueErrorを投げる仕様なので、ここで落として dropped で通知する
+_LP_REPLAY_EXCLUDE = frozenset({
+    "ret_model", "block_len", "ar1_rho", "crash_year1", "crash_at", "save_cut",
+    "mu_sd", "calm65", "calm65_if_above", "deterministic", "seed", "n_paths"})
+
+
+def run_lifeplan_replay(params: dict) -> dict:
+    """POST /api/lifeplan/replay 本体。実史の全開始年リプレイ(決定論・乱数ゼロ)"""
+    kw = _lp_coerce(params)
+    dropped = sorted(k for k in kw if k in _LP_REPLAY_EXCLUDE)
+    for k in dropped:
+        kw.pop(k)
+    mu = kw.pop("mu", 0.04)
+    sigma = kw.pop("sigma", 0.18)
+    hs = lifeplan_historical_sequences(mu=mu, sigma=sigma, **kw)
+    return {
+        "success_rate": hs["success_rate"], "n_starts": hs["n_starts"],
+        "n_ok": hs["n_ok"], "dropped": dropped,
+        "results": [{"start": x["start"], "ok": bool(x["ok"]),
+                     "fail_age": x["fail_age"], "terminal": float(x["terminal"]),
+                     "wrapped": bool(x["wrapped"])} for x in hs["results"]],
+    }
+
+
+def solve_lifeplan_target(params: dict, target: float, lever: str) -> dict:
+    """POST /api/lifeplan/solve 本体。目標スコアに必要な貯蓄増/支出減を二分探索する。
+
+    lever="save": 年間貯蓄を現在値→400万の範囲で増やす(スコアは単調増加)
+    lever="spend": 老後生活費を現在値→240万の範囲で絞る(減らすほど単調増加)
+    """
+    if not (50.0 <= float(target) <= 99.9):
+        raise ValueError("target は 50〜99.9")
+    if lever not in ("save", "spend"):
+        raise ValueError('lever は "save" か "spend"')
+    kw = _lp_coerce(params)
+    kw.pop("deterministic", None)   # 決定論では確率目標の探索は無意味
+
+    def score_at(x):
+        return lifeplan_simulate(**{**kw, lever: float(x)})["score"]
+
+    cur = kw.get(lever, 200.0 if lever == "save" else 360.0)  # 未指定=エンジン既定
+    limit = 400.0 if lever == "save" else 240.0
+    s_cur = score_at(cur)
+    if s_cur >= target:
+        return {"achievable": True, "already": True, "current_value": cur,
+                "needed_value": cur, "score": s_cur}
+    s_lim = score_at(limit)
+    if s_lim < target:
+        return {"achievable": False, "already": False, "current_value": cur,
+                "limit_value": limit, "score": s_lim}
+    lo, hi = (cur, limit) if lever == "save" else (limit, cur)
+    # save: 上げるほど改善 / spend: 下げるほど改善 — 二分探索14回で±0.01万まで収束
+    for _ in range(14):
+        mid = (lo + hi) / 2
+        if score_at(mid) >= target:
+            if lever == "save":
+                hi = mid
+            else:
+                lo = mid
+        else:
+            if lever == "save":
+                lo = mid
+            else:
+                hi = mid
+    needed = hi if lever == "save" else lo
+    return {"achievable": True, "already": False, "current_value": cur,
+            "needed_value": round(needed, 1), "score": score_at(needed)}
+
+
+def get_lifeplan_mc_history() -> dict:
+    """GET /api/lifeplan/mc/history 本体。新しい順で返す"""
+    out = []
+    for dt_s, memo, score, mj, pj in load_lifeplan_mc_history(50):
+        try:
+            metrics = _json.loads(mj)
+        except (ValueError, TypeError):
+            metrics = {}
+        try:
+            saved_params = _json.loads(pj)
+        except (ValueError, TypeError):
+            saved_params = {}
+        try:
+            sc = float(score)
+        except (ValueError, TypeError):
+            sc = None
+        out.append({"dt": dt_s, "memo": memo, "score": sc,
+                    "metrics": metrics, "params": saved_params})
+    return {"history": out[::-1]}
+
+
+def save_lifeplan_mc_run(memo: str, params: dict, metrics: dict) -> dict:
+    """POST /api/lifeplan/mc/history 本体。パラメータ再検証の上でシートへ追記"""
+    kw = _lp_coerce(params)   # 保存前に再検証(不正パラメータの永続化を防ぐ)
+    if not isinstance(metrics, dict) or "score" not in metrics:
+        raise ValueError("metrics に score が必要")
+    keep = {k: metrics.get(k) for k in
+            ("score", "fail_age_med", "terminal_p50", "terminal_p5",
+             "cash_hit", "seq_score") if metrics.get(k) is not None}
+    ns = _dt.now(_JST).strftime("%Y/%m/%d %H:%M")
+    save_lifeplan_mc(ns, (memo or "").strip()[:100],
+                     round(float(metrics["score"]), 3),
+                     _json.dumps(keep, ensure_ascii=False),
+                     _json.dumps(params, ensure_ascii=False))
+    return {"dt": ns}

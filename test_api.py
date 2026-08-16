@@ -3,6 +3,7 @@
 エンドポイントテストは httpx 必須(requirements-api.txt)。未導入時はskip。
 """
 import importlib.util
+import json
 
 import bcrypt
 import pandas as pd
@@ -264,6 +265,140 @@ class TestHistoryState:
         assert st == {"history": [], "cost_total": 0.0, "benchmarks": {}}
 
 
+class TestLifeplanMc:
+    """service.run_lifeplan_mc — 乱数エンジン共有のため実物で実行(オフライン・依存なし)"""
+
+    def test_regression_default_score(self):
+        # 7/17確定の回帰基準: 既定(save=200)でスコア88.225厳密一致
+        import api.service as svc
+        r = svc.run_lifeplan_mc({})
+        assert abs(r["score"] - 88.225) < 1e-9
+        t = r["trajectory"]
+        assert t["ages"][0] == 40 and t["ages"][-1] == 95
+        assert len(t["p50"]) == len(t["ages"]) == len(t["depletion"]) == 56
+        # 95歳の累積枯渇確率 = 100 − 信頼スコア の自己整合
+        assert abs((100.0 - t["depletion"][-1]) - r["score"]) < 1e-9
+
+    def test_coercion_matches_direct_engine_call(self):
+        # 配列→tuple/dict変換後のスコアがエンジン直呼びと厳密一致(値の丸め・補正ゼロの証明)
+        import api.service as svc
+        from lifeplan_montecarlo_20260717 import simulate
+        via_api = svc.run_lifeplan_mc({
+            "save": 220, "shocks": [[60, -281.15]], "guardrail": [0.06, 0.10],
+            "edu_plan": {"c1": [40, 150, 250, 0], "c2": [40, 40, 120, 0]}})
+        direct = simulate(save=220.0, shocks=((60, -281.15),), guardrail=(0.06, 0.10),
+                          edu_plan={"c1": (40.0, 150.0, 250.0, 0.0),
+                                    "c2": (40.0, 40.0, 120.0, 0.0)})
+        assert via_api["score"] == direct["score"]
+        assert via_api["terminal_p50"] == direct["terminal_p50"]
+
+    def test_new_engine_params_equivalence(self):
+        # 8/16追加のedu_inflow/spend_change_age: 既定値明示=無指定と厳密一致(回帰保護)
+        import api.service as svc
+        from lifeplan_montecarlo_20260717 import simulate
+        base = simulate()["score"]
+        assert svc.run_lifeplan_mc({"edu_inflow": 21})["score"] == base
+        a = svc.run_lifeplan_mc({"spend_after70": 320, "spend_change_age": 70})["score"]
+        assert a == simulate(spend_after70=320.0)["score"]
+        # 方向性: 教育口座流入ゼロは低下、完済年齢の前倒しは改善
+        assert svc.run_lifeplan_mc({"edu_inflow": 0})["score"] < base
+        assert svc.run_lifeplan_mc({"spend_after70": 320, "spend_change_age": 65})["score"] > a
+
+    def test_validation_rejects(self):
+        import api.service as svc
+        for bad in [{"nokey": 1},                       # 未対応パラメータ
+                    {"n_paths": 20_001},                # 計算量ガード
+                    {"age_end": 120},
+                    {"edu_inflow": -1},
+                    {"spend_change_age": 50},
+                    {"mu": "abc"},                      # 数値でない
+                    {"mu": float("inf")},               # 有限でない
+                    {"shocks": [[60]]},                 # 要素数不正
+                    {"guardrail": [0.06]},
+                    {"edu_plan": {"c1": [1, 2, 3, 4]}},  # c2欠落
+                    {"ret_model": "garch"},
+                    {"edu_track": "elite"}]:
+            with pytest.raises(ValueError):
+                svc.run_lifeplan_mc(bad)
+
+    def test_none_values_fall_back_to_engine_defaults(self):
+        # null は「未指定」扱い(フォームの空欄をそのまま送れる)
+        import api.service as svc
+        r = svc.run_lifeplan_mc({"spend_after70": None, "n_paths": 100, "seed": 1})
+        assert 0.0 <= r["score"] <= 100.0
+
+    def test_seq_score_nan_becomes_none(self):
+        # 決定論(全パス上昇)では序盤逆風の試行ゼロ → seq_score=NaN → JSON安全なnullへ
+        import api.service as svc
+        r = svc.run_lifeplan_mc({"deterministic": True, "n_paths": 1})
+        assert r["seq_score"] is None
+        assert r["score"] == 100.0
+
+
+class TestLifeplanExtras:
+    """開始年リプレイ / 目標逆算ソルバー / Sheets履歴(モック)"""
+
+    def test_replay_matches_engine_and_drops_invalid(self):
+        import api.service as svc
+        from lifeplan_montecarlo_20260717 import historical_sequences
+        r = svc.run_lifeplan_replay({"save": 220, "ret_model": "bootstrap", "seed": 1})
+        direct = historical_sequences(save=220.0)
+        assert r["success_rate"] == direct["success_rate"]
+        assert r["n_starts"] == direct["n_starts"] == len(r["results"])
+        assert r["dropped"] == ["ret_model", "seed"]  # リプレイ無効設定は落として通知
+
+    def test_solver_save_reaches_target(self):
+        import api.service as svc
+        base = svc.run_lifeplan_mc({"n_paths": 800, "seed": 7})["score"]
+        # 既に達成している目標
+        r = svc.solve_lifeplan_target({"n_paths": 800, "seed": 7}, base - 1, "save")
+        assert r["already"] is True and r["achievable"] is True
+        # 貯蓄積み増しで届く目標: 二分探索の不変条件 f(needed)>=target
+        target = min(base + 3, 99.0)
+        r = svc.solve_lifeplan_target({"n_paths": 800, "seed": 7}, target, "save")
+        assert r["achievable"] is True
+        if not r["already"]:
+            assert r["needed_value"] > 200
+            assert r["score"] >= target
+
+    def test_solver_validation(self):
+        import api.service as svc
+        with pytest.raises(ValueError):
+            svc.solve_lifeplan_target({}, 40, "save")
+        with pytest.raises(ValueError):
+            svc.solve_lifeplan_target({}, 90, "rent")
+
+    def test_history_save_and_load(self, monkeypatch):
+        import api.service as svc
+        saved = []
+        monkeypatch.setattr(svc, "save_lifeplan_mc", lambda *a: saved.append(a))
+        out = svc.save_lifeplan_mc_run("年次点検", {"save": 220},
+                                       {"score": 91.065, "terminal_p50": 32091.0})
+        assert out["dt"] and saved
+        dt_s, memo, score, mj, pj = saved[0]
+        assert memo == "年次点検" and score == 91.065
+        assert json.loads(pj) == {"save": 220}
+        assert json.loads(mj)["terminal_p50"] == 32091.0
+        monkeypatch.setattr(svc, "load_lifeplan_mc_history",
+                            lambda n=50: [("2026/08/16 23:00", "a", "88.2",
+                                           '{"score": 88.2}', '{"save": 200}'),
+                                          ("2026/08/16 23:30", "b", "壊れた行",
+                                           "not-json", "not-json")])
+        h = svc.get_lifeplan_mc_history()
+        assert h["history"][0]["dt"] == "2026/08/16 23:30"  # 新しい順
+        assert h["history"][0]["score"] is None and h["history"][0]["params"] == {}
+        assert h["history"][1]["score"] == 88.2 and h["history"][1]["params"] == {"save": 200}
+
+    def test_history_save_rejects_bad_params(self, monkeypatch):
+        import api.service as svc
+        monkeypatch.setattr(svc, "save_lifeplan_mc",
+                            lambda *a: (_ for _ in ()).throw(AssertionError("呼ばれてはいけない")))
+        with pytest.raises(ValueError):
+            svc.save_lifeplan_mc_run("x", {"bad_key": 1}, {"score": 1.0})
+        with pytest.raises(ValueError):
+            svc.save_lifeplan_mc_run("x", {"save": 220}, {})  # score欠落
+
+
 @requires_client
 class TestEndpoints:
     @pytest.fixture
@@ -314,6 +449,50 @@ class TestEndpoints:
         r = client.get("/api/history", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         assert r.json() == fake
+
+    def test_lifeplan_mc_endpoint_wiring(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "run_lifeplan_mc", lambda p: {"score": 88.2, "echo": p})
+        assert client.post("/api/lifeplan/mc", json={"params": {}}).status_code == 401
+        token = self._token(client)
+        hdr = {"Authorization": f"Bearer {token}"}
+        r = client.post("/api/lifeplan/mc", json={"params": {"save": 220}}, headers=hdr)
+        assert r.status_code == 200
+        assert r.json()["echo"] == {"save": 220}
+        r = client.post("/api/lifeplan/mc", json={}, headers=hdr)  # params省略=既定{}
+        assert r.status_code == 200
+        assert r.json()["echo"] == {}
+
+    def test_lifeplan_mc_endpoint_validation_422(self, client):
+        token = self._token(client)
+        r = client.post("/api/lifeplan/mc", json={"params": {"nokey": 1}},
+                        headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 422
+        assert "未対応パラメータ" in r.json()["detail"]
+
+    def test_lifeplan_extras_endpoint_wiring(self, client, monkeypatch):
+        import api.main as m
+        monkeypatch.setattr(m.svc, "run_lifeplan_replay", lambda p: {"n_starts": 97, "echo": p})
+        monkeypatch.setattr(m.svc, "solve_lifeplan_target",
+                            lambda p, t, lv: {"target": t, "lever": lv})
+        monkeypatch.setattr(m.svc, "get_lifeplan_mc_history", lambda: {"history": []})
+        monkeypatch.setattr(m.svc, "save_lifeplan_mc_run",
+                            lambda memo, p, mx: {"dt": "2026/08/16", "memo": memo})
+        token = self._token(client)
+        hdr = {"Authorization": f"Bearer {token}"}
+        assert client.post("/api/lifeplan/replay", json={"params": {}}).status_code == 401
+        assert client.post("/api/lifeplan/replay", json={"params": {"save": 220}},
+                           headers=hdr).json()["echo"] == {"save": 220}
+        assert client.post("/api/lifeplan/solve",
+                           json={"params": {}, "target": 92, "lever": "spend"},
+                           headers=hdr).json() == {"target": 92, "lever": "spend"}
+        assert client.get("/api/lifeplan/mc/history", headers=hdr).json() == {"history": []}
+        assert client.post("/api/lifeplan/mc/history",
+                           json={"memo": "m", "params": {}, "metrics": {"score": 1}},
+                           headers=hdr).json()["memo"] == "m"
+        r = client.post("/api/lifeplan/mc/history",
+                        json={"memo": "x" * 101, "params": {}, "metrics": {}}, headers=hdr)
+        assert r.status_code == 422
 
     def test_simulate_future(self, client):
         """calc.get_future_simulation を実物で通す配線テスト(年利0なら評価額=元本)"""

@@ -189,6 +189,63 @@ def ai_lifeplan_generate(req: LifeplanRequest, user: str = Depends(require_auth)
     return _ai_errors(lambda: svc.generate_lifeplan(req.inputs))
 
 
+# ── ライフプランMC(モンテカルロ・シミュレーション) ──
+
+class LifeplanMcRequest(BaseModel):
+    params: dict = {}
+
+
+@app.post("/api/lifeplan/mc")
+def lifeplan_mc(req: LifeplanMcRequest, user: str = Depends(require_auth)):
+    try:
+        return svc.run_lifeplan_mc(req.params)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/api/lifeplan/replay")
+def lifeplan_replay(req: LifeplanMcRequest, user: str = Depends(require_auth)):
+    try:
+        return svc.run_lifeplan_replay(req.params)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+class LifeplanSolveRequest(BaseModel):
+    params: dict = {}
+    target: float = 90.0
+    lever: str = "save"
+
+
+@app.post("/api/lifeplan/solve")
+def lifeplan_solve(req: LifeplanSolveRequest, user: str = Depends(require_auth)):
+    try:
+        return svc.solve_lifeplan_target(req.params, req.target, req.lever)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/lifeplan/mc/history")
+def lifeplan_mc_history(user: str = Depends(require_auth)):
+    return svc.get_lifeplan_mc_history()
+
+
+class LifeplanSaveRequest(BaseModel):
+    memo: str = ""
+    params: dict = {}
+    metrics: dict = {}
+
+
+@app.post("/api/lifeplan/mc/history")
+def lifeplan_mc_history_save(req: LifeplanSaveRequest, user: str = Depends(require_auth)):
+    if len(req.memo) > 100:
+        raise HTTPException(status_code=422, detail="メモは100字まで")
+    try:
+        return svc.save_lifeplan_mc_run(req.memo, req.params, req.metrics)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 # ── 世界指標 / 投資部門フロー / ランク ──
 
 @app.get("/api/market/indices")

@@ -11,6 +11,7 @@ const TABS = [
   { href: "/currency", label: "通貨配分" },
   { href: "/dividend", label: "配当" },
   { href: "/simulation", label: "シミュレーション" },
+  { href: "/lifeplan", label: "ライフプラン" },
   { href: "/ai", label: "AI総評" },
   { href: "/transactions", label: "取引履歴" },
   { href: "/market", label: "世界指標" },
