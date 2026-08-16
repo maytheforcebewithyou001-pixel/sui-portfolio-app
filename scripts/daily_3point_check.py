@@ -27,7 +27,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 PROD_API = "https://fc-api-bop3i2fmpa-an.a.run.app"
 ADMIN_SHEET_ID = "1OGQ4Is39LwaidrwQqS_fTu0hodq5bOFZwBKzJlukECE"
-DEFAULT_CREDS = r"C:\Users\mayth\Documents\stock_backtest\credentials\gsa_key.json"
+DEFAULT_CREDS = r"C:\Users\mayth\dev\stock_backtest\credentials\gsa_key.json"
 LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "fc_checks")
 LOG_PATH = os.path.join(LOG_DIR, "daily_3point_log.csv")
 # 3点の定義(2026-08-14 E2Eの「3点一致」と同一)。許容誤差は点別:

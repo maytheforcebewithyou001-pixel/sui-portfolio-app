@@ -26,7 +26,7 @@ from google.oauth2.service_account import Credentials
 
 from config import EXPECTED_COLS
 
-DEFAULT_CREDS = r"C:\Users\mayth\Documents\stock_backtest\credentials\gsa_key.json"
+DEFAULT_CREDS = r"C:\Users\mayth\dev\stock_backtest\credentials\gsa_key.json"
 
 
 def main():

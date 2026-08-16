@@ -23,7 +23,7 @@ from api.service import build_snapshot  # noqa: E402
 # このマシン用の既定値(引数・環境変数があればそちらを優先)
 DEFAULT_USER = "admin"
 DEFAULT_SHEET_ID = "1OGQ4Is39LwaidrwQqS_fTu0hodq5bOFZwBKzJlukECE"
-DEFAULT_CREDS = r"C:\Users\mayth\Documents\stock_backtest\credentials\gsa_key.json"
+DEFAULT_CREDS = r"C:\Users\mayth\dev\stock_backtest\credentials\gsa_key.json"
 
 
 def main():

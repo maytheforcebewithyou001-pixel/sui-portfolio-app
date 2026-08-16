@@ -20,8 +20,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DEFAULT_SHEET_ID = "1OGQ4Is39LwaidrwQqS_fTu0hodq5bOFZwBKzJlukECE"
-DEFAULT_CREDS = r"C:\Users\mayth\Documents\stock_backtest\credentials\gsa_key.json"
-DOTENV_PATH = r"C:\Users\mayth\Documents\stock_backtest\.env"
+DEFAULT_CREDS = r"C:\Users\mayth\dev\stock_backtest\credentials\gsa_key.json"
+DOTENV_PATH = r"C:\Users\mayth\dev\stock_backtest\.env"
 # bcrypt("testpass", rounds=4) — ローカルE2E専用
 TEST_HASH = "$2b$04$pgSg0FlKnBZZ1h4ShpkGKev0HK8MhwROekBXm06U6feDTVsd28GOS"
 
