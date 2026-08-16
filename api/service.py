@@ -26,7 +26,7 @@ from data import (
     load_settings,
 )
 import marketstore
-from market import get_cached_market_data, get_cached_ticker_info
+from market import get_benchmark_history, get_cached_market_data, get_cached_ticker_info
 from calc import (
     calculate_portfolio,
     get_future_simulation,
@@ -173,6 +173,50 @@ def build_snapshot(force_refresh: bool = False) -> dict:
 
 
 # ══════════════════════════════════════════
+# 資産推移 + ベンチマーク比較 (tab_portfolio._render_history_chart と同一手順)
+# ══════════════════════════════════════════
+HISTORY_BENCHMARK_TICKERS = ("ACWI", "^GSPC")
+
+
+def get_history_state() -> dict:
+    """資産推移履歴・投資元本(概算)・円換算ベンチマーク系列を返す。
+
+    元本は Streamlit 版と同じく生データの Σ(保有株数×取得単価)。米国株の取得単価は
+    USD のまま合算されるため「概算」表記が前提(パリティ維持のため換算しない)。
+    期間フィルタ・100指数化・α算出はフロント側で行う(Streamlit版と同一の数式)
+    """
+    hdf = load_history()
+    rows = []
+    if not hdf.empty:
+        hdf = hdf.copy()
+        hdf["総資産額(円)"] = pd.to_numeric(hdf["総資産額(円)"], errors="coerce")
+        hdf = hdf.dropna(subset=["総資産額(円)"])
+        hdf["日付_dt"] = pd.to_datetime(hdf["日付"], errors="coerce")
+        hdf = hdf.dropna(subset=["日付_dt"]).sort_values("日付_dt")
+        rows = [{"date": d.strftime("%Y-%m-%d"), "total": float(v)}
+                for d, v in zip(hdf["日付_dt"], hdf["総資産額(円)"])]
+
+    df = load_data()
+    cost_total = float((df["保有株数"] * df["取得単価"]).sum()) if not df.empty else 0.0
+
+    benchmarks = {}
+    if len(rows) >= 2:
+        bdf = get_benchmark_history(HISTORY_BENCHMARK_TICKERS + ("JPY=X",), "2y")
+        if not bdf.empty and "JPY=X" in bdf.columns:
+            bdf = bdf.copy()
+            bdf.index = pd.to_datetime(bdf.index)
+            for tk in HISTORY_BENCHMARK_TICKERS:
+                if tk not in bdf.columns:
+                    continue
+                jpy = (bdf[tk] * bdf["JPY=X"]).dropna()
+                if len(jpy) < 2:
+                    continue
+                benchmarks[tk] = [{"date": i.strftime("%Y-%m-%d"), "value": float(v)}
+                                  for i, v in jpy.items()]
+    return {"history": rows, "cost_total": cost_total, "benchmarks": benchmarks}
+
+
+# ══════════════════════════════════════════
 # AI総評 / ライフプラン (tab_ai.py の共有関数を再利用)
 # ══════════════════════════════════════════
 import json as _json  # noqa: E402
@@ -310,7 +354,7 @@ def get_investor_flow(weeks: int) -> dict:
     """tab_market._render_investor_flow と同一(要約・系列・直近4週・シグナル)"""
     df = jquants.get_investor_types(weeks=weeks)
     if df is None or df.empty:
-        return {"available": False, "reason": "J-Quants 投資部門別売買データが取得できなかったわ。プラン契約範囲を確認して。"}
+        return {"available": False, "reason": "J-Quants 投資部門別売買データを取得できませんでした。プラン契約範囲を確認してください。"}
     cols = [c for c in _INVESTOR_LABELS if c in df.columns]
     if "EnDate" not in df.columns or not cols:
         return {"available": False, "reason": "投資部門データのカラム構造が想定と違う。スキップ。"}

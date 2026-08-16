@@ -217,6 +217,53 @@ class TestBuildSnapshot:
         assert snap["totals"]["stock_count"] == 0
 
 
+class TestHistoryState:
+    """service.get_history_state — 日付整形・元本Σ(株数×単価)・円換算ベンチマーク(全てオフライン)"""
+
+    def _patch(self, monkeypatch, hist_df, data_df, bench_df):
+        import api.service as svc
+        monkeypatch.setattr(svc, "load_history", lambda: hist_df)
+        monkeypatch.setattr(svc, "load_data", lambda: data_df)
+        monkeypatch.setattr(svc, "get_benchmark_history", lambda t, period="2y": bench_df)
+        return svc
+
+    def test_rows_sorted_cost_and_benchmarks(self, monkeypatch):
+        hist = pd.DataFrame({"日付": ["2026/08/02", "2026/08/01", "不正な日付"],
+                             "総資産額(円)": ["200", "100", "300"]})
+        data_df = pd.DataFrame([{"保有株数": 100, "取得単価": 2000},
+                                {"保有株数": 10, "取得単価": 30.5}])
+        idx = pd.to_datetime(["2026-08-01", "2026-08-02"])
+        bench = pd.DataFrame({"ACWI": [100.0, 110.0], "^GSPC": [50.0, 55.0],
+                              "JPY=X": [150.0, 152.0]}, index=idx)
+        svc = self._patch(monkeypatch, hist, data_df, bench)
+        st = svc.get_history_state()
+        assert [r["date"] for r in st["history"]] == ["2026-08-01", "2026-08-02"]  # ソート+不正日付drop
+        assert st["history"][0]["total"] == 100.0
+        assert st["cost_total"] == 100 * 2000 + 10 * 30.5
+        assert st["benchmarks"]["ACWI"][0] == {"date": "2026-08-01", "value": 100.0 * 150.0}
+        assert st["benchmarks"]["^GSPC"][-1]["value"] == 55.0 * 152.0
+
+    def test_single_point_skips_benchmark_fetch(self, monkeypatch):
+        import api.service as svc
+        called = []
+        monkeypatch.setattr(svc, "load_history",
+                            lambda: pd.DataFrame({"日付": ["2026/08/01"], "総資産額(円)": ["100"]}))
+        monkeypatch.setattr(svc, "load_data", lambda: pd.DataFrame())
+        monkeypatch.setattr(svc, "get_benchmark_history",
+                            lambda *a, **k: called.append(1) or pd.DataFrame())
+        st = svc.get_history_state()
+        assert st["history"][0]["total"] == 100.0
+        assert st["cost_total"] == 0.0
+        assert st["benchmarks"] == {}
+        assert called == []  # 2点未満はyfinanceを呼ばない
+
+    def test_empty_history(self, monkeypatch):
+        svc = self._patch(monkeypatch, pd.DataFrame(columns=["日付", "総資産額(円)"]),
+                          pd.DataFrame(), pd.DataFrame())
+        st = svc.get_history_state()
+        assert st == {"history": [], "cost_total": 0.0, "benchmarks": {}}
+
+
 @requires_client
 class TestEndpoints:
     @pytest.fixture
@@ -257,6 +304,16 @@ class TestEndpoints:
 
     def _token(self, client):
         return client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
+
+    def test_history_endpoint_wiring(self, client, monkeypatch):
+        import api.main as m
+        fake = {"history": [{"date": "2026-08-01", "total": 1.0}], "cost_total": 0.5, "benchmarks": {}}
+        monkeypatch.setattr(m.svc, "get_history_state", lambda: fake)
+        assert client.get("/api/history").status_code == 401
+        token = self._token(client)
+        r = client.get("/api/history", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        assert r.json() == fake
 
     def test_simulate_future(self, client):
         """calc.get_future_simulation を実物で通す配線テスト(年利0なら評価額=元本)"""
@@ -764,7 +821,7 @@ class TestRankAndMarket:
         import api.service as svc
         monkeypatch.setattr(svc.jquants, "get_investor_types", lambda weeks: pd.DataFrame())
         r = svc.get_investor_flow(12)
-        assert r["available"] is False and "取得できなかった" in r["reason"]
+        assert r["available"] is False and "取得できませんでした" in r["reason"]
 
     def test_investor_flow_signal_turn(self, monkeypatch):
         """前週売越→今週買越 で買越転換シグナルが出る"""
@@ -858,8 +915,11 @@ class TestAIPrompts:
         assert "6. 前回からの変化点" not in base
         assert "6. 前回からの変化点" in with_past
         # 固定ブロックの存在(退行検知)
-        for frag in ("牧瀬紅莉栖", "【投資信託の評価ルール（重要）】", "【現金の扱い】", "アクション提案（3〜5つ、優先度付き）"):
+        for frag in ("である調", "【投資信託の評価ルール（重要）】", "【現金の扱い】", "アクション提案（3〜5つ、優先度付き）"):
             assert frag in base
+        # 人格プロンプトの残骸が無いこと(である調への移行退行検知)
+        for gone in ("牧瀬紅莉栖", "アマデウス", "岡部"):
+            assert gone not in base
 
     def test_review_user_content_composition(self):
         from tabs.tab_ai import build_review_user_content

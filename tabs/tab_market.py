@@ -69,7 +69,7 @@ def _render_investor_flow():
 
     df = jquants.get_investor_types(weeks=weeks)
     if df is None or df.empty:
-        st.info("J-Quants 投資部門別売買データが取得できなかったわ。プラン契約範囲を確認して。")
+        st.info("J-Quants 投資部門別売買データを取得できませんでした。プラン契約範囲を確認してください。")
         return
 
     available_cols = [c for c in _INVESTOR_LABELS.keys() if c in df.columns]

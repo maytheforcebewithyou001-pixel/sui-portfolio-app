@@ -614,7 +614,7 @@ def _render_history_chart(df, TA):
                             st.markdown(f"<span style='font-size:0.85rem'>{b}対比 α: "
                                         f"<b style='color:{ac}'>{asign}{alpha:.2f}pt</b> "
                                         f"（あなた {pf_ret:+.2f}% vs {b} {bret:+.2f}%）</span>", unsafe_allow_html=True)
-                        st.caption("※ ベンチマークはETF(ACWI/S&P500)を円換算し期間開始=100に指数化した簡易比較。投信オルカンの基準価額とは厳密には一致しないわ。")
+                        st.caption("※ ベンチマークはETF(ACWI/S&P500)を円換算し期間開始=100に指数化した簡易比較。投信オルカンの基準価額とは厳密には一致しない。")
                     else:
                         st.caption("ベンチマーク価格を取得できませんでした。")
         else: st.info("選択期間内に記録がありません。")

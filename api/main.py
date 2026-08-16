@@ -84,6 +84,11 @@ def portfolio(refresh: int = 0, user: str = Depends(require_auth)):
     return build_snapshot(force_refresh=bool(refresh))
 
 
+@app.get("/api/history")
+def history(user: str = Depends(require_auth)):
+    return svc.get_history_state()
+
+
 class FutureSimRequest(BaseModel):
     initial: float
     annual_rate: float  # 例 0.06

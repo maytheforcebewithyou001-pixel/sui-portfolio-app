@@ -6,6 +6,7 @@ import { clearToken } from "../lib/api";
 
 const TABS = [
   { href: "/", label: "ポートフォリオ" },
+  { href: "/history", label: "資産推移" },
   { href: "/analysis", label: "分析" },
   { href: "/currency", label: "通貨配分" },
   { href: "/dividend", label: "配当" },
