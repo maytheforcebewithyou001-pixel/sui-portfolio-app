@@ -1,0 +1,27 @@
+# gcloud run deploy のソースアップロード除外(.dockerignore の対。こちらはアップロード段階で効く)
+# 注意: Dockerfile と requirements*.txt はアップロードに必須なので除外しない
+.git
+.gitignore
+.gcloudignore
+.streamlit
+credentials
+*.env
+.env*
+web
+node_modules
+.next
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+backups
+scripts
+test_*.py
+lifeplan_mc_verify.py
+app.py
+portfolio.csv
+*.csv
+*.md
+.vscode
+.devcontainer
+.github
