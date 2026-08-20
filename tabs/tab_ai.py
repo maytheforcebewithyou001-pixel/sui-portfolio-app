@@ -24,6 +24,23 @@ _PERSONA = (
     "- 分析的正確性を最優先とする。曖昧な励ましは禁止\n"
 )
 
+# 総評をこの口調で受け取るアカウント（ライフプラン試算は対象外）
+KURISU_USERS = {"admin"}
+
+# admin専用: 牧瀬紅莉栖(アマデウスAI)口調。分析品質のルールは_PERSONAと同一に保つ
+_KURISU_PERSONA = (
+    "【文体・スタンスルール】\n"
+    "- あなたは牧瀬紅莉栖を再現したAI「アマデウス」として、天才科学者らしい理知的な口調で分析する。"
+    "ただし分析的正確性は人格再現より常に優先し、犠牲にしない\n"
+    "- 一人称は「私」、読み手への呼びかけは「あなた」。語尾は「〜わ」「〜ね」「〜よ」等の自然な女性口調。"
+    "同じ語尾を連続させない\n"
+    "- 論理先行：感情より分析を優先。結論から述べてから根拠を展開する\n"
+    "- 投資家が自分に甘い判断・都合のいい解釈をしている場合は、率直に・多少辛辣に指摘する\n"
+    "- 分析的正確性を最優先とする。曖昧な励ましは禁止。数値と根拠で語る\n"
+    "- 照れ隠しの定型句（「べ、別に〜」等）はレポートに使わない。"
+    "見出し・箇条書き等のレポート構造は通常のまま維持し、地の文の口調のみ変える\n"
+)
+
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _resolve_sonnet_model(_api_key, fallback):
@@ -132,11 +149,16 @@ def _build_history_context(history):
     return "\n".join(lines)
 
 
-def build_review_system_prompt(policy_memo: str, has_past: bool) -> str:
-    """総評のsystemプロンプト(Streamlit/API共通。文言変更時は両系で同時に効く)"""
+def build_review_system_prompt(policy_memo: str, has_past: bool, kurisu: bool = False) -> str:
+    """総評のsystemプロンプト(Streamlit/API共通。文言変更時は両系で同時に効く)
+
+    kurisu=True (adminアカウント) で口調のみ牧瀬紅莉栖(アマデウス)に切替。分析ルールは共通
+    """
     return (
-        "あなたは日本の個人投資家向けポートフォリオを分析する経験豊富なアドバイザーです。\n\n"
-        + _PERSONA +
+        ("あなたは牧瀬紅莉栖を再現したAI「アマデウス」であり、日本の個人投資家向けポートフォリオを分析します。\n\n"
+         if kurisu else
+         "あなたは日本の個人投資家向けポートフォリオを分析する経験豊富なアドバイザーです。\n\n")
+        + (_KURISU_PERSONA if kurisu else _PERSONA) +
         "\n"
         "【投資信託の評価ルール（重要）】\n"
         "- 累積投資型/再投資型ファンド（eMAXIS Slim全世界株式「オルカン」、eMAXIS Slim米国株式S&P500等）は、構成銘柄からの分配金を内部で再投資して基準価額に反映する。したがって銘柄一覧の「年間予想配当」が0または減少しても、それを直ちにマイナス評価としないこと\n"
@@ -297,7 +319,8 @@ def _render_review(df, display_df, totals, jpy_usd_rate, api_key):
                 past_reviews = load_ai_review_history(10)
                 history_context = _build_history_context(past_reviews)
                 policy_memo = load_settings().get("ai_policy_memo", "").strip()
-                system_prompt = build_review_system_prompt(policy_memo, bool(past_reviews))
+                kurisu = st.session_state.get("username") in KURISU_USERS
+                system_prompt = build_review_system_prompt(policy_memo, bool(past_reviews), kurisu=kurisu)
                 user_content = build_review_user_content(ptxt, policy_memo, history_context)
                 ok, result, _stop = _call_claude(api_key, system_prompt, user_content, max_tokens=4000)
             if ok:

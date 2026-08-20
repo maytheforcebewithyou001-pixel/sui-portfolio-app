@@ -226,6 +226,7 @@ from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: E402
 
 from calc import build_portfolio_summary_text  # noqa: E402
 from data import (  # noqa: E402
+    _current_user,
     load_ai_review,
     load_ai_review_history,
     load_history,
@@ -235,6 +236,7 @@ from data import (  # noqa: E402
     save_settings,
 )
 from tabs.tab_ai import (  # noqa: E402
+    KURISU_USERS,
     _build_history_context,
     _call_claude,
     build_lifeplan_system_prompt,
@@ -296,7 +298,8 @@ def generate_ai_review() -> dict:
     past_reviews = load_ai_review_history(10)
     history_context = _build_history_context(past_reviews)
     policy_memo = load_settings().get("ai_policy_memo", "").strip()
-    system_prompt = build_review_system_prompt(policy_memo, bool(past_reviews))
+    system_prompt = build_review_system_prompt(
+        policy_memo, bool(past_reviews), kurisu=_current_user() in KURISU_USERS)
     user_content = build_review_user_content(ptxt, policy_memo, history_context)
     ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=4000)
     if not ok:
