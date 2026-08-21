@@ -83,30 +83,32 @@ button.ghost:hover { border-color: var(--accent); }
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 1.4rem;
+  justify-content: space-between; /* カードを両端揃えで均等分散し右側の空白をなくす */
+  gap: 1.2rem;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
-  padding: 0.9rem 1.2rem;
+  padding: 1rem 1.6rem;
   margin-bottom: 0.9rem;
 }
 
 .metric .label {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--text-dim);
   margin-bottom: 0.15rem;
 }
 
 .metric .big {
-  font-size: 1.55rem;
+  font-size: 1.9rem;
   font-weight: 700;
   color: var(--accent);
 }
 
-.metric .mid { font-size: 1.05rem; font-weight: 600; }
+.metric .mid { font-size: 1.35rem; font-weight: 600; }
 
-.metric .sub { font-size: 0.78rem; color: var(--text-dim); margin-left: 0.4rem; }
+/* subはカード内で縦に積む(横に連ねると評価額・損益カードが幅を食い、metrics全体が折り返すため) */
+.metric .sub { display: block; font-size: 0.85rem; color: var(--text-dim); margin-top: 0.15rem; }
 
 .pos { color: var(--up); }
 .neg { color: var(--down); }
@@ -775,3 +777,9 @@ button.pick.on { background: rgba(255, 255, 255, 0.04); }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.selrow { background: rgba(0, 210, 255, 0.1); }
 tbody tr.selrow:hover { background: rgba(0, 210, 255, 0.12); }
+tbody tr.subrow { background: rgba(255, 255, 255, 0.025); }
+tbody tr.subrow td.l { color: var(--text-dim); }
+.topbar .mkt-open { color: #00e676; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+.topbar .mkt-closed { color: rgba(255, 255, 255, 0.3); font-size: 0.72rem; white-space: nowrap; }
+.metric .sub.pos { color: var(--up); }
+.metric .sub.neg { color: var(--down); }
