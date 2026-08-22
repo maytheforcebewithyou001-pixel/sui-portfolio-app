@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import TopBar from "../../components/TopBar";
 import { useSnapshot } from "../../lib/useSnapshot";
 import { apiFetch, apiPost, clearSnapshot } from "../../lib/api";
-import { fmtInt, fmtG4, signedYenInt, pnlCls } from "../../lib/format";
+import { fmtInt, fmtNum, signedYenInt, pnlCls } from "../../lib/format";
 
 function todayStr() {
   const d = new Date();
@@ -190,7 +190,7 @@ function CsvImport({ onDone }) {
                     <td className="l">{r["_code"] || "-"}</td>
                     <td className="l">{r["_取引種別"]}</td>
                     <td className="l">{r["_口座区分"]}</td>
-                    <td>{fmtG4(r["_qty"])}</td>
+                    <td>{fmtNum(r["_qty"])}</td>
                     <td>{fmtPrice(r["_price"] ?? 0)}</td>
                   </tr>
                 ))}
@@ -266,7 +266,7 @@ function TxList({ transactions }) {
                   let v = r[c];
                   if (c === "損益確定(円)") v = fmtPnl(v || 0);
                   else if (c === "単価(円)") v = fmtPrice(v || 0);
-                  else if (c === "数量") v = fmtG4(v);
+                  else if (c === "数量") v = fmtNum(v);
                   return <td key={c} className={["日付", "銘柄コード", "銘柄名", "市場", "取引種別", "口座", "口座区分"].includes(c) ? "l" : ""}>{v ?? "-"}</td>;
                 })}
               </tr>

@@ -276,7 +276,8 @@ def render(tab, df):
             tx_show = tx_df.sort_values("日付", ascending=False).copy()
             tx_show["損益確定(円)"] = tx_show["損益確定(円)"].apply(lambda x: f"{x:+,.0f}円" if x != 0 else "-")
             tx_show["単価(円)"] = tx_show["単価(円)"].apply(lambda x: f"{x:,.0f}" if x > 0 else "-")
-            tx_show["数量"] = tx_show["数量"].apply(lambda x: f"{x:,.4g}")
+            # 整数は桁区切り・小数は最大4桁(web版 fmtNum と同一出力)。",.4g"は5桁以上が指数表記になるため不使用
+            tx_show["数量"] = tx_show["数量"].apply(lambda x: f"{x:,.0f}" if x == int(x) else f"{x:,.4f}".rstrip("0").rstrip("."))
             st.dataframe(tx_show, width='stretch', hide_index=True)
             st.download_button("📥 取引履歴をCSVでダウンロード", tx_df.to_csv(index=False).encode("utf-8-sig"),
                                f"transactions_{datetime.now():%Y%m%d}.csv", "text/csv", width="stretch")
