@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import TopBar from "../../components/TopBar";
 import { useSnapshot } from "../../lib/useSnapshot";
-import { fmtInt, fmtIntTrunc, fmtG4, signedYenInt } from "../../lib/format";
+import { fmtInt, fmtIntTrunc, fmtNum, signedYenInt } from "../../lib/format";
 
 // tab_currency.py:9 と同一の通貨識別色
 const CCY_COLORS = { JPY: "#00D2FF", USD: "#FFD54F", "現金(JPY)": "#4DB6AC", その他: "#B0B8C0" };
@@ -344,7 +344,7 @@ export default function Currency() {
               { key: "銘柄名", label: "銘柄名", left: true },
               { key: "市場", label: "市場", left: true },
               { key: "口座", label: "口座", left: true },
-              { key: "保有株数", label: "保有株数", fmt: fmtG4 },
+              { key: "保有株数", label: "保有株数", fmt: fmtNum },
               { key: "評価額(円)", label: "評価額(円)", fmt: fmtInt },
               { key: "税引後損益(円)", label: "税引後損益(円)", fmt: signedYenInt, cls: (v) => (v >= 0 ? "pos" : "neg") },
               { key: "実質利回り(%)", label: "実質利回り(%)", fmt: (v) => (typeof v === "number" ? `${v.toFixed(2)}%` : "-") },

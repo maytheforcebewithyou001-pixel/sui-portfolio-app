@@ -202,7 +202,9 @@ def _render_ccy_summary(cdf, ccy_agg, TA, jpy_usd_rate, cash_jpy=0.0):
             ac = [c for c in show_cols if c in subset.columns]
             show = subset[ac].sort_values("評価額(円)", ascending=False)
             fmt = {
-                "保有株数": "{:,.4g}", "評価額(円)": "{:,.0f}",
+                # 整数は桁区切り・小数は最大4桁(web版 fmtNum と同一出力)。",.4g"は5桁以上が指数表記になるため不使用
+                "保有株数": lambda x: f"{x:,.0f}" if x == int(x) else f"{x:,.4f}".rstrip("0").rstrip("."),
+                "評価額(円)": "{:,.0f}",
                 "税引後損益(円)": "{:+,.0f}", "実質利回り(%)": "{:.2f}%",
             }
             st.dataframe(
