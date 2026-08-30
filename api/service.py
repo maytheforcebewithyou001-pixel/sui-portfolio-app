@@ -316,7 +316,7 @@ def get_lifeplan_state() -> dict:
 # 世界指標 / 投資部門フロー / ランク
 # ══════════════════════════════════════════
 import jquants  # noqa: E402
-from config import RANK_TIERS, WORLD_INDICES, get_rank  # noqa: E402
+from config import RANK_TIERS, WORLD_INDICES, get_rank, logger as _svc_logger  # noqa: E402
 from investor_flow import INVESTOR_COLORS, INVESTOR_LABELS, flow_streak  # noqa: E402
 
 PERIOD_MAP = {"1週間": "5d", "1ヶ月": "1mo", "3ヶ月": "3mo", "1年": "1y"}
@@ -337,12 +337,18 @@ def get_world_indices(period_label: str) -> dict:
                 item["status"] = "データ不足"
             else:
                 last, prev = float(ser.iloc[-1]), float(ser.iloc[-2])
+                pct = ((last / prev) - 1) * 100
                 item.update({
                     "last": last,
                     "diff": last - prev,
-                    "pct": ((last / prev) - 1) * 100,
+                    "pct": pct,
                     "series": [{"t": str(idx)[:10], "v": float(v)} for idx, v in ser.items()],
                 })
+                # 分割未調整データ混入等の異常検知(指数の前日比±30%は通常あり得ない)。
+                # 表示は維持しつつフラグとログで検知する(1306.T 2026/3/30-31分割の教訓)
+                if abs(pct) > 30:
+                    item["suspect"] = True
+                    _svc_logger.warning("世界指標 %s(%s) の前日比が異常値 %+.1f%% — 分割未調整/データ品質を確認", name, tk, pct)
         out.append(item)
     return {"period": period_label, "indices": out}
 

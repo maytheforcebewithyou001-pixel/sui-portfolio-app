@@ -194,6 +194,10 @@ def _parse_daily(data, code):
     if close_col is None:
         logger.warning("J-Quants %s: 終値カラムが見つからない cols=%s", code, list(df.columns))
         return None
+    if close_col in ("C", "Close"):
+        # 調整後終値(AdjC等)が取れず生値へサイレントフォールバックすると
+        # 分割日をまたいだ前日比・チャートに断層が出る(1306.Tの教訓) — 明示的に警告する
+        logger.warning("J-Quants %s: 調整後終値カラムが無く生値(%s)を使用 — 分割時に断層の可能性", code, close_col)
 
     entries = []
     for _, row in df.iterrows():

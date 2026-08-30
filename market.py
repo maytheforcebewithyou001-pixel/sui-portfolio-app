@@ -15,9 +15,12 @@ import jquants
 
 
 def _yf_close_df(tickers, period):
-    """yfinanceから終値(Close)のDataFrameを取得。失敗・空なら空DFを返す。"""
+    """yfinanceから終値(Close)のDataFrameを取得。失敗・空なら空DFを返す。
+
+    auto_adjust=True を明示 — yfinanceのバージョン既定に依存すると分割・配当
+    未調整の生値が混ざり、前日比に断層が出る(1306.T 2026/3/30-31分割の教訓)"""
     try:
-        data = yf.download(tickers, period=period, progress=False, threads=True)
+        data = yf.download(tickers, period=period, progress=False, threads=True, auto_adjust=True)
         if data.empty:
             return pd.DataFrame()
         if isinstance(data.columns, pd.MultiIndex):
@@ -128,6 +131,30 @@ def get_cached_market_data(tickers_tuple, period="1y"):
 # ══════════════════════════════════════════
 # 銘柄情報（セクター・配当）
 # ══════════════════════════════════════════
+def _jq_div_rate(code):
+    """J-Quants 財務サマリの年間配当予想DPS(円/株)。取得不可・異常値は 0.0。
+
+    calc.py の配当優先順位②(div_rate)に日本株を乗せる自動化(2026-08-30)。
+    ①年間配当金(円/株)の手入力が常に優先されるため既存の手入力銘柄には影響しない。
+    ※DPSは分割未調整(jquants.get_dividend_status 参照)。前期実績との比率が
+    4倍超/0.25未満の値は分割・データ異常の疑いとして採用しない"""
+    try:
+        ds = jquants.get_dividend_status(code)
+    except Exception as e:
+        logger.debug("J-Quants DPS取得スキップ %s: %s", code, e)
+        return 0.0
+    if not ds or not ds.get("current") or ds["current"] <= 0:
+        return 0.0
+    prior = ds.get("prior")
+    if prior and prior > 0:
+        ratio = ds["current"] / prior
+        if ratio > 4 or ratio < 0.25:
+            logger.warning("J-Quants DPS異常(分割未調整の可能性) %s: 予想%.2f円/前期%.2f円 — 自動配当を無効化",
+                           code, ds["current"], prior)
+            return 0.0
+    return float(ds["current"])
+
+
 def _fetch_single_info(t):
     """yfinanceで1銘柄の情報を取得（米国株用）"""
     if t == "JPY=X": return t, None
@@ -168,7 +195,7 @@ def get_cached_ticker_info(tickers_tuple):
                 sector = ji.get("sector33", "") or ji.get("sector17", "") or "不明"
                 info_dict[t] = {
                     "sector": sector,
-                    "div_rate": 0.0,  # J-Quantsの銘柄情報には配当率なし、財務で別途取得
+                    "div_rate": _jq_div_rate(code),  # 財務サマリの年間配当予想DPS(手入力①が常に優先)
                     "div_yield": 0.0,
                     "ex_div_date": None,
                     "name": ji.get("name", ""),
