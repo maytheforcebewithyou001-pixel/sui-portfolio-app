@@ -71,7 +71,7 @@ def get_cached_market_data(tickers_tuple, period="1y"):
     period_days = {"5d": 10, "1mo": 40, "3mo": 100, "6mo": 200, "1y": 370, "2y": 740, "5y": 1780}
     jq_days = period_days.get(period)
     if jp_tickers and jquants.is_available() and jq_days is not None:
-        codes = [t.replace(".T", "") for t in jp_tickers]
+        codes = tuple(t.replace(".T", "") for t in jp_tickers)
         jq_quotes = jquants.get_daily_quotes(codes, days=jq_days)
         for code, entries in jq_quotes.items():
             ticker = f"{code}.T"

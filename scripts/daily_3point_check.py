@@ -116,7 +116,7 @@ def check_alerts(local_snapshot: dict) -> list:
             f"前期実績 {cut['prior']:.1f}円 ({cut['pct']:+.1f}%) ※株式分割の可能性あり。IR・適時開示で確認")
 
     try:
-        upcoming = jquants.get_upcoming_earnings(sorted(jp), days_ahead=7)
+        upcoming = jquants.get_upcoming_earnings(tuple(sorted(jp)), days_ahead=7)
     except Exception as e:
         print(f"[WARN] 決算カレンダー取得失敗: {e}")
         upcoming = []
