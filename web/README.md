@@ -10,7 +10,7 @@ PowerShell:
 
 ```powershell
 $env:FC_TOKEN_SECRET="<ランダムな長い文字列>"
-$env:FC_AUTH_PASSWORD_HASH="<bcryptハッシュ>"   # Streamlit版 [users] と同形式
+$env:FC_AUTH_PASSWORD_HASH="<bcryptハッシュ>"
 $env:FC_API_USER="admin"
 $env:FC_SHEET_ID="<スプレッドシートID>"
 $env:GCP_CREDENTIALS_JSON=(Get-Content <サービスアカウントJSONのパス> -Raw)

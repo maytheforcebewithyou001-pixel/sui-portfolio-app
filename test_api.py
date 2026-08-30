@@ -121,7 +121,6 @@ class TestUserContext:
     def test_sheet_id_not_leaked_to_other_user(self, monkeypatch):
         """単一ユーザー互換の FC_SHEET_ID は FC_API_USER 本人にしか適用されない"""
         import data
-        monkeypatch.setattr(data.st, "secrets", {}, raising=False)  # 実行環境のsecretsに依存しない
         monkeypatch.setenv("FC_API_USER", "admin")
         monkeypatch.setenv("FC_SHEET_ID", "admin-sheet-id")
         monkeypatch.delenv("FC_SHEET_IDS_JSON", raising=False)
@@ -130,7 +129,6 @@ class TestUserContext:
 
     def test_sheet_ids_json_per_user(self, monkeypatch):
         import data
-        monkeypatch.setattr(data.st, "secrets", {}, raising=False)
         monkeypatch.setenv("FC_SHEET_IDS_JSON", '{"admin": "a-id", "father": "f-id"}')
         monkeypatch.setenv("FC_SHEET_ID", "legacy-id")
         monkeypatch.setenv("FC_API_USER", "admin")
@@ -1014,19 +1012,19 @@ class TestRankAndMarket:
         assert r["topix"] == []
 
     def test_flow_streak(self):
-        from tabs.tab_market import _flow_streak
+        from investor_flow import flow_streak
         s = pd.Series([100.0, -50.0, 200.0, 300.0])
-        r = _flow_streak(s)
+        r = flow_streak(s)
         assert r["sign"] == 1 and r["weeks"] == 2 and r["cum"] == 500.0 and r["latest"] == 300.0
         s2 = pd.Series([100.0, -50.0, -30.0])
-        r2 = _flow_streak(s2)
+        r2 = flow_streak(s2)
         assert r2["sign"] == -1 and r2["weeks"] == 2 and r2["cum"] == -80.0
-        assert _flow_streak(pd.Series([0.0])) is None
-        assert _flow_streak(pd.Series(dtype=float)) is None
+        assert flow_streak(pd.Series([0.0])) is None
+        assert flow_streak(pd.Series(dtype=float)) is None
 
 
 class TestTransactionLogic:
-    """tab_transaction.py から抽出した共有実行ロジック(保存系はモック)"""
+    """transactions.py の共有実行ロジック(保存系はモック)"""
 
     def _df(self):
         return pd.DataFrame([
@@ -1037,7 +1035,7 @@ class TestTransactionLogic:
         ])
 
     def _patch_saves(self, monkeypatch):
-        import tabs.tab_transaction as tt
+        import transactions as tt
         calls = {"save_data": [], "save_transaction": [], "batch": []}
         monkeypatch.setattr(tt, "save_data", lambda df: calls["save_data"].append(df.copy()))
         monkeypatch.setattr(tt, "save_transaction", lambda tx: calls["save_transaction"].append(tx))
@@ -1046,7 +1044,7 @@ class TestTransactionLogic:
         return calls
 
     def test_record_sell(self, monkeypatch):
-        from tabs.tab_transaction import record_transaction
+        from transactions import record_transaction
         calls = self._patch_saves(monkeypatch)
         df = self._df()
         pnl = record_transaction(df, 0, "売却", "2026/08/13", 40, 2500.0, 0, "SBI証券", "特定口座")
@@ -1056,7 +1054,7 @@ class TestTransactionLogic:
         assert calls["save_transaction"][0]["損益確定(円)"] == 20000
 
     def test_record_buy_merges_position(self, monkeypatch):
-        from tabs.tab_transaction import record_transaction
+        from transactions import record_transaction
         self._patch_saves(monkeypatch)
         df = self._df()
         pnl = record_transaction(df, 0, "買い増し", "2026/08/13", 100, 3000.0, 0, "SBI証券", "特定口座")
@@ -1065,7 +1063,7 @@ class TestTransactionLogic:
         assert df.at[0, "取得単価"] == 2500  # (100*2000+100*3000)/200
 
     def test_apply_csv_import_both(self, monkeypatch):
-        from tabs.tab_transaction import apply_csv_import
+        from transactions import apply_csv_import
         calls = self._patch_saves(monkeypatch)
         df = self._df()
         csv_df = pd.DataFrame([
@@ -1082,10 +1080,10 @@ class TestTransactionLogic:
 
 
 class TestAIPrompts:
-    """tab_ai.py から抽出した共有プロンプトビルダーの条件分岐回帰"""
+    """ai_review.py の共有プロンプトビルダーの条件分岐回帰"""
 
     def test_review_prompt_memo_and_past_conditionals(self):
-        from tabs.tab_ai import build_review_system_prompt
+        from ai_review import build_review_system_prompt
         base = build_review_system_prompt("", False)
         with_memo = build_review_system_prompt("2498売却確定", False)
         with_past = build_review_system_prompt("", True)
@@ -1101,14 +1099,14 @@ class TestAIPrompts:
             assert gone not in base
 
     def test_review_user_content_composition(self):
-        from tabs.tab_ai import build_review_user_content
+        from ai_review import build_review_user_content
         uc = build_review_user_content("PTXT", "MEMO", "\nHIST")
         assert "PTXT" in uc and "■ 運用方針メモ（投資家の既決事項）\nMEMO" in uc and "HIST" in uc
         uc2 = build_review_user_content("PTXT", "", "")
         assert "運用方針メモ" not in uc2
 
     def test_lifeplan_prompt_fixed_blocks(self):
-        from tabs.tab_ai import build_lifeplan_system_prompt, build_lifeplan_user_content
+        from ai_review import build_lifeplan_system_prompt, build_lifeplan_user_content
         sp = build_lifeplan_system_prompt()
         for frag in ("ライフプランニング", "【出力構成（この順序で、見出し付きで）】", "7. 解決案"):
             assert frag in sp

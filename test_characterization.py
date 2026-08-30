@@ -1,10 +1,6 @@
 """特性テスト: リファクタ前の calc.py / config.py 純ロジックの挙動を凍結する。
 実行: PYTHONUTF8=1 python -m pytest test_characterization.py -v
 """
-import sys
-from unittest.mock import MagicMock
-sys.modules.setdefault("streamlit", MagicMock())  # streamlit 依存の回避（test_calc.py と同じ手法）
-
 import math
 import pandas as pd
 import pytest

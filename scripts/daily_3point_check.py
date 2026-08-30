@@ -1,7 +1,9 @@
-"""日次3点チェック (P3-4 並行運用の無風確認)
+"""日次3点チェック + 配当・決算アラート
 
 ローカル計算(このリポジトリのAPIパイプライン)と Cloud Run 本番 /api/portfolio の
 3点(評価額(現金込み)/損益(税引後)/年間配当(税引後))を突合し、乖離を検知する。
+あわせて旧Streamlit版ヘッダーにあった減配検知・決算カレンダーのアラートを実行する
+(2026-08-30 Streamlit退役に伴う移植)。
 
 - 認証: パスワードを保存しない。Secret Manager から fc-token-secret を gcloud で
   実行時取得し、api.auth.issue_token で自前署名したトークンを使う
@@ -75,6 +77,65 @@ def compute_local() -> dict:
     return build_snapshot()
 
 
+def _desktop_dir() -> str:
+    desktop = os.path.join(os.path.expanduser("~"), "OneDrive", "デスクトップ")
+    if not os.path.isdir(desktop):
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    return desktop
+
+
+def check_alerts(local_snapshot: dict) -> list:
+    """減配検知 + 決算カレンダー(旧app.pyヘッダーアラートの移植)。
+
+    - 減配の疑いは常にアラート(※分割の可能性があるためIR確認前提)
+    - 決算予定はFCアラート規約(前日比±3%以上 AND 1週間以内決算のAND条件)を満たす
+      ものだけアラート化し、それ以外は情報として印字のみ
+    戻り値: アラート文字列のリスト(空なら異常なし)
+    """
+    jp = {}
+    for r in local_snapshot.get("rows", []):
+        if str(r.get("市場", "")).strip() != "日本株":
+            continue
+        c = str(r.get("銘柄コード", "")).replace(".T", "").strip()
+        if len(c) >= 3 and c.isdigit():
+            jp[c] = {"name": str(r.get("銘柄名", "")), "dod": r.get("前日比")}
+    if not jp:
+        return []
+
+    import jquants
+    alerts = []
+    try:
+        cuts = jquants.scan_dividend_cuts(tuple(sorted(jp)))
+    except Exception as e:
+        print(f"[WARN] 減配スキャン失敗: {e}")
+        cuts = []
+    for cut in cuts:
+        nm = jp.get(cut["code"], {}).get("name") or cut["code"]
+        alerts.append(
+            f"減配の疑い(要確認): {nm}({cut['code']}) 予想年配当 {cut['current']:.1f}円 ＜ "
+            f"前期実績 {cut['prior']:.1f}円 ({cut['pct']:+.1f}%) ※株式分割の可能性あり。IR・適時開示で確認")
+
+    try:
+        upcoming = jquants.get_upcoming_earnings(sorted(jp), days_ahead=7)
+    except Exception as e:
+        print(f"[WARN] 決算カレンダー取得失敗: {e}")
+        upcoming = []
+    for e in upcoming:
+        info = jp.get(e["code"], {})
+        label = "本日決算" if e["days_until"] == 0 else f"あと{e['days_until']}日"
+        line = f"決算予定: {info.get('name') or e['code']}({e['code']}) {e['date']:%m/%d} — {label}"
+        dod = info.get("dod")
+        try:
+            dod_f = float(dod) if dod is not None else None
+        except (TypeError, ValueError):
+            dod_f = None
+        if dod_f is not None and abs(dod_f) >= 3.0:
+            alerts.append(f"{line} / 前日比 {dod_f:+.2f}% (±3%閾値超)")
+        else:
+            print(f"[INFO] {line}" + (f" / 前日比 {dod_f:+.2f}%" if dod_f is not None else ""))
+    return alerts
+
+
 def git_rev() -> str:
     try:
         r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
@@ -90,7 +151,8 @@ def main():
     now = datetime.now().strftime("%Y/%m/%d %H:%M")
     token = mint_token()
     prod = fetch_prod(token)["totals"]
-    local = compute_local()["totals"]
+    local_snapshot = compute_local()
+    local = local_snapshot["totals"]
 
     results, ok_all = [], True
     for name, getter, tol in POINTS:
@@ -115,11 +177,24 @@ def main():
             row += [f"{pv:.0f}", f"{lv:.0f}"]
         w.writerow(row)
 
+    # ── 減配・決算アラート(3点チェックの成否と独立。失敗しても突合結果は壊さない) ──
+    try:
+        alerts = check_alerts(local_snapshot)
+    except Exception as e:
+        print(f"[WARN] アラートチェック失敗: {e}")
+        alerts = []
+    for a in alerts:
+        print(f"⚠ {a}")
+    if alerts:
+        alert_path = os.path.join(_desktop_dir(), f"FC_配当決算アラート_{datetime.now():%Y%m%d}.txt")
+        with open(alert_path, "w", encoding="utf-8") as f:
+            f.write(f"FORCE CAPITAL 配当・決算アラート ({now})\n\n")
+            for a in alerts:
+                f.write(f"- {a}\n")
+        print(f"⚠ アラートファイル生成: {alert_path}")
+
     if not ok_all:
-        desktop = os.path.join(os.path.expanduser("~"), "OneDrive", "デスクトップ")
-        if not os.path.isdir(desktop):
-            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        alert = os.path.join(desktop, f"FC_日次チェックNG_{datetime.now():%Y%m%d}.txt")
+        alert = os.path.join(_desktop_dir(), f"FC_日次チェックNG_{datetime.now():%Y%m%d}.txt")
         with open(alert, "w", encoding="utf-8") as f:
             f.write(f"FORCE CAPITAL 日次3点チェック NG ({now})\n\n")
             for name, pv, lv, rel, ok in results:

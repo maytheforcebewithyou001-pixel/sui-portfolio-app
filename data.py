@@ -2,35 +2,39 @@
 データ層: Google Sheets 読み書き・マイグレーション・履歴管理
 
 改善点:
-  #1 バッチ読み込み — 全シートを1回で取得しsession_stateにキャッシュ (API呼び出し1/4)
+  #1 バッチ読み込み — 全シートを1回で取得しTTLキャッシュ (API呼び出し1/4)
   #2 安全な保存 — clear→writeの間にデータ消失しない batch_update 方式
 """
+import functools
 import os
-import streamlit as st
 import pandas as pd
 import json
 import gspread
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 from google.oauth2.service_account import Credentials
+from cacheutil import ttl_cache
 from config import logger, EXPECTED_COLS, normalize_broker, normalize_tax
+
+_JST = ZoneInfo("Asia/Tokyo")
 
 # ══════════════════════════════════════════
 # Google Sheets 接続
 # ══════════════════════════════════════════
-@st.cache_resource
+@functools.lru_cache(maxsize=None)
 def init_gspread():
     try:
-        # 環境変数優先(FastAPI等のStreamlit外実行用)、無ければ st.secrets
-        raw_creds = os.environ.get("GCP_CREDENTIALS_JSON", "") or st.secrets["gcp_credentials"]
+        raw_creds = os.environ.get("GCP_CREDENTIALS_JSON", "")
+        if not raw_creds:
+            raise RuntimeError("GCP_CREDENTIALS_JSON が未設定です")
         creds_json = json.loads(raw_creds)
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         credentials = Credentials.from_service_account_info(creds_json, scopes=scopes)
         return gspread.authorize(credentials)
     except Exception as e:
         logger.error("GCP認証エラー: %s", e)
-        st.error(f"認証エラー: {e}")
         return None
 
 # ══════════════════════════════════════════
@@ -48,17 +52,14 @@ def reset_request_user(token) -> None:
     _request_user.reset(token)
 
 def _current_user() -> str:
-    """ユーザー名の解決。優先順: リクエストコンテキスト → FC_API_USER → session_state → 'default'"""
+    """ユーザー名の解決。優先順: リクエストコンテキスト → FC_API_USER → 'default'"""
     req_user = _request_user.get()
     if req_user:
         return req_user
     env_user = os.environ.get("FC_API_USER", "")
     if env_user:
         return env_user
-    try:
-        return st.session_state.get("username") or "default"
-    except Exception:
-        return "default"
+    return "default"
 
 def _sheet_name_for(user: str) -> str:
     """ユーザー別スプレッドシート名（default は従来互換で PortfolioData）"""
@@ -69,7 +70,6 @@ def _get_sheet_id_for(user: str) -> Optional[str]:
       1. FC_SHEET_IDS_JSON ({"ユーザー名": "シートID"} のJSON辞書、マルチユーザー用)
       2. FC_SHEET_ID (単一ユーザー互換) — FC_API_USER と一致するユーザーにのみ適用。
          無条件に返すと別ユーザーのリクエストにこのIDが漏れるため
-      3. st.secrets [sheet_ids] (Streamlit版)
     """
     raw = os.environ.get("FC_SHEET_IDS_JSON", "")
     if raw:
@@ -82,18 +82,14 @@ def _get_sheet_id_for(user: str) -> Optional[str]:
     env_id = os.environ.get("FC_SHEET_ID", "")
     if env_id and user == os.environ.get("FC_API_USER", ""):
         return env_id
-    try:
-        sheet_ids = st.secrets.get("sheet_ids", {})
-        return sheet_ids.get(user)
-    except Exception:
-        return None
+    return None
 
-@st.cache_resource
+@functools.lru_cache(maxsize=None)
 def get_spreadsheet_for(user: str):
     """ユーザー別にスプレッドシートを開く。存在しない場合は自動作成（ヘッダー含む）
 
     優先順位:
-      1. secrets [sheet_ids] にIDがあればIDで開く（確実）
+      1. 環境変数(FC_SHEET_IDS_JSON/FC_SHEET_ID)にIDがあればIDで開く（確実）
       2. なければ名前で開くが、同名重複を検出してエラーにする
     """
     gc = init_gspread()
@@ -107,7 +103,6 @@ def get_spreadsheet_for(user: str):
             return gc.open_by_key(sheet_id)
         except Exception as e:
             logger.error("スプレッドシートID '%s' (user=%s) を開けません: %s", sheet_id, user, e)
-            st.error(f"スプレッドシート (ID: {sheet_id}) を開けません: {e}")
             return None
 
     # ── 名前で開く（同名重複チェック付き） ──
@@ -115,14 +110,9 @@ def get_spreadsheet_for(user: str):
         matches = gc.openall(name)
         if len(matches) > 1:
             ids = [s.id for s in matches]
-            logger.error("同名スプレッドシートが %d 件あります: name='%s', ids=%s", len(matches), name, ids)
-            st.error(
-                f"⚠ '{name}' という名前のスプレッドシートが {len(matches)} 件見つかりました。"
-                f"誤ったシートを開く可能性があるため停止します。\n\n"
-                f"**対処法**: Secrets に `[sheet_ids]` セクションを追加し、"
-                f"`{user} = \"<正しいスプレッドシートID>\"` を設定してください。\n\n"
-                f"候補ID: {', '.join(ids)}"
-            )
+            logger.error(
+                "同名スプレッドシートが %d 件あります: name='%s', ids=%s — "
+                "FC_SHEET_IDS_JSON に '%s' のIDを設定してください", len(matches), name, ids, user)
             return None
         if len(matches) == 1:
             return matches[0]
@@ -137,19 +127,14 @@ def get_spreadsheet_for(user: str):
             ws = sh.sheet1
             ws.update_title("PortfolioData")
             ws.update("A1", [EXPECTED_COLS], value_input_option="RAW")
-            st.success(f"✓ 新規ユーザー用スプレッドシート '{name}' を作成しました")
-            st.info(
-                f"💡 安全のため Secrets の `[sheet_ids]` に以下を追加することを推奨します:\n\n"
-                f'`{user} = "{sh.id}"`'
-            )
+            logger.info("✓ 新規ユーザー用スプレッドシート '%s' を作成 (id=%s)。"
+                        "FC_SHEET_IDS_JSON への登録を推奨", name, sh.id)
             return sh
         except Exception as e:
             logger.error("スプレッドシート作成失敗 (%s): %s", name, e)
-            st.error(f"スプレッドシート作成に失敗: {e}")
             return None
     except Exception as e:
         logger.error("スプレッドシート '%s' を開けません: %s", name, e)
-        st.error(f"スプレッドシート '{name}' エラー: {e}")
         return None
 
 def get_spreadsheet():
@@ -159,7 +144,7 @@ def get_spreadsheet():
 # ══════════════════════════════════════════
 # #1 バッチ読み込み: 全シートを1回のAPI呼び出しで取得
 # ══════════════════════════════════════════
-@st.cache_data(ttl=120, show_spinner=False)
+@ttl_cache(120)
 def _load_all_sheets_cached(user: str) -> dict:
     """ユーザー別に全シートをbatch取得してキャッシュ（キーに user を含める）"""
     sh = get_spreadsheet_for(user)
@@ -284,7 +269,6 @@ def load_data() -> pd.DataFrame:
         return _parse_main_sheet(values)
     except Exception as e:
         logger.error("データ読み込みエラー: %s", e)
-        st.error(f"データ読み込みエラー: {e}")
         return pd.DataFrame(columns=EXPECTED_COLS)
 
 # ══════════════════════════════════════════
@@ -318,7 +302,6 @@ def save_data(df: pd.DataFrame) -> None:
         logger.info("データ保存完了: %d行", len(save_df))
     except Exception as e:
         logger.error("データ保存エラー: %s", e)
-        st.error(f"データ保存エラー: {e}")
 
 # ══════════════════════════════════════════
 # 投信価格 (バッチから取得)
@@ -402,7 +385,8 @@ def save_history(date_str: str, total_asset: float) -> None:
 # 投信価格履歴 (記録ボタン連動)
 # ══════════════════════════════════════════
 def save_fund_history(fund_prices: dict) -> None:
-    """記録ボタン押下時に投信の個別価格を FundHistory シートに追記"""
+    """投信の個別価格を FundHistory シートに追記(日次Job 07:00 JST から呼ばれる)。
+    日付はJST明示 — コンテナ(UTC)実行でも前日日付にならないようにする"""
     sh = get_spreadsheet()
     if sh is None or not fund_prices:
         return
@@ -412,7 +396,7 @@ def save_fund_history(fund_prices: dict) -> None:
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title="FundHistory", rows="1000", cols="3")
             ws.append_row(["日付", "銘柄コード", "基準価額"])
-        date_str = datetime.now().strftime("%Y/%m/%d")
+        date_str = datetime.now(_JST).strftime("%Y/%m/%d")
         rows = [[date_str, code, price] for code, price in fund_prices.items()]
         ws.append_rows(rows)
         _clear_sheet_cache()
@@ -429,7 +413,7 @@ def load_prev_fund_prices() -> dict:
         rows = [r for r in all_values[1:] if len(r) >= 3 and r[0].strip()]
         if not rows:
             return {}
-        today = datetime.now().strftime("%Y/%m/%d")
+        today = datetime.now(_JST).strftime("%Y/%m/%d")
         # 今日以外の最新日付を探す
         dates = sorted(set(r[0].strip() for r in rows if r[0].strip() != today), reverse=True)
         if not dates:
@@ -488,7 +472,6 @@ def save_ai_review(dt_str, text):
         _clear_sheet_cache()
     except Exception as e:
         logger.error("AI総評保存エラー: %s", e)
-        st.warning(f"保存エラー: {e}")
 
 # ══════════════════════════════════════════
 # AIライフプラン試算 (履歴蓄積型)
@@ -518,7 +501,6 @@ def save_lifeplan(dt_str, inputs_json, text):
         _clear_sheet_cache()
     except Exception as e:
         logger.error("ライフプラン保存エラー: %s", e)
-        st.warning(f"保存エラー: {e}")
 
 # ══════════════════════════════════════════
 # ライフプランMC 実行履歴 (LifeplanHistory シート)
@@ -600,7 +582,6 @@ def save_transactions_batch(tx_list):
         _clear_sheet_cache()
     except Exception as e:
         logger.error("取引履歴保存エラー: %s", e)
-        st.error(f"取引履歴保存エラー: {e}")
 
 def save_last_prices(price_dict):
     """最終取得価格をSheetsに保存（yfinance障害時のフォールバック用）。
@@ -689,4 +670,3 @@ def save_settings(updates: dict) -> None:
         _clear_sheet_cache()
     except Exception as e:
         logger.error("設定保存エラー: %s", e)
-        st.error(f"設定保存エラー: {e}")

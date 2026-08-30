@@ -1,8 +1,8 @@
 """ポートフォリオ・スナップショット構築
 
-app.py の「データ取得」ブロック(load→ティッカー組立→市場データ→為替フォールバック→calc)と
-同一の手順・同一の関数で計算する。UI通知(st.warning相当)は warnings リストとして返す。
-並行運用中に app.py 側のパイプラインを変更した場合はここも追随すること(PHASE3_PLAN §5)。
+旧Streamlit版 app.py の「データ取得」ブロック(load→ティッカー組立→市場データ→
+為替フォールバック→calc)から移植した唯一の実装(2026-08-30 Streamlit退役済み)。
+UI通知は warnings リストとして返す。
 """
 import json
 
@@ -217,7 +217,7 @@ def get_history_state() -> dict:
 
 
 # ══════════════════════════════════════════
-# AI総評 / ライフプラン (tab_ai.py の共有関数を再利用)
+# AI総評 / ライフプラン (ai_review.py の共有関数を再利用)
 # ══════════════════════════════════════════
 import json as _json  # noqa: E402
 import os as _os  # noqa: E402
@@ -235,7 +235,7 @@ from data import (  # noqa: E402
     save_lifeplan,
     save_settings,
 )
-from tabs.tab_ai import (  # noqa: E402
+from ai_review import (  # noqa: E402
     KURISU_USERS,
     _build_history_context,
     _call_claude,
@@ -259,13 +259,7 @@ class AIGenerationError(Exception):
 def _anthropic_api_key() -> str:
     key = _os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
-        try:
-            import streamlit as st
-            key = st.secrets.get("anthropic_api_key", "")
-        except Exception:
-            key = ""
-    if not key:
-        raise AIKeyMissing("ANTHROPIC_API_KEY が未設定です(環境変数またはsecrets)")
+        raise AIKeyMissing("ANTHROPIC_API_KEY が未設定です")
     return key
 
 
@@ -323,7 +317,7 @@ def get_lifeplan_state() -> dict:
 # ══════════════════════════════════════════
 import jquants  # noqa: E402
 from config import RANK_TIERS, WORLD_INDICES, get_rank  # noqa: E402
-from tabs.tab_market import _INVESTOR_COLORS, _INVESTOR_LABELS, _flow_streak  # noqa: E402
+from investor_flow import INVESTOR_COLORS, INVESTOR_LABELS, flow_streak  # noqa: E402
 
 PERIOD_MAP = {"1週間": "5d", "1ヶ月": "1mo", "3ヶ月": "3mo", "1年": "1y"}
 
@@ -358,17 +352,17 @@ def get_investor_flow(weeks: int) -> dict:
     df = jquants.get_investor_types(weeks=weeks)
     if df is None or df.empty:
         return {"available": False, "reason": "J-Quants 投資部門別売買データを取得できませんでした。プラン契約範囲を確認してください。"}
-    cols = [c for c in _INVESTOR_LABELS if c in df.columns]
+    cols = [c for c in INVESTOR_LABELS if c in df.columns]
     if "EnDate" not in df.columns or not cols:
         return {"available": False, "reason": "投資部門データのカラム構造が想定と違う。スキップ。"}
 
     summary = []
     for col in ("FrgnBal", "IndBal"):
         if col in df.columns:
-            stk = _flow_streak(df[col])
+            stk = flow_streak(df[col])
             if stk:
                 summary.append({
-                    "col": col, "label": _INVESTOR_LABELS[col], "sign": stk["sign"],
+                    "col": col, "label": INVESTOR_LABELS[col], "sign": stk["sign"],
                     "weeks": stk["weeks"], "cum_oku": stk["cum"] / 1e8, "latest_oku": stk["latest"] / 1e8,
                 })
 
@@ -411,7 +405,7 @@ def get_investor_flow(weeks: int) -> dict:
 
     return {
         "available": True, "weeks": weeks,
-        "columns": [{"key": c, "label": _INVESTOR_LABELS[c], "color": _INVESTOR_COLORS.get(c, "#888")} for c in cols],
+        "columns": [{"key": c, "label": INVESTOR_LABELS[c], "color": INVESTOR_COLORS.get(c, "#888")} for c in cols],
         "rows": rows, "topix": topix_rows, "summary": summary, "signals": signals,
     }
 
@@ -465,8 +459,8 @@ def save_app_settings(target_jpy_pct=None, target_usd_pct=None, cash_balance_jpy
 # 銘柄詳細 (tab_portfolio._render_stock_detail と同一手順)
 # ══════════════════════════════════════════
 from calc import calc_risk_metrics  # noqa: E402
+from fin_view import build_fin_view  # noqa: E402
 from market import get_stock_detail as _get_stock_detail  # noqa: E402
-from tabs.tab_portfolio import build_fin_view  # noqa: E402
 
 
 def _f_or_none(v):
@@ -578,13 +572,13 @@ def get_rank_state() -> dict:
 
 
 # ══════════════════════════════════════════
-# 取引履歴 (tab_transaction.py の共有関数を再利用)
+# 取引履歴 (transactions.py の共有関数を再利用)
 # ══════════════════════════════════════════
 import io as _io  # noqa: E402
 
 from config import BROKER_OPTIONS, TAX_OPTIONS  # noqa: E402
 from data import load_transactions  # noqa: E402
-from tabs.tab_transaction import (  # noqa: E402
+from transactions import (  # noqa: E402
     _parse_broker_csv,
     apply_csv_import,
     record_transaction,

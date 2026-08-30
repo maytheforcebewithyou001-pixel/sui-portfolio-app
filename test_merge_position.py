@@ -1,7 +1,3 @@
-import sys
-from unittest.mock import MagicMock
-sys.modules.setdefault("streamlit", MagicMock())
-
 import pytest
 from calc import merge_position
 

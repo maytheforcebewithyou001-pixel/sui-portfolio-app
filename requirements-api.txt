@@ -1,6 +1,5 @@
-# FastAPI版(Phase 3)の依存。既存ロジック(data/calc/market/jquants)再利用のため
-# requirements.txt(streamlit含む)を丸ごと引き継ぐ — st.cache_data等はbareモードで動作する。
-# P3-3(Cloud Run化)でスリム化を検討。
+# FastAPI版の依存。共有ロジック(data/calc/market/jquants等)の依存は requirements.txt を引き継ぐ
+# (2026-08-30 Streamlit退役済み — streamlit系はrequirements.txtから削除済)
 -r requirements.txt
 fastapi>=0.110
 uvicorn[standard]>=0.29

@@ -119,7 +119,7 @@ curl https://fc-api-xxxxx.a.run.app/api/health   → {"status":"ok"}
 ## 5. 既知の注意点
 
 - **コールドスタート**: min-instances=0 のため初回アクセスは 5〜15秒かかる（イメージにpandas等を含むため）。体感が悪ければ `--min-instances 1`（月数百円）へ。
-- **イメージのスリム化は未実施**: `requirements-api.txt` が `requirements.txt` を丸ごと引き継ぐため streamlit/plotly も同梱される（`tabs/` の共有関数を再利用しているため現状は必要）。将来 `tabs/` 非依存に切り出せば大幅に軽くなる。
+- **イメージのスリム化は完了(2026-08-30)**: Streamlit退役に伴い共有関数を `ai_review.py` / `investor_flow.py` / `fin_view.py` / `transactions.py` へ切り出し、streamlit/plotly/Authlib/pyotp/qrcode を依存から削除済み。
 - **J-Quants CLI は同梱していない**: コンテナでは HTTP API 経路になる（`JQUANTS_API_KEY` 必須）。
 - **ログイン失敗のバックオフはインスタンス単位**: `api/main.py` の失敗カウンタはプロセス内変数のため、複数インスタンスに分散すると総当たり耐性が落ちる。単一ユーザー・低トラフィック前提では実害は小さいが、公開範囲を広げる場合は Cloud Armor か外部ストア方式へ変更すること。
 - **並行運用中の変更凍結**: PHASE3_PLAN §5 の通り、P3-4 完了までは機能追加を止めバグ修正のみ両系へ適用する。

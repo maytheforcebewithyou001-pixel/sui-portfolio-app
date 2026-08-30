@@ -1,10 +1,6 @@
-import sys
-from unittest.mock import MagicMock
-sys.modules.setdefault("streamlit", MagicMock())
-
 import io
 import pytest
-from tabs.tab_transaction import _parse_broker_csv
+from transactions import _parse_broker_csv
 
 
 def _file(text: str, enc="cp932"):

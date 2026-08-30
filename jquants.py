@@ -1,9 +1,8 @@
 """J-Quants データ取得（CLI優先 → HTTP API V2 フォールバック）
 
 ローカル環境: jquants CLI (Rust binary) が PATH にあれば CLI 経由で取得
-Streamlit Cloud: CLI がないため従来の HTTP API V2 を使用
+Cloud Run: CLI がないため従来の HTTP API V2 を使用
 """
-import streamlit as st
 import pandas as pd
 import subprocess
 import shutil
@@ -13,6 +12,7 @@ import os
 import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from cacheutil import ttl_cache
 from config import logger
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -32,15 +32,8 @@ else:
 # API key
 # ══════════════════════════════════════════
 def _api_key():
-    # CLI は .env / credentials.json から自動読み込みするため secrets 不要
-    key = os.environ.get("JQUANTS_API_KEY", "")
-    if key:
-        return key
-    try:
-        return st.secrets.get("jquants_api_key", "")
-    except Exception:
-        # secrets.toml自体が無い環境(Streamlit外実行)では .get() でも例外になる
-        return ""
+    # CLI は .env / credentials.json から自動読み込みするため未設定でも動く
+    return os.environ.get("JQUANTS_API_KEY", "")
 
 
 # ══════════════════════════════════════════
@@ -131,7 +124,7 @@ def _http_get(path, params=None):
 # ══════════════════════════════════════════
 # 株価取得
 # ══════════════════════════════════════════
-@st.cache_data(ttl=600, show_spinner=False)
+@ttl_cache(600)
 def get_daily_quotes(codes, days=5):
     """日本株の直近N日の終値を取得。
     Returns: {銘柄コード: [{Date, Close}, ...]}
@@ -214,7 +207,7 @@ def _parse_daily(data, code):
 # ══════════════════════════════════════════
 # 銘柄情報（セクター等）
 # ══════════════════════════════════════════
-@st.cache_data(ttl=86400, show_spinner=False)
+@ttl_cache(86400)
 def get_listed_info(code=None):
     """銘柄情報を取得。codeを指定すれば1銘柄、Noneなら全銘柄。"""
     data = None
@@ -256,7 +249,7 @@ def get_listed_info(code=None):
 # ══════════════════════════════════════════
 # 投資部門別売買 (TSEPrime)
 # ══════════════════════════════════════════
-@st.cache_data(ttl=3600, show_spinner=False)
+@ttl_cache(3600)
 def get_investor_types(weeks=12, section="TSEPrime"):
     """投資部門別売買代金を取得。海外/個人/信託銀行等のネット買越額。
 
@@ -304,7 +297,7 @@ def get_investor_types(weeks=12, section="TSEPrime"):
 # ══════════════════════════════════════════
 # TOPIX OHLC
 # ══════════════════════════════════════════
-@st.cache_data(ttl=3600, show_spinner=False)
+@ttl_cache(3600)
 def get_topix_ohlc(period_days=400):
     """TOPIX 日足を取得。
     Returns: pd.DataFrame with columns [Date, Open, High, Low, Close]
@@ -337,7 +330,7 @@ def get_topix_ohlc(period_days=400):
 # ══════════════════════════════════════════
 # 財務サマリ時系列（過去N四半期）
 # ══════════════════════════════════════════
-@st.cache_data(ttl=86400, show_spinner=False)
+@ttl_cache(86400)
 def get_fin_statements_history(code, limit=8):
     """直近N件分の財務サマリーを開示日昇順で返す。"""
     c = str(code).replace(".T", "").strip()
@@ -362,7 +355,7 @@ def get_fin_statements_history(code, limit=8):
 # ══════════════════════════════════════════
 # 減配検知（配当予想 vs 前期実績）
 # ══════════════════════════════════════════
-@st.cache_data(ttl=86400, show_spinner=False)
+@ttl_cache(86400)
 def get_dividend_status(code):
     """財務サマリから年間配当(予想/実績)を取り、減配の兆候を判定。
 
@@ -410,7 +403,7 @@ def get_dividend_status(code):
     return {"current": current, "prior": prior, "pct": pct, "is_cut": pct <= -1.0}
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@ttl_cache(86400)
 def scan_dividend_cuts(codes_tuple):
     """保有日本株を一括スキャンし減配の疑いがある銘柄を返す（日次キャッシュ）。
 
@@ -432,7 +425,7 @@ def scan_dividend_cuts(codes_tuple):
 # ══════════════════════════════════════════
 # 決算カレンダー (yfinance + J-Quants当日分)
 # ══════════════════════════════════════════
-@st.cache_data(ttl=3600, show_spinner=False)
+@ttl_cache(3600)
 def get_upcoming_earnings(codes, days_ahead=7):
     """保有銘柄の今後N日以内の決算発表予定を返す。
 

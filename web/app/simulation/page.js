@@ -405,7 +405,7 @@ export default function Simulation() {
                     <Bar dataKey="取り崩し額(円)" name="年間取崩" fill="#FFA726" opacity={0.85} isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
-                <p className="caption" style={{ paddingLeft: "0.4rem" }}>上=残高 / 下=年間取崩（Streamlit版の2軸重ねを上下分割で表示）</p>
+                <p className="caption" style={{ paddingLeft: "0.4rem" }}>上=残高 / 下=年間取崩（上下分割で表示）</p>
               </div>
 
               <details className="expander" style={{ marginTop: "0.8rem" }}>

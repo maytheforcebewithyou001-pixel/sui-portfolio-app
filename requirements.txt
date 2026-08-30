@@ -1,13 +1,8 @@
-# 2026-07-05 リファクタ(R1-R15)反映のため完全リビルドを強制（config新定数のモジュールキャッシュ解消）
-streamlit>=1.42,<2.0
-Authlib>=1.3.2,<2.0
+# 2026-08-30 Streamlit退役: streamlit/Authlib/pyotp/qrcode/plotly を削除(共有ロジックの依存のみ残す)
 yfinance>=1.0,<2.0
 pandas>=2.0,<3.0
 numpy>=1.26,<3.0
-plotly>=5.18,<6.0
 gspread>=6.0,<7.0
 google-auth>=2.28,<3.0
 requests>=2.31,<3.0
 bcrypt>=4.1,<5.0
-pyotp>=2.9,<3.0
-qrcode[pil]>=7.4,<8.0

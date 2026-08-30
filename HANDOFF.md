@@ -1,20 +1,21 @@
 # FORCE CAPITAL - 引き継ぎメモ
 
-最終更新: 2026-04-06
+最終更新: 2026-08-30（**Streamlit版は退役・削除済み**。以下の歴史的記述はStreamlit時代のもの。現行構成は CLAUDE.md / DEPLOY.md / PHASE3_PLAN.md を参照）
 
 ## プロジェクト概要
 
 - **名称**: FORCE CAPITAL
-- **種類**: 個人投資家向けポートフォリオ管理ツール（Streamlitアプリ）
+- **種類**: 個人投資家向けポートフォリオ管理ツール（Next.js + FastAPI）
 - **リポジトリ**: `maytheforcebewithyou001-pixel/sui-portfolio-app`
-- **デプロイ先**: Streamlit Community Cloud
-- **運用フェーズ**: Phase 2（限定β、admin運用開始段階）
+- **デプロイ先**: Vercel（web/） + Cloud Run（fc-api / fc-history-record）
+- **運用フェーズ**: Phase 3 完了（Web版本番稼働・Streamlit退役 2026-08-30）
 
 ## 技術スタック
 
-- **フロント/バック**: Streamlit (Python)
+- **フロント**: Next.js（web/）
+- **バック**: FastAPI（api/）+ 共有ロジック（ルート直下 *.py）
 - **DB**: Google Sheets（ユーザー別に `PortfolioData_{username}`）
-- **認証**: bcrypt パスワード + TOTP (optional) / Google OAuth (st.login)
+- **認証**: bcrypt パスワード + HMAC署名トークン（api/auth.py）
 - **価格取得**: J-Quants V2（日本株） / yfinance（米国株・指数・為替）
 - **AI総評**: Claude API
 

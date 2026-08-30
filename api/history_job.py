@@ -23,7 +23,7 @@ JST = timezone(timedelta(hours=9))
 def main() -> None:
     os.environ.setdefault("FC_API_USER", "admin")
     from api.service import build_snapshot
-    from data import load_history, save_history
+    from data import load_fund_prices, load_history, save_fund_history, save_history
 
     today = datetime.now(JST).strftime("%Y/%m/%d")
     total = float(build_snapshot()["totals"]["total_asset_all"])
@@ -36,6 +36,14 @@ def main() -> None:
     if today not in set(load_history()["日付"].astype(str)):
         raise RuntimeError("save_history 後の再読込で当日行が見つからない(書込失敗)")
     print(f"OK: {today} に {total:,.0f} 円を記録")
+
+    # 投信価格履歴も記録(旧Streamlit版「💾 記録」ボタンの save_fund_history 相当)。
+    # 投信の前日比(load_prev_fund_prices)の唯一の供給源 — 記録が止まると前日比が劣化する。
+    # HistoryData の同日SKIPを通過した実行だけが書くため1日1回に自然と収まる
+    fund_prices = load_fund_prices()
+    if fund_prices:
+        save_fund_history(fund_prices)
+        print(f"OK: FundHistory に投信 {len(fund_prices)} 銘柄の基準価額を記録")
 
 
 if __name__ == "__main__":

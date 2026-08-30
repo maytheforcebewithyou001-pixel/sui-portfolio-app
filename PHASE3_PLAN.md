@@ -69,10 +69,13 @@ P3-2 の移植順は利用頻度順。着手時に本表を確定する。
 - Secrets: Streamlit Cloud Secrets → Cloud Run 環境変数/Secret Manager へ移設
 - GCPサービスアカウントは既存を流用(90日キーローテ運用継続)
 
-### P3-4: 並行運用→切替
-- 新旧を並行運用し、日次で評価額・損益・配当の3点一致を確認(最低2週間)
-- 機能同等を確認後、Streamlit Cloud 停止・keep-alive ワークフロー(GHA)削除
-- HANDOFF.md を新構成で全面改訂
+### P3-4: 並行運用→切替 ✅ 完了(2026-08-30 退役実施)
+- 新旧を並行運用し、日次で評価額・損益・配当の3点一致を確認(最低2週間) — 実施済み
+- 2026-08-30: Streamlit版(app.py/style.py/tabs/)削除・keep-alive ワークフロー(GHA)削除・
+  共有関数を ai_review.py/investor_flow.py/fin_view.py/transactions.py へ切り出し・
+  streamlit依存を requirements から除去。FundHistory記録は日次Job、減配/決算アラートは
+  日次3点チェックへ移植。残: Streamlit Community Cloud 側のアプリ削除(手動)
+- HANDOFF.md はヘッダーで退役を明記(歴史的記録として温存)
 
 ## 5. リスク登録簿
 

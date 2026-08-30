@@ -1,8 +1,4 @@
 """calc_nisa_usage の特性テスト（NISA枠の投信÷10,000換算を凍結）"""
-import sys
-from unittest.mock import MagicMock
-sys.modules.setdefault("streamlit", MagicMock())
-
 import pandas as pd
 import pytest
 from calc import calc_nisa_usage

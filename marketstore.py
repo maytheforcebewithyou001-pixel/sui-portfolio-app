@@ -141,7 +141,7 @@ def get_market_bundle(tickers_tuple, force: bool = False):
     Returns: (closes_df, info_dict, fetched_at, notice)
       notice: force拒否時などにユーザーへ伝える文字列(なければNone)
     """
-    import market  # 遅延import(streamlit依存の読み込みを局所化)
+    import market  # 遅延import(循環import回避)
 
     now = datetime.now(JST)
     tickers = list(tickers_tuple)

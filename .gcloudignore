@@ -18,7 +18,6 @@ backups
 scripts
 test_*.py
 lifeplan_mc_verify.py
-app.py
 portfolio.csv
 *.csv
 *.md

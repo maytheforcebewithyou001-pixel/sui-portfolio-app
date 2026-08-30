@@ -4,11 +4,11 @@
   米国株: yfinance
   為替・指数: yfinance
 """
-import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from cacheutil import ttl_cache
 from config import logger, SECTOR_MAP
 from data import save_last_prices, load_last_prices
 import jquants
@@ -31,7 +31,7 @@ def _yf_close_df(tickers, period):
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@ttl_cache(3600)
 def get_benchmark_history(tickers_tuple, period="2y"):
     """ベンチマーク指数の終値履歴をyfinanceから取得（Sheets書込等の副作用なし・1hキャッシュ）。"""
     tickers = list(tickers_tuple)
@@ -44,7 +44,7 @@ def get_benchmark_history(tickers_tuple, period="2y"):
 # ══════════════════════════════════════════
 # 株価データ（日足終値）
 # ══════════════════════════════════════════
-@st.cache_data(ttl=600, show_spinner=False)
+@ttl_cache(600)
 def get_cached_market_data(tickers_tuple, period="1y"):
     """米国株・為替・指数をyfinanceから取得。日本株はJ-Quantsで別途取得。"""
     tickers = list(tickers_tuple)
@@ -111,7 +111,7 @@ def get_cached_market_data(tickers_tuple, period="1y"):
             for t in filled:
                 closes.loc[closes.index[-1], t] = fallback[t]
             if filled:
-                st.warning(f"⚠ 一部の価格を取得できず、前回取得値で表示しています: {', '.join(filled)}")
+                logger.warning("一部の価格を取得できず、前回取得値で補完: %s", ", ".join(filled))
         return closes
 
     # 全部ダメ → Sheetsフォールバック
@@ -120,7 +120,7 @@ def get_cached_market_data(tickers_tuple, period="1y"):
         fb_data = {t: [fallback.get(t, 0.0)] for t in tickers if t in fallback}
         if fb_data:
             fb_df = pd.DataFrame(fb_data, index=[pd.Timestamp.now()])
-            st.warning("⚠ 株価を取得できませんでした。前回取得した価格を表示しています。")
+            logger.warning("株価を取得できず、前回取得した価格で全体をフォールバック")
             return fb_df
     return pd.DataFrame()
 
@@ -148,7 +148,7 @@ def _fetch_single_info(t):
         return t, {"sector": "不明", "div_rate": 0.0, "div_yield": 0.0, "ex_div_date": None, "name": ""}
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@ttl_cache(86400)
 def get_cached_ticker_info(tickers_tuple):
     """全銘柄の情報を取得。日本株はJ-Quants、米国株はyfinance。"""
     tickers = list(tickers_tuple)
@@ -190,7 +190,7 @@ def get_cached_ticker_info(tickers_tuple):
     return info_dict
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@ttl_cache(3600)
 def get_stock_detail(code, market_type):
     """銘柄の詳細指標を取得。前日終値,配当利回り,1株配当,PER,PBR,EPS,BPS,ROEを返す。"""
     if not code or market_type not in ("日本株", "米国株"):
@@ -228,7 +228,7 @@ def get_stock_detail(code, market_type):
         return {}
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@ttl_cache(3600)
 def get_ticker_name(code, market_type):
     if not code: return ""
     if market_type in ["投資信託", "その他資産", "債券/国債", "コモディティ"]: return "手動入力"

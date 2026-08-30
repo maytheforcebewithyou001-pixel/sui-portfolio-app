@@ -6,11 +6,6 @@ import pandas as pd
 import pytest
 from unittest.mock import patch
 
-# config.pyのstreamlit依存を回避するためモック
-import sys
-from unittest.mock import MagicMock
-sys.modules["streamlit"] = MagicMock()
-
 from calc import calculate_holding, get_portfolio_totals, classify_sector, round_up_3
 
 
