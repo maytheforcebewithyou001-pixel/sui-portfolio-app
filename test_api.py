@@ -809,26 +809,44 @@ class TestStockDetailEndpoint:
 
 
 class TestMarketStorePolicy:
-    """marketstore の更新ポリシー(1日2回自動+手動30分制限) — 全てオフライン"""
+    """marketstore の更新ポリシー(市場別境界: 日本18:00/米国6:00 JST + 手動30分制限) — 全てオフライン"""
 
     def _dt(self, y, mo, d, h, mi):
         from datetime import datetime
         from marketstore import JST
         return datetime(y, mo, d, h, mi, tzinfo=JST)
 
+    def test_segment_of(self):
+        import marketstore as ms
+        assert ms.segment_of("7203.T") == "jp"
+        assert ms.segment_of("^N225") == "jp"
+        for t in ("VT", "JMIA", "JPY=X", "^GSPC", "^VIX"):
+            assert ms.segment_of(t) == "us"
+
     def test_latest_boundary(self):
         import marketstore as ms
-        # 10:00 → 当日6:10 / 16:00 → 当日15:40 / 5:00 → 前日15:40
-        assert ms.latest_boundary(self._dt(2026, 8, 16, 10, 0)) == self._dt(2026, 8, 16, 6, 10)
-        assert ms.latest_boundary(self._dt(2026, 8, 16, 16, 0)) == self._dt(2026, 8, 16, 15, 40)
-        assert ms.latest_boundary(self._dt(2026, 8, 16, 5, 0)) == self._dt(2026, 8, 15, 15, 40)
+        # 日本(18:00): 10:00 → 前日18:00 / 19:00 → 当日18:00
+        assert ms.latest_boundary(self._dt(2026, 9, 1, 10, 0), "jp") == self._dt(2026, 8, 31, 18, 0)
+        assert ms.latest_boundary(self._dt(2026, 9, 1, 19, 0), "jp") == self._dt(2026, 9, 1, 18, 0)
+        # 米国(6:00): 5:59 → 前日6:00 / 10:00 → 当日6:00
+        assert ms.latest_boundary(self._dt(2026, 9, 1, 5, 59), "us") == self._dt(2026, 8, 31, 6, 0)
+        assert ms.latest_boundary(self._dt(2026, 9, 1, 10, 0), "us") == self._dt(2026, 9, 1, 6, 0)
 
     def test_is_fresh(self):
         import marketstore as ms
-        now = self._dt(2026, 8, 16, 10, 0)
-        assert ms.is_fresh(self._dt(2026, 8, 16, 7, 0), now) is True    # 当日境界後
-        assert ms.is_fresh(self._dt(2026, 8, 15, 16, 0), now) is False  # 当日6:10境界より古い
+        now = self._dt(2026, 9, 1, 19, 0)
+        assert ms.is_fresh(self._dt(2026, 9, 1, 18, 30), now, "jp") is True   # 当日18:00境界後
+        assert ms.is_fresh(self._dt(2026, 9, 1, 17, 0), now, "jp") is False   # 境界前の取得は陳腐
+        assert ms.is_fresh(self._dt(2026, 9, 1, 17, 0), now, "us") is True    # 米国境界(6:00)では新鮮
         assert ms.is_fresh(None, now) is False
+
+    def test_parse_fetched_backward_compat(self):
+        import marketstore as ms
+        # 旧形式(単一fetched_at)は両セグメントの取得時刻として扱う
+        f = ms._parse_fetched({"fetched_at": "2026-09-01T10:00:00+09:00"})
+        assert set(f) == {"jp", "us"} and f["jp"] == f["us"]
+        f2 = ms._parse_fetched({"fetched_at_jp": "2026-09-01T18:05:00+09:00"})
+        assert set(f2) == {"jp"}
 
     def _setup(self, monkeypatch, p_closes, p_info, p_fetched, live_called):
         import marketstore as ms
@@ -836,70 +854,75 @@ class TestMarketStorePolicy:
         monkeypatch.setattr(ms, "load_persistent", lambda: (p_closes, p_info, p_fetched))
         monkeypatch.setattr(ms, "save_persistent", lambda c, i, f: None)
         import market
-        live_closes = pd.DataFrame({"7203.T": [100.0]}, index=pd.to_datetime(["2026-08-15"]))
-        monkeypatch.setattr(market, "get_cached_market_data",
-                            lambda t, period="1y": (live_called.append("data"), live_closes)[1])
-        monkeypatch.setattr(market, "get_cached_ticker_info",
-                            lambda t: (live_called.append("info"), {"7203.T": {}})[1])
-        ms._mem.update(closes=None, info=None, fetched_at=None)  # プロセス内キャッシュをリセット
+        monkeypatch.setattr(
+            market, "get_cached_market_data",
+            lambda t, period="1y": (live_called.append(("data", t)),
+                                    pd.DataFrame({k: [100.0] for k in t},
+                                                 index=pd.to_datetime(["2026-08-15"])))[1])
+        monkeypatch.setattr(
+            market, "get_cached_ticker_info",
+            lambda t: (live_called.append(("info", t)), {k: {} for k in t})[1])
+        ms._mem.update(closes=None, info=None, fetched={})  # プロセス内キャッシュをリセット
         return ms
 
     def _cache(self):
         import pandas as pd
-        closes = pd.DataFrame({"7203.T": [99.0]}, index=pd.to_datetime(["2026-08-15"]))
-        return closes, {"7203.T": {"sector": "x"}}
+        closes = pd.DataFrame({"7203.T": [99.0], "VT": [88.0]}, index=pd.to_datetime(["2026-08-15"]))
+        return closes, {"7203.T": {"sector": "x"}, "VT": {"sector": "y"}}
+
+    def _fresh(self, minutes=1):
+        from datetime import datetime, timedelta
+        from marketstore import JST
+        return datetime.now(JST) - timedelta(minutes=minutes)  # 直近取得=両境界に対しfresh
 
     def test_fresh_cache_serves_without_live_fetch(self, monkeypatch):
-        from datetime import datetime, timedelta
-        from marketstore import JST
         live = []
         closes, info = self._cache()
-        fetched = datetime.now(JST) - timedelta(minutes=1)  # 直近取得=確実にfresh
+        fetched = {"jp": self._fresh(), "us": self._fresh()}
         ms = self._setup(monkeypatch, closes, info, fetched, live)
-        c, i, f, notice = ms.get_market_bundle(("7203.T",))
-        assert live == [] and f == fetched and notice is None
-        assert c["7203.T"].iloc[0] == 99.0
+        c, i, f, notice = ms.get_market_bundle(("7203.T", "VT"))
+        assert live == [] and f == max(fetched.values()) and notice is None
+        assert c["7203.T"].iloc[0] == 99.0 and c["VT"].iloc[0] == 88.0
 
     def test_force_within_30min_returns_cache_with_notice(self, monkeypatch):
-        from datetime import datetime, timedelta
-        from marketstore import JST
         live = []
         closes, info = self._cache()
-        fetched = datetime.now(JST) - timedelta(minutes=10)
+        fetched = {"jp": self._fresh(10), "us": self._fresh(10)}
         ms = self._setup(monkeypatch, closes, info, fetched, live)
-        c, i, f, notice = ms.get_market_bundle(("7203.T",), force=True)
+        c, i, f, notice = ms.get_market_bundle(("7203.T", "VT"), force=True)
         assert live == [] and "30分" in notice
 
-    def test_force_after_30min_fetches_live(self, monkeypatch):
-        from datetime import datetime, timedelta
-        from marketstore import JST
+    def test_force_after_30min_fetches_both_segments(self, monkeypatch):
         live = []
         closes, info = self._cache()
-        fetched = datetime.now(JST) - timedelta(minutes=31)
+        fetched = {"jp": self._fresh(31), "us": self._fresh(31)}
         ms = self._setup(monkeypatch, closes, info, fetched, live)
-        c, i, f, notice = ms.get_market_bundle(("7203.T",), force=True)
-        assert set(live) == {"data", "info"} and notice is None
-        assert c["7203.T"].iloc[0] == 100.0  # ライブ値
+        c, i, f, notice = ms.get_market_bundle(("7203.T", "VT"), force=True)
+        fetched_segs = {t for kind, t in live if kind == "data"}
+        assert fetched_segs == {("7203.T",), ("VT",)} and notice is None
+        assert c["7203.T"].iloc[0] == 100.0 and c["VT"].iloc[0] == 100.0  # 両方ライブ値
 
-    def test_stale_cache_fetches_live(self, monkeypatch):
+    def test_stale_jp_refetches_only_jp_segment(self, monkeypatch):
         import marketstore as ms_mod
-        live = []
-        closes, info = self._cache()
-        stale = ms_mod.latest_boundary(__import__("datetime").datetime.now(ms_mod.JST)) - \
-            __import__("datetime").timedelta(minutes=5)
-        ms = self._setup(monkeypatch, closes, info, stale, live)
-        c, i, f, notice = ms.get_market_bundle(("7203.T",))
-        assert set(live) == {"data", "info"}
-
-    def test_uncovered_ticker_fetches_live(self, monkeypatch):
         from datetime import datetime, timedelta
-        from marketstore import JST
+        now = datetime.now(ms_mod.JST)
         live = []
         closes, info = self._cache()
-        fetched = datetime.now(JST) - timedelta(minutes=1)
+        stale_jp = ms_mod.latest_boundary(now, "jp") - timedelta(minutes=5)
+        fetched = {"jp": stale_jp, "us": self._fresh()}
         ms = self._setup(monkeypatch, closes, info, fetched, live)
-        ms.get_market_bundle(("7203.T", "9999.T"))  # 9999.T はキャッシュ未収録
-        assert set(live) == {"data", "info"}
+        c, i, f, notice = ms.get_market_bundle(("7203.T", "VT"))
+        assert [t for kind, t in live if kind == "data"] == [("7203.T",)]  # 日本株のみ再取得
+        assert c["7203.T"].iloc[0] == 100.0  # ライブ値
+        assert c["VT"].iloc[0] == 88.0       # 米国はキャッシュ供給
+
+    def test_uncovered_ticker_fetches_its_segment(self, monkeypatch):
+        live = []
+        closes, info = self._cache()
+        fetched = {"jp": self._fresh(), "us": self._fresh()}
+        ms = self._setup(monkeypatch, closes, info, fetched, live)
+        ms.get_market_bundle(("7203.T", "9999.T", "VT"))  # 9999.T はキャッシュ未収録
+        assert [t for kind, t in live if kind == "data"] == [("7203.T", "9999.T")]
 
 
 class TestAppSettings:

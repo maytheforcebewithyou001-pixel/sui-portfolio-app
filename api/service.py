@@ -72,8 +72,8 @@ def withdrawal_simulation(initial: float, annual_rate: float, mode: str,
 def _compute_state(force_refresh: bool = False) -> dict:
     """スナップショットの内部計算(DataFrameのまま返す)。build_snapshot と AI総評生成が共用
 
-    市場データは marketstore のポリシー層経由(自動更新は1日2回・手動は30分間隔、
-    それ以外は永続キャッシュ供給)。force_refresh=True は手動更新ボタン相当
+    市場データは marketstore のポリシー層経由(自動更新は市場別境界=日本18:00/米国6:00 JST、
+    手動は30分間隔、それ以外は永続キャッシュ供給)。force_refresh=True は手動更新ボタン相当
     """
     df = load_data()
     fund_prices = load_fund_prices()
