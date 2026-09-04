@@ -1140,3 +1140,100 @@ class TestAIPrompts:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestMarketCacheSheetId:
+    """marketstore._cache_sheet_id の解決順(Cloud Run Job には FC_SHEET_ID が無いため3段目が要)"""
+
+    def test_precedence(self, monkeypatch):
+        import marketstore as ms
+        monkeypatch.setenv("FC_MARKET_CACHE_SHEET_ID", "cache-id")
+        monkeypatch.setenv("FC_SHEET_ID", "single-id")
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", json.dumps({"admin": "admin-id", "father": "father-id"}))
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert ms._cache_sheet_id() == "cache-id"
+        monkeypatch.delenv("FC_MARKET_CACHE_SHEET_ID")
+        assert ms._cache_sheet_id() == "single-id"
+        monkeypatch.delenv("FC_SHEET_ID")
+        assert ms._cache_sheet_id() == "admin-id"  # Job 構成: FC_SHEET_IDS_JSON[FC_API_USER]
+
+    def test_fallback_requires_matching_user(self, monkeypatch):
+        import marketstore as ms
+        monkeypatch.delenv("FC_MARKET_CACHE_SHEET_ID", raising=False)
+        monkeypatch.delenv("FC_SHEET_ID", raising=False)
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", json.dumps({"father": "father-id"}))
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert ms._cache_sheet_id() == ""  # 他ユーザーのIDへは倒れない
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", "{broken")
+        assert ms._cache_sheet_id() == ""
+
+
+class TestWarmJob:
+    """api/warm_job.py — 18:10 JST の MarketCache 温め(全てオフライン)"""
+
+    def test_target_users_from_sheet_ids(self, monkeypatch):
+        from api import warm_job
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", json.dumps({"father": "b", "admin": "a", "empty": ""}))
+        assert warm_job.target_users() == ["admin", "father"]  # 昇順・ID未登録は除外
+
+    def test_target_users_fallback(self, monkeypatch):
+        from api import warm_job
+        monkeypatch.delenv("FC_SHEET_IDS_JSON", raising=False)
+        monkeypatch.setenv("FC_API_USER", "admin")
+        assert warm_job.target_users() == ["admin"]
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", "{broken")
+        assert warm_job.target_users() == ["admin"]
+
+    def _patch(self, monkeypatch, compute):
+        import api.service as svc
+        import marketstore as ms
+        monkeypatch.setattr(svc, "_compute_state", compute)
+        monkeypatch.setattr(ms, "load_persistent", lambda: (None, None, {}))
+        monkeypatch.setattr(ms, "_cache_sheet_id", lambda: "cache-id")
+
+    def test_main_warms_each_user_in_context(self, monkeypatch, capsys):
+        from api import warm_job
+        import data
+        seen = []
+
+        def fake_compute(force_refresh=False):
+            seen.append(data._current_user())
+            return {"display_df": pd.DataFrame({"a": [1, 2]}), "market_fetched_at": "2026-09-04T18:10:00+09:00"}
+
+        self._patch(monkeypatch, fake_compute)
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", json.dumps({"admin": "a", "father": "b"}))
+        assert warm_job.main() == 0
+        assert seen == ["admin", "father"]           # ユーザー別コンテキストで本番と同一経路を実行
+        assert data._request_user.get() is None     # 実行後はコンテキストを残さない
+        out = capsys.readouterr().out
+        assert "OK: admin: 2銘柄" in out and "OK: father: 2銘柄" in out
+
+    def test_main_continues_after_failure_and_exits_nonzero(self, monkeypatch, capsys):
+        from api import warm_job
+        import data
+        seen = []
+
+        def fake_compute(force_refresh=False):
+            u = data._current_user()
+            seen.append(u)
+            if u == "admin":
+                raise RuntimeError("sheet unavailable")
+            return {"display_df": pd.DataFrame(), "market_fetched_at": None}
+
+        self._patch(monkeypatch, fake_compute)
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", json.dumps({"admin": "a", "father": "b"}))
+        assert warm_job.main() == 1
+        assert seen == ["admin", "father"]  # admin の失敗後も father を処理
+        out = capsys.readouterr().out
+        assert "NG: admin: RuntimeError" in out and "FAILED: admin" in out
+        assert data._request_user.get() is None
+
+    def test_main_warns_when_cache_sheet_unresolved(self, monkeypatch, capsys):
+        from api import warm_job
+        import marketstore as ms
+        self._patch(monkeypatch, lambda force_refresh=False: {"display_df": pd.DataFrame(), "market_fetched_at": None})
+        monkeypatch.setattr(ms, "_cache_sheet_id", lambda: "")
+        monkeypatch.setenv("FC_SHEET_IDS_JSON", json.dumps({"admin": "a"}))
+        assert warm_job.main() == 0
+        assert "WARN: MarketCache のシートIDを解決できません" in capsys.readouterr().out
+

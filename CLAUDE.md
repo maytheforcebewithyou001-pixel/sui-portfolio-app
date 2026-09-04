@@ -7,13 +7,16 @@ Claude Code が自動読み込みするプロジェクト固有ルール。違�
 - フロント: `web/`（Next.js、Vercel `sui-portfolio-app.vercel.app`。main への push で自動デプロイ）
 - API: `api/`（FastAPI、Cloud Run `fc-api`。デプロイは `scripts/deploy_*.ps1` からの手動実行のみ）
 - 日次記録: Cloud Run Job `fc-history-record`（07:00 JST、`api/history_job.py`）
+- 市場データ温め: Cloud Run Job `fc-market-warm`（18:10 JST、`api/warm_job.py`。日本株18:00境界後の MarketCache を先回り取得）
+- 保有銘柄の追加・修正・削除は Web タブ「銘柄管理」（`/api/holdings`、`web/app/holdings/`）。Sheets 直編集も引き続き可
+- フロント単体の見た目・操作確認は `scripts/run_api_stub.py`（外部通信ゼロのスタブAPI）+ `next dev`
 - 旧 Streamlit 版（app.py / tabs/）は削除済み。共有ロジックはルート直下の
   `ai_review.py` / `investor_flow.py` / `fin_view.py` / `transactions.py` / `cacheutil.py` に切り出し済み
 
 ## デプロイ（最重要）
 
 - **web/ は main への push = Vercel 即本番デプロイ**。push はユーザーの明示承認後のみ。push 前に必ず差分を報告する
-- Cloud Run（fc-api / fc-history-record）は push では更新されない。API 側を変更したら再デプロイの要否を報告する
+- Cloud Run（fc-api / fc-history-record / fc-market-warm）は push では更新されない。API 側を変更したら再デプロイの要否を報告する（Job は `--source .` で個別にイメージを作るため、共有モジュール変更時は Job 側も再デプロイ）
 - デプロイの罠: `.gcloudignore` と Dockerfile の COPY 対象を点検（新モジュール追加時に漏れやすい）
 
 ## Secrets

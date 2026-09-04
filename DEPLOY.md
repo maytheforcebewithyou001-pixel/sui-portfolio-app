@@ -123,3 +123,23 @@ curl https://fc-api-xxxxx.a.run.app/api/health   → {"status":"ok"}
 - **J-Quants CLI は同梱していない**: コンテナでは HTTP API 経路になる（`JQUANTS_API_KEY` 必須）。
 - **ログイン失敗のバックオフはインスタンス単位**: `api/main.py` の失敗カウンタはプロセス内変数のため、複数インスタンスに分散すると総当たり耐性が落ちる。単一ユーザー・低トラフィック前提では実害は小さいが、公開範囲を広げる場合は Cloud Armor か外部ストア方式へ変更すること。
 - **並行運用中の変更凍結**: PHASE3_PLAN §5 の通り、P3-4 完了までは機能追加を止めバグ修正のみ両系へ適用する。
+
+---
+
+## 6. 市場データ温め Job（fc-market-warm、2026-09-04 追加）
+
+日本株の自動更新境界（JST 18:00）を越えた直後の初回アクセスで発生していた日本株約20銘柄のライブ取得待ちを、
+Scheduler 起動の Job が 18:10 に先回りして解消する。米国側（06:00 境界）は 07:00 の fc-history-record が兼ねる。
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\deploy_warm_job.ps1
+```
+
+- 実体は `api/warm_job.py`（`python -m api.warm_job`）。本番 `/api/portfolio` と同一経路（`api.service._compute_state`）で
+  `FC_SHEET_IDS_JSON` の全ユーザー分を順に温める。温め済みなら何も取得せず終わる（冪等）
+- Secrets / env は fc-history-record と同一（fc-gcp-creds / fc-sheet-ids / fc-jquants-key、`FC_API_USER=admin`）
+- **MarketCache のシートID解決**: Job には `FC_SHEET_ID` を渡していないため、`marketstore._cache_sheet_id` が
+  `FC_SHEET_IDS_JSON[FC_API_USER]` へフォールバックする（2026-09-04 追加）。この修正は fc-history-record にも効くので、
+  **両 Job を再デプロイ**すること（`deploy_history_job.ps1` を再実行）
+- 手動試験: `gcloud run jobs execute fc-market-warm --region asia-northeast1 --wait`。ログに
+  「MarketCache 取得時刻(実行前/実行後)」が出るので、jp の時刻が更新されれば成功

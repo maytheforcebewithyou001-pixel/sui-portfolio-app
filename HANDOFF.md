@@ -7,7 +7,7 @@
 - **名称**: FORCE CAPITAL
 - **種類**: 個人投資家向けポートフォリオ管理ツール（Next.js + FastAPI）
 - **リポジトリ**: `maytheforcebewithyou001-pixel/sui-portfolio-app`
-- **デプロイ先**: Vercel（web/） + Cloud Run（fc-api / fc-history-record）
+- **デプロイ先**: Vercel（web/） + Cloud Run（fc-api / fc-history-record / fc-market-warm）
 - **運用フェーズ**: Phase 3 完了（Web版本番稼働・Streamlit退役 2026-08-30）
 
 ## 技術スタック

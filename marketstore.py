@@ -57,7 +57,24 @@ def is_fresh(fetched_at, now=None, seg: str = "jp") -> bool:
 
 
 def _cache_sheet_id():
-    return os.environ.get("FC_MARKET_CACHE_SHEET_ID", "") or os.environ.get("FC_SHEET_ID", "")
+    """MarketCache の置き場。FC_MARKET_CACHE_SHEET_ID → FC_SHEET_ID → FC_SHEET_IDS_JSON[FC_API_USER] の順。
+
+    3段目は Cloud Run Job(fc-history-record / fc-market-warm)向け。Job には FC_SHEET_ID が
+    渡されておらず、未解決だとキャッシュ無効(毎回ライブ取得・保存なし)で温めが成立しない。
+    API サービスは FC_SHEET_ID 設定済みのため挙動は変わらない"""
+    sid = os.environ.get("FC_MARKET_CACHE_SHEET_ID", "") or os.environ.get("FC_SHEET_ID", "")
+    if sid:
+        return sid
+    raw = os.environ.get("FC_SHEET_IDS_JSON", "")
+    user = os.environ.get("FC_API_USER", "")
+    if raw and user:
+        try:
+            ids = json.loads(raw)
+            if isinstance(ids, dict) and ids.get(user):
+                return str(ids[user])
+        except ValueError:
+            logger.error("FC_SHEET_IDS_JSON のJSONが不正です(MarketCache無効)")
+    return ""
 
 
 def _open_ws(create=False):
