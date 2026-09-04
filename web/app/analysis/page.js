@@ -283,8 +283,11 @@ export default function Analysis() {
         <div className="chartbox">
           <ResponsiveContainer width="100%" height={500}>
             <Treemap data={heat} dataKey="size" nameKey="name" content={<HeatCell />} isAnimationActive={false}>
+              {/* Treemap はツールチップ項目の文字色にタイルの塗り色(前日比のくすんだ緑/灰/赤)を
+                  そのまま渡すため、暗いツールチップ背景と同化して読めない。項目の文字色を固定する */}
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
+                itemStyle={{ color: "rgba(255,255,255,0.88)" }}
                 formatter={(v, _n, entry) => [
                   `${fmtInt(v)}円 / 前日比 ${entry?.payload?.chgLabel ?? "-"}`,
                   entry?.payload?.name,
