@@ -364,3 +364,62 @@ def transactions_import_execute(req: CsvImportRequest, user: str = Depends(requi
         raise HTTPException(status_code=422, detail=f"mode は {IMPORT_MODES} のいずれか")
     raw = _decode_csv_b64(req.content_b64)
     return _tx_errors(lambda: svc.execute_broker_csv(raw, req.mode))
+
+
+# ── 保有銘柄の追加・修正・削除 (旧 Streamlit 版の追加フォーム / エディタ相当) ──
+
+def _holding_errors(fn):
+    try:
+        return fn()
+    except svc.HoldingError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+class HoldingRequest(BaseModel):
+    fields: dict  # シート列名 → 値(検証は svc.normalize_holding_fields)
+
+
+class HoldingUpdateRequest(HoldingRequest):
+    code: str  # 楽観ロック: 現在その行にある銘柄コード
+
+
+def _check_holding_fields(fields: dict) -> None:
+    if not isinstance(fields, dict) or not fields or len(fields) > 30:
+        raise HTTPException(status_code=422, detail="fields が不正です")
+    if any(not isinstance(k, str) or (isinstance(v, str) and len(v) > 200) for k, v in fields.items()):
+        raise HTTPException(status_code=422, detail="fields の値が長すぎます(200字まで)")
+
+
+@app.get("/api/holdings")
+def holdings(user: str = Depends(require_auth)):
+    return svc.get_holdings_state()
+
+
+@app.get("/api/holdings/lookup")
+def holdings_lookup(code: str, market: str, user: str = Depends(require_auth)):
+    if market not in ("日本株", "米国株"):
+        raise HTTPException(status_code=422, detail="market は 日本株/米国株 のみ対応")
+    if not code.strip() or len(code) > 20:
+        raise HTTPException(status_code=422, detail="code が不正です")
+    return svc.lookup_ticker_name(code.strip(), market)
+
+
+@app.post("/api/holdings")
+def holdings_add(req: HoldingRequest, user: str = Depends(require_auth)):
+    _check_holding_fields(req.fields)
+    return _holding_errors(lambda: svc.add_holding(req.fields))
+
+
+@app.put("/api/holdings/{index}")
+def holdings_update(index: int, req: HoldingUpdateRequest, user: str = Depends(require_auth)):
+    _check_holding_fields(req.fields)
+    if index < 0 or index > 100_000:
+        raise HTTPException(status_code=422, detail="index が不正です")
+    return _holding_errors(lambda: svc.update_holding(index, req.code, req.fields))
+
+
+@app.delete("/api/holdings/{index}")
+def holdings_delete(index: int, code: str, user: str = Depends(require_auth)):
+    if index < 0 or index > 100_000 or not code:
+        raise HTTPException(status_code=422, detail="index/code が不正です")
+    return _holding_errors(lambda: svc.delete_holding(index, code))

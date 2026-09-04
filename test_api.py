@@ -1237,3 +1237,209 @@ class TestWarmJob:
         assert warm_job.main() == 0
         assert "WARN: MarketCache のシートIDを解決できません" in capsys.readouterr().out
 
+
+class TestHoldingsService:
+    """保有銘柄の追加・修正・削除(旧 tab_portfolio の add_form / data_editor と同一手順)。Sheets はインメモリ模擬"""
+
+    def _base_fields(self, **over):
+        f = {"銘柄コード": "7203", "銘柄名": "トヨタ", "市場": "日本株", "通貨": "JPY", "保有株数": 100,
+             "取得単価": 2000, "口座": "SBI証券", "口座区分": "特定口座", "手動配当利回り(%)": 0,
+             "配当月": [3, 9], "年間配当金(円/株)": 0, "取得時為替": 0, "手動現在値": 0, "取得日": ""}
+        f.update(over)
+        return f
+
+    def _store(self, monkeypatch, rows, save_ok=True):
+        """load_data/save_data をインメモリ化。save_ok=False は save_data が握りつぶした失敗を模擬"""
+        import api.service as svc
+        from config import EXPECTED_COLS
+        state = {"df": pd.DataFrame(rows, columns=EXPECTED_COLS) if rows else pd.DataFrame(columns=EXPECTED_COLS)}
+        for col in ("保有株数", "取得単価", "手動配当利回り(%)", "年間配当金(円/株)", "取得時為替", "手動現在値"):
+            state["df"][col] = pd.to_numeric(state["df"][col], errors="coerce").fillna(0.0)
+        saved = []
+
+        def fake_save(df):
+            saved.append(df.copy())
+            if save_ok:
+                state["df"] = df.copy()
+
+        monkeypatch.setattr(svc, "load_data", lambda: state["df"].copy())
+        monkeypatch.setattr(svc, "save_data", fake_save)
+        monkeypatch.setattr(svc, "_clear_sheet_cache", lambda: None)
+        monkeypatch.setattr(svc, "get_ticker_name", lambda code, market: {"7203": "トヨタ自動車"}.get(code, "取得失敗"))
+        return state, saved
+
+    def _row(self, code="7203", name="トヨタ", broker="SBI証券", tax="特定口座", shares=100.0, price=2000.0):
+        return {"銘柄コード": code, "銘柄名": name, "市場": "日本株", "通貨": "JPY", "保有株数": shares,
+                "取得単価": price, "口座": broker, "口座区分": tax, "手動配当利回り(%)": 0.0, "配当月": "",
+                "年間配当金(円/株)": 0.0, "取得時為替": 0.0, "手動現在値": 0.0, "取得日": "", "最新更新日": ""}
+
+    def test_normalize_months_and_validation(self):
+        import api.service as svc
+        assert svc._normalize_months([9, 3, 3]) == "3,9"
+        assert svc._normalize_months("3月, 9月") == "3,9"
+        assert svc._normalize_months("") == ""
+        with pytest.raises(svc.HoldingError):
+            svc._normalize_months("13")
+        with pytest.raises(svc.HoldingError, match="市場"):
+            svc.normalize_holding_fields(self._base_fields(市場="仮想通貨"), True)
+        with pytest.raises(svc.HoldingError, match="保有数"):
+            svc.normalize_holding_fields(self._base_fields(保有株数=0), True)
+        assert svc.normalize_holding_fields(self._base_fields(保有株数=0), False)["保有株数"] == 0.0  # 編集は0可
+        with pytest.raises(svc.HoldingError, match="取得日"):
+            svc.normalize_holding_fields(self._base_fields(取得日="2026-09-04"), True)
+        with pytest.raises(svc.HoldingError, match="取得時為替"):
+            svc.normalize_holding_fields(self._base_fields(取得時為替=5000), True)
+        with pytest.raises(svc.HoldingError, match="数値"):
+            svc.normalize_holding_fields(self._base_fields(取得単価="abc"), True)
+        f = svc.normalize_holding_fields(self._base_fields(取得日="2026/09/04", 保有株数="150.5"), True)
+        assert f["保有株数"] == 150.5 and f["配当月"] == "3,9" and f["取得日"] == "2026/09/04"
+
+    def test_get_holdings_state(self, monkeypatch):
+        import api.service as svc
+        self._store(monkeypatch, [self._row(), self._row("VT", "VT", tax="NISA(成長投資枠)")])
+        st = svc.get_holdings_state()
+        assert [h["index"] for h in st["holdings"]] == [0, 1]
+        assert st["holdings"][1]["口座区分"] == "NISA(成長投資枠)"
+        assert "SBI証券" in st["options"]["口座"] and "投資信託" in st["options"]["市場"]
+
+    def test_add_new_row_with_auto_name(self, monkeypatch):
+        import api.service as svc
+        state, saved = self._store(monkeypatch, [self._row("8593", "三菱HC")])
+        r = svc.add_holding(self._base_fields(銘柄名=""))
+        assert r["merged"] is False and r["index"] == 1 and r["name"] == "トヨタ自動車"  # J-Quants 名を自動採用
+        df = state["df"]
+        assert len(df) == 2 and df.at[1, "銘柄コード"] == "7203" and df.at[1, "配当月"] == "3,9"
+        assert df.at[1, "保有株数"] == 100.0 and df.at[1, "最新更新日"] != ""
+
+    def test_add_name_falls_back_to_code(self, monkeypatch):
+        import api.service as svc
+        state, _ = self._store(monkeypatch, [])
+        r = svc.add_holding(self._base_fields(銘柄コード="9999", 銘柄名=""))
+        assert r["name"] == "9999"  # 取得失敗は「取得失敗」文字列を名前にしない
+
+    def test_add_merges_same_code_broker_tax(self, monkeypatch):
+        import api.service as svc
+        state, _ = self._store(monkeypatch, [self._row(shares=100.0, price=2000.0)])
+        r = svc.add_holding(self._base_fields(保有株数=100, 取得単価=3000, 配当月=[6], **{"年間配当金(円/株)": 0}))
+        assert r["merged"] is True and r["shares_after"] == 200.0 and r["avg_price"] == 2500.0  # merge_position と同一
+        df = state["df"]
+        assert len(df) == 1 and df.at[0, "保有株数"] == 200.0 and df.at[0, "取得単価"] == 2500.0
+        assert df.at[0, "配当月"] == "6"
+
+    def test_add_same_code_other_account_is_separate_row(self, monkeypatch):
+        import api.service as svc
+        state, _ = self._store(monkeypatch, [self._row()])
+        r = svc.add_holding(self._base_fields(口座区分="NISA(成長投資枠)"))
+        assert r["merged"] is False and len(state["df"]) == 2
+
+    def test_update_replaces_fields_and_checks_code(self, monkeypatch):
+        import api.service as svc
+        state, _ = self._store(monkeypatch, [self._row(), self._row("8593", "三菱HC")])
+        r = svc.update_holding(1, "8593", self._base_fields(銘柄コード="8593", 銘柄名="", 保有株数=300, 取得単価=950.5,
+                                                            配当月="6,12", **{"年間配当金(円/株)": 40}))
+        assert r["name"] == "三菱HC"  # 空欄は既存名を維持
+        df = state["df"]
+        assert df.at[1, "保有株数"] == 300.0 and df.at[1, "取得単価"] == 950.5 and df.at[1, "配当月"] == "6,12"
+        assert df.at[0, "保有株数"] == 100.0  # 他行は無変更
+        with pytest.raises(svc.HoldingError) as ei:
+            svc.update_holding(1, "7203", self._base_fields(銘柄コード="8593"))
+        assert ei.value.status == 409
+        with pytest.raises(svc.HoldingError) as ei:
+            svc.update_holding(5, "8593", self._base_fields(銘柄コード="8593"))
+        assert ei.value.status == 409
+
+    def test_delete_row(self, monkeypatch):
+        import api.service as svc
+        state, _ = self._store(monkeypatch, [self._row(), self._row("8593", "三菱HC")])
+        r = svc.delete_holding(0, "7203")
+        assert r["name"] == "トヨタ"
+        df = state["df"]
+        assert len(df) == 1 and df.at[0, "銘柄コード"] == "8593"  # 残行は 0 始まりに詰め直す
+        with pytest.raises(svc.HoldingError) as ei:
+            svc.delete_holding(0, "7203")
+        assert ei.value.status == 409
+
+    def test_silent_save_failure_is_detected(self, monkeypatch):
+        """save_data が例外を握りつぶして何も書けなかった場合、再読込検証で 500 にする"""
+        import api.service as svc
+        self._store(monkeypatch, [self._row()], save_ok=False)
+        with pytest.raises(svc.HoldingError) as ei:
+            svc.add_holding(self._base_fields(銘柄コード="8593"))
+        assert ei.value.status == 500 and "行数" in str(ei.value)
+        with pytest.raises(svc.HoldingError) as ei:
+            svc.update_holding(0, "7203", self._base_fields(保有株数=999))
+        assert ei.value.status == 500 and "内容" in str(ei.value)
+
+    def test_lookup_ticker_name(self, monkeypatch):
+        import api.service as svc
+        monkeypatch.setattr(svc, "get_ticker_name", lambda code, market: {"7203": "トヨタ自動車"}.get(code, "名称不明"))
+        assert svc.lookup_ticker_name("7203", "日本株") == {"name": "トヨタ自動車"}
+        assert svc.lookup_ticker_name("0000", "日本株") == {"name": ""}
+        assert svc.lookup_ticker_name("7203", "投資信託") == {"name": ""}
+
+
+@requires_client
+class TestHoldingsEndpoints:
+    """/api/holdings の配線・検証・エラーコード変換"""
+
+    @pytest.fixture
+    def client(self, auth_env):
+        from fastapi.testclient import TestClient
+        import api.main as m
+        m._login_backoff.clear()
+        return TestClient(m.app)
+
+    def _hdr(self, client):
+        token = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}).json()["token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_requires_auth(self, client):
+        assert client.get("/api/holdings").status_code == 401
+        assert client.post("/api/holdings", json={"fields": {"銘柄コード": "7203"}}).status_code == 401
+        assert client.put("/api/holdings/0", json={"code": "7203", "fields": {"a": 1}}).status_code == 401
+        assert client.delete("/api/holdings/0?code=7203").status_code == 401
+
+    def test_wiring(self, client, monkeypatch):
+        import api.main as m
+        calls = {}
+        monkeypatch.setattr(m.svc, "get_holdings_state", lambda: {"holdings": [], "columns": [], "options": {}})
+        monkeypatch.setattr(m.svc, "add_holding", lambda f: calls.setdefault("add", f) or {"merged": False})
+        monkeypatch.setattr(m.svc, "update_holding", lambda i, c, f: calls.setdefault("upd", (i, c, f)) or {"index": i})
+        monkeypatch.setattr(m.svc, "delete_holding", lambda i, c: calls.setdefault("del", (i, c)) or {"index": i})
+        monkeypatch.setattr(m.svc, "lookup_ticker_name", lambda c, mk: {"name": f"{c}@{mk}"})
+        hdr = self._hdr(client)
+        assert client.get("/api/holdings", headers=hdr).json() == {"holdings": [], "columns": [], "options": {}}
+        f = {"銘柄コード": "7203", "市場": "日本株"}
+        assert client.post("/api/holdings", json={"fields": f}, headers=hdr).status_code == 200
+        assert calls["add"] == f
+        assert client.put("/api/holdings/3", json={"code": "7203", "fields": f}, headers=hdr).status_code == 200
+        assert calls["upd"] == (3, "7203", f)
+        assert client.delete("/api/holdings/2?code=8593", headers=hdr).status_code == 200
+        assert calls["del"] == (2, "8593")
+        r = client.get("/api/holdings/lookup?code=7203&market=日本株", headers=hdr)
+        assert r.status_code == 200 and r.json() == {"name": "7203@日本株"}
+
+    def test_validation_422(self, client, monkeypatch):
+        hdr = self._hdr(client)
+        assert client.post("/api/holdings", json={"fields": {}}, headers=hdr).status_code == 422
+        assert client.post("/api/holdings", json={"fields": {"銘柄名": "x" * 201}}, headers=hdr).status_code == 422
+        assert client.put("/api/holdings/-1", json={"code": "7203", "fields": {"a": 1}}, headers=hdr).status_code == 422
+        assert client.delete("/api/holdings/0", headers=hdr).status_code == 422  # code 必須
+        assert client.get("/api/holdings/lookup?code=7203&market=投資信託", headers=hdr).status_code == 422
+
+    def test_holding_error_status_mapping(self, client, monkeypatch):
+        import api.main as m
+
+        def boom(status):
+            def _f(*a, **k):
+                raise m.svc.HoldingError("だめ", status)
+            return _f
+
+        hdr = self._hdr(client)
+        monkeypatch.setattr(m.svc, "add_holding", boom(422))
+        r = client.post("/api/holdings", json={"fields": {"銘柄コード": "x"}}, headers=hdr)
+        assert r.status_code == 422 and r.json()["detail"] == "だめ"
+        monkeypatch.setattr(m.svc, "update_holding", boom(409))
+        assert client.put("/api/holdings/0", json={"code": "x", "fields": {"銘柄コード": "x"}}, headers=hdr).status_code == 409
+        monkeypatch.setattr(m.svc, "delete_holding", boom(500))
+        assert client.delete("/api/holdings/0?code=x", headers=hdr).status_code == 500

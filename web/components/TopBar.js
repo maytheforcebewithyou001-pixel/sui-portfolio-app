@@ -30,6 +30,7 @@ const TABS = [
   { href: "/lifeplan", label: "ライフプラン" },
   { href: "/ai", label: "AI総評" },
   { href: "/transactions", label: "取引履歴" },
+  { href: "/holdings", label: "銘柄管理" },
   { href: "/market", label: "世界指標" },
   { href: "/rank", label: "ランク" },
   { href: "/settings", label: "設定" },

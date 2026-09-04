@@ -51,7 +51,11 @@ export async function apiFetch(path, options = {}) {
     clearToken();
     throw new AuthError("トークンが無効か期限切れです");
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // API の detail(検証エラー文言等)を優先し、無ければ従来どおり HTTP ステータス
+    const detail = (await res.json().catch(() => ({}))).detail;
+    throw new Error(typeof detail === "string" && detail ? detail : `HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -61,6 +65,10 @@ export function apiPost(path, payload) {
 
 export function apiPut(path, payload) {
   return apiFetch(path, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function apiDelete(path) {
+  return apiFetch(path, { method: "DELETE" });
 }
 
 export function apiGet(path) {

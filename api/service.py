@@ -881,3 +881,212 @@ def save_lifeplan_mc_run(memo: str, params: dict, metrics: dict) -> dict:
                      _json.dumps(keep, ensure_ascii=False),
                      _json.dumps(params, ensure_ascii=False))
     return {"dt": ns}
+
+
+# ══════════════════════════════════════════
+# 保有銘柄の追加・修正・削除 (旧 tab_portfolio._render_add_form / _render_editor と同一手順)
+# ══════════════════════════════════════════
+import re as _re  # noqa: E402
+
+from calc import merge_position  # noqa: E402
+from config import CURRENCY_OPTIONS, EXPECTED_COLS, MARKET_OPTIONS  # noqa: E402
+from data import _clear_sheet_cache, save_data  # noqa: E402
+from market import get_ticker_name  # noqa: E402
+
+
+class HoldingError(Exception):
+    """保有銘柄操作の業務エラー。status は API 側の HTTP ステータス(422=入力不正 / 409=競合 / 500=書込失敗)"""
+
+    def __init__(self, msg: str, status: int = 422):
+        super().__init__(msg)
+        self.status = status
+
+
+# 最新更新日は保存時に自動設定するため編集対象外
+HOLDING_EDITABLE = [c for c in EXPECTED_COLS if c != "最新更新日"]
+# 数値列の許容範囲(旧 add_form の number_input と同一上限。手動現在値は旧エディタ専用列で上限のみ緩め)
+_HOLDING_NUM_RANGES = {
+    "保有株数": (0.0, 100_000_000.0),
+    "取得単価": (0.0, 100_000_000.0),
+    "手動配当利回り(%)": (0.0, 100.0),
+    "年間配当金(円/株)": (0.0, 1_000_000.0),
+    "取得時為替": (0.0, 1000.0),
+    "手動現在値": (0.0, 1_000_000_000.0),
+}
+_HOLDING_OPTIONS = {"市場": MARKET_OPTIONS, "通貨": CURRENCY_OPTIONS, "口座": BROKER_OPTIONS, "口座区分": TAX_OPTIONS}
+_NAME_FAILED = ("", "名称不明", "取得失敗", "手動入力")
+
+
+def _normalize_months(v) -> str:
+    """配当月: list[int] または "3,9" 文字列 → 昇順・重複なしの "3,9"(空は "")。tab_dividend と同じカンマ区切り"""
+    if v is None or v == "":
+        return ""
+    items = v if isinstance(v, (list, tuple)) else str(v).split(",")
+    months = set()
+    for x in items:
+        s = str(x).strip().replace("月", "")
+        if not s:
+            continue
+        if not s.isdigit() or not (1 <= int(s) <= 12):
+            raise HoldingError("配当月は1〜12の月をカンマ区切りで指定")
+        months.add(int(s))
+    return ",".join(str(m) for m in sorted(months))
+
+
+def normalize_holding_fields(fields: dict, require_shares_positive: bool) -> dict:
+    """入力値の検証・正規化(旧 add_form / data_editor の制約と同一)。返り値はシート列名→値"""
+    if not isinstance(fields, dict):
+        raise HoldingError("fields はオブジェクトで指定")
+    out = {}
+    code = str(fields.get("銘柄コード", "") or "").strip()
+    if not code or len(code) > 20:
+        raise HoldingError("証券コードは1〜20文字で指定")
+    out["銘柄コード"] = code
+    name = str(fields.get("銘柄名", "") or "").strip()
+    if len(name) > 100:
+        raise HoldingError("銘柄名は100文字まで")
+    out["銘柄名"] = name
+    for col, opts in _HOLDING_OPTIONS.items():
+        v = str(fields.get(col, "") or "").strip()
+        if v not in opts:
+            raise HoldingError(f"{col} は {' / '.join(opts)} のいずれか")
+        out[col] = v
+    for col, (lo, hi) in _HOLDING_NUM_RANGES.items():
+        raw = fields.get(col, 0.0)
+        try:
+            v = float(0.0 if raw in (None, "") else raw)
+        except (TypeError, ValueError):
+            raise HoldingError(f"{col} は数値で指定")
+        if v != v or not (lo <= v <= hi):  # NaN も拒否
+            raise HoldingError(f"{col} は {lo:g}〜{hi:,.0f} の範囲で指定")
+        out[col] = v
+    if require_shares_positive and out["保有株数"] <= 0:
+        raise HoldingError("保有数は0より大きい値で指定")
+    out["配当月"] = _normalize_months(fields.get("配当月", ""))
+    date = str(fields.get("取得日", "") or "").strip()
+    if date and not _re.match(r"^\d{4}/\d{2}/\d{2}$", date):
+        raise HoldingError("取得日は YYYY/MM/DD 形式(空欄可)")
+    out["取得日"] = date
+    return out
+
+
+def _holding_rows_match(a: pd.Series, b: pd.Series) -> bool:
+    """再読込した行が保存した行と一致するか(数値は相対1e-6、文字列は前後空白無視)"""
+    for col in HOLDING_EDITABLE:
+        va, vb = a.get(col, ""), b.get(col, "")
+        if col in _HOLDING_NUM_RANGES:
+            fa, fb = float(va or 0), float(vb or 0)
+            if abs(fa - fb) > 1e-6 * max(1.0, abs(fa)):
+                return False
+        elif str(va).strip() != str(vb).strip():
+            return False
+    return True
+
+
+def _persist_holdings(df: pd.DataFrame, expect_rows: int, check=None) -> pd.DataFrame:
+    """save_data は例外を握りつぶすため、キャッシュを捨てて再読込し行数(と対象行)を検証する"""
+    save_data(df.reset_index(drop=True))
+    _clear_sheet_cache()
+    re_df = load_data()
+    if len(re_df) != expect_rows:
+        raise HoldingError(
+            f"保存後の再読込で行数が一致しません(期待{expect_rows}行/実際{len(re_df)}行)。Sheets への書込に失敗した可能性があります",
+            500)
+    if check is not None and not check(re_df):
+        raise HoldingError("保存後の再読込で内容が一致しません。Sheets への書込に失敗した可能性があります", 500)
+    return re_df
+
+
+def _now_jst_str() -> str:
+    return _dt.now(_JST).strftime("%Y/%m/%d %H:%M")
+
+
+def get_holdings_state() -> dict:
+    """GET /api/holdings 本体。シートの生値(calc 前)を行番号付きで返す"""
+    df = load_data()
+    rows = _df_to_records(df)
+    for i, r in zip(df.index, rows):
+        r["index"] = int(i)
+    return {
+        "holdings": rows,
+        "columns": list(EXPECTED_COLS),
+        "options": {col: list(opts) for col, opts in _HOLDING_OPTIONS.items()},
+    }
+
+
+def lookup_ticker_name(code: str, market: str) -> dict:
+    """銘柄名の自動取得(日本株=J-Quants / 米国株=yfinance)。取れなければ空文字"""
+    if market not in ("日本株", "米国株"):
+        return {"name": ""}
+    try:
+        name = str(get_ticker_name(code, market) or "")
+    except Exception as e:  # 外部取得の失敗は空で返す(呼び出し側で手入力に切替)
+        _svc_logger.warning("銘柄名取得失敗 %s: %s", code, e)
+        name = ""
+    return {"name": "" if name in _NAME_FAILED else name}
+
+
+def add_holding(fields: dict) -> dict:
+    """POST /api/holdings 本体。同一銘柄+同一口座+同一口座区分は合算(平均取得単価を再計算)、それ以外は別行で追加"""
+    f = normalize_holding_fields(fields, require_shares_positive=True)
+    df = load_data()
+    if not f["銘柄名"]:
+        f["銘柄名"] = lookup_ticker_name(f["銘柄コード"], f["市場"])["name"] or f["銘柄コード"]
+
+    match = [] if df.empty else df[(df["銘柄コード"].astype(str) == f["銘柄コード"])
+                                   & (df["口座"] == f["口座"]) & (df["口座区分"] == f["口座区分"])].index
+    if len(match) > 0:
+        i = match[0]
+        cur_shares, cur_price = float(df.at[i, "保有株数"]), float(df.at[i, "取得単価"])
+        new_total, new_price = merge_position(cur_shares, cur_price, f["保有株数"], f["取得単価"])
+        df.at[i, "保有株数"] = new_total
+        df.at[i, "取得単価"] = new_price
+        if f["年間配当金(円/株)"] > 0:
+            df.at[i, "年間配当金(円/株)"] = f["年間配当金(円/株)"]
+        if f["配当月"]:
+            df.at[i, "配当月"] = f["配当月"]
+        if f["取得時為替"] > 0:
+            df.at[i, "取得時為替"] = f["取得時為替"]
+        df.at[i, "最新更新日"] = _now_jst_str()
+        _persist_holdings(df, len(df), lambda r: _holding_rows_match(r.loc[i], df.loc[i]))
+        return {"merged": True, "index": int(i), "name": str(df.at[i, "銘柄名"]),
+                "shares_before": cur_shares, "shares_added": f["保有株数"],
+                "shares_after": new_total, "avg_price": new_price}
+
+    new = {col: f.get(col, "") for col in EXPECTED_COLS}
+    new["最新更新日"] = _now_jst_str()
+    out = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+    _persist_holdings(out, len(df) + 1, lambda r: _holding_rows_match(r.iloc[-1], out.iloc[-1]))
+    return {"merged": False, "index": len(df), "name": new["銘柄名"],
+            "shares_after": f["保有株数"], "avg_price": f["取得単価"]}
+
+
+def _locate_holding(df: pd.DataFrame, index: int, expect_code: str) -> None:
+    """行番号と銘柄コードの両方で対象行を確認(取引履歴と同じ楽観ロック)"""
+    if index not in df.index:
+        raise HoldingError("指定行が見つかりません(保有データが変わった可能性)。再読込してください", 409)
+    if str(df.at[index, "銘柄コード"]) != str(expect_code):
+        raise HoldingError("銘柄コードが一致しません(保有データが変わった可能性)。再読込してください", 409)
+
+
+def update_holding(index: int, expect_code: str, fields: dict) -> dict:
+    """PUT /api/holdings/{index} 本体。編集可能列を丸ごと置き換える(旧 data_editor と同じ)"""
+    f = normalize_holding_fields(fields, require_shares_positive=False)
+    df = load_data()
+    _locate_holding(df, index, expect_code)
+    if not f["銘柄名"]:
+        f["銘柄名"] = str(df.at[index, "銘柄名"]) or f["銘柄コード"]
+    for col in HOLDING_EDITABLE:
+        df.at[index, col] = f[col]
+    df.at[index, "最新更新日"] = _now_jst_str()
+    _persist_holdings(df, len(df), lambda r: _holding_rows_match(r.loc[index], df.loc[index]))
+    return {"index": int(index), "name": f["銘柄名"]}
+
+
+def delete_holding(index: int, expect_code: str) -> dict:
+    """DELETE /api/holdings/{index} 本体"""
+    df = load_data()
+    _locate_holding(df, index, expect_code)
+    name = str(df.at[index, "銘柄名"])
+    _persist_holdings(df.drop(index=index), len(df) - 1)
+    return {"index": int(index), "name": name}
