@@ -46,8 +46,9 @@ const DEFAULTS = {
   jhs2: 40, hs2: 150, un2: 250, lo2: 0,
   ageEnd: 95, infl: 0, taxh: 0,
   crashOn: false, crashPct: -40, crashAge: 40, ccOn: false, ccYears: 3,
-  // 住宅ローン金利ショック(既定OFF)。残高4,400=令和7年の住宅ローン控除30.7万÷0.7%からの推定
-  loanOn: false, loanBal: 4400, loanRate: 0.5, loanEnd: 70, loanShockAge: 45, loanDelta: 2,
+  // 住宅ローン金利ショック(既定OFF)。残高3,000=契約(2021/6借入3,480万・35年・当初0.405%)からの2026/9時点計算値
+  // (令和7年控除30.7万=1%×3,060万と整合)。現行金利は契約時の値なので、基準金利改定通知の実行金利に置き換える
+  loanOn: false, loanBal: 3000, loanRate: 0.405, loanEnd: 70, loanShockAge: 45, loanDelta: 2,
   shocks: [{ age: 60, amount: -281.15 }],
 };
 
@@ -502,19 +503,19 @@ export default function Lifeplan() {
               </>
             )}
             <Check label="住宅ローン金利ショック" checked={s.loanOn} onChange={set("loanOn")}
-              help="変動金利がショック年齢で一気に上がり以後戻らない決定論ストレス。返済増分(元利均等で即時再計算。5年・125%ルールは適用せず保守側)を就労中は年間貯蓄から差し引き、退職後は老後支出に上乗せ、完済年齢で消える。団信前提で死亡後は適用しない。実測(実運用基準94.2): 45歳で+2%→91.0、+3%→88.7、41歳で+3%→85.9" />
+              help="変動金利がショック年齢で一気に上がり以後戻らない決定論ストレス。返済増分(元利均等で即時再計算。5年・125%ルールは適用せず保守側)を就労中は年間貯蓄から差し引き、退職後は老後支出に上乗せ、完済年齢で消える。団信前提で死亡後は適用しない。実測(実運用基準94.2・残高3,000万): 45歳で+2pt→92.2、+3pt→90.8、41歳で+3pt→89.4" />
             {s.loanOn && (
               <>
                 <NumInput label="ローン残高(万円・現在)" value={s.loanBal} onChange={set("loanBal")} step={100} min={0} max={20000}
-                  help="既定4,400=令和7年の住宅ローン控除30.7万÷0.7%からの推定。実残高に置き換えて" />
-                <NumInput label="現行金利(%)" value={s.loanRate} onChange={set("loanRate")} step={0.1} min={0} max={10}
-                  help="優遇後の実行金利(店頭金利−優遇幅)。全期間固定なら本レバーは不要" />
+                  help="既定3,000=2021年6月借入3,480万・35年・0.405%の2026年9月時点残高(元利均等で計算、控除30.7万=1%×3,060万と整合)。残高照会の値があれば置き換えて" />
+                <NumInput label="現行金利(%)" value={s.loanRate} onChange={set("loanRate")} step={0.005} min={0} max={10}
+                  help="優遇後の実行金利=基準金利−引下げ幅2.370%。既定0.405は契約時の値で、2024年以降の基準金利引き上げ分は未反映——直近の改定通知の実行金利に置き換えて" />
                 <NumInput label="完済年齢" value={s.loanEnd} onChange={set("loanEnd")} step={1} min={41} max={105}
                   help="この年齢から返済なし。上の「完済年齢(支出が変わる年齢)」と揃える" />
                 <NumInput label="金利上昇の年齢" value={s.loanShockAge} onChange={set("loanShockAge")} step={1} min={40} max={104}
                   help="早いほど残高が大きく残期間も長いので痛い。住宅ローン控除が切れる入居13年後の前後を試すのが実用的" />
                 <NumInput label="上昇幅(%pt)" value={s.loanDelta} onChange={set("loanDelta")} step={0.5} min={-5} max={15}
-                  help="+2=0.5%→2.5%。日本の変動金利は短プラ連動で政策金利に追随する。予想を当てるのではなく「どこまで上がっても平気か」の閾値を探す用途" />
+                  help="+2=0.405%→2.405%。日本の変動金利は短プラ連動で政策金利に追随する。予想を当てるのではなく「どこまで上がっても平気か」の閾値を探す用途" />
                 {s.loanShockAge >= s.loanEnd ? (
                   <p className="caption" style={{ margin: 0, color: "var(--gold)" }}>⚠ 金利上昇の年齢は完済年齢より前にして(未適用)</p>
                 ) : (() => {
