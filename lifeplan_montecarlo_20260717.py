@@ -38,6 +38,53 @@ def _plan_cost(child_age, plan):
     if 18 <= child_age <= 21: return univ + lodging
     return 0
 
+def _annuity_payment(balance, annual_rate, months):
+    """元利均等の月額返済（残高と同じ単位）。金利0は元金÷月数"""
+    if months <= 0:
+        return 0.0
+    r = annual_rate / 12.0
+    if abs(r) < 1e-12:
+        return balance / months
+    return balance * r / (1.0 - (1.0 + r) ** (-months))
+
+
+def loan_shock_extra(balance, rate, end_age, shock_age, delta):
+    """住宅ローン金利ショックの年齢別「返済増分」（万円/年）を {年齢: 増分} で返す。
+
+    balance: 現在（AGE_START時点）の残高（万円）、rate: 現行年利（小数）、
+    end_age: 完済年齢（この年齢から返済なし＝spend_change_age と同じ意味）、
+    shock_age: 金利が上がる年齢、delta: 上昇幅（小数、例 0.02）。
+    元利均等を前提にショック時点の残高を求め、残期間を新金利で再計算した返済額と
+    現行返済額の差×12を shock_age〜end_age-1 の各年に計上する。
+    5年ルール・125%ルール（返済額の激変緩和）は適用しない＝キャッシュフローは保守側で、
+    未払い利息の繰延も無い「即時再計算」の値。ショックは1回・以後一定（決定論）"""
+    balance, rate, delta = float(balance), float(rate), float(delta)
+    end_age, shock_age = int(end_age), int(shock_age)
+    if not (0.0 <= balance <= 100_000.0):
+        raise ValueError("loan_shock: 残高は0〜100,000（万円）")
+    if not (0.0 <= rate <= 0.2):
+        raise ValueError("loan_shock: 現行金利は0〜0.2（小数）")
+    if not (AGE_START < end_age <= 110):
+        raise ValueError(f"loan_shock: 完済年齢は{AGE_START + 1}〜110")
+    if not (AGE_START <= shock_age < end_age):
+        raise ValueError(f"loan_shock: ショック年齢は{AGE_START}〜完済年齢-1")
+    if not (-0.05 <= delta <= 0.15) or rate + delta < 0.0:
+        raise ValueError("loan_shock: 上昇幅は-0.05〜0.15（小数）かつショック後金利≥0")
+    months_total = (end_age - AGE_START) * 12
+    base_pay = _annuity_payment(balance, rate, months_total)
+    k = (shock_age - AGE_START) * 12          # ショック時点までの返済月数
+    r = rate / 12.0
+    if abs(r) < 1e-12:
+        bal_k = balance - base_pay * k
+    else:
+        bal_k = balance * (1.0 + r) ** k - base_pay * ((1.0 + r) ** k - 1.0) / r
+    new_pay = _annuity_payment(bal_k, rate + delta, months_total - k)
+    extra = (new_pay - base_pay) * 12.0
+    if balance <= 0.0 or abs(extra) < 1e-12:
+        return {}
+    return {a: extra for a in range(shock_age, end_age)}
+
+
 def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
              edu_track="private", retire_age=60, pension_scale=1.0,
              calm65=None, deterministic=False, seed=20260717, track=False,
@@ -49,7 +96,7 @@ def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
              ideco=None, ret_model="iid", hist_returns=None, block_len=5,
              returns_seq=None, n_paths=None, mu_sd=None, bonus_risk=None,
              disable_risk=None, death=None, crash_at=None, save_cut=None,
-             edu_inflow=21.0, spend_change_age=70):
+             edu_inflow=21.0, spend_change_age=70, loan_shock=None):
     """1シナリオを N 本実行して統計を返す。
 
     mu: 複利（幾何）リターンの中央値。プランの「想定株式リターン4%」は決定論の
@@ -113,6 +160,11 @@ def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
                 教育費は当年貯蓄→本体→現金だけで賄う想定
     spend_change_age: spend_after70 が切り替わる年齢（既定70=従来互換。
                       ローン完済年齢に合わせて動かす）
+    loan_shock: (残高万円, 現行金利, 完済年齢, ショック年齢, 上昇幅) 住宅ローンの
+                変動金利ショック（決定論・1回）。loan_shock_extra で返済増分（万円/年）を
+                求め、就労中は年間貯蓄から差し引き（不足分は本体→現金から補填）、
+                退職後は老後支出に上乗せ、完済年齢で消える。死亡後は団信を前提に適用しない。
+                例 (4400, 0.005, 70, 45, 0.02) = 残高4,400万・0.5%→45歳で+2%
 
     ※収入系の乱数(mu_sd/bonus_risk/disable_risk)は市場乱数と別ストリーム。
       同一seedなら市場パスを固定したまま収入リスクだけon/offして比較できる。
@@ -143,6 +195,7 @@ def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
     if shocks:
         for a, m in shocks:
             shock_map[int(a)] = shock_map.get(int(a), 0.0) + float(m)
+    loan_extra = loan_shock_extra(*loan_shock) if loan_shock is not None else {}
 
     risk = np.full(NP, float(risk0))  # 本体リスク資産（オルカン等）
     edu  = np.zeros(NP)               # 教育費別建て口座（こどもNISA、同一リターン）
@@ -247,6 +300,18 @@ def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
                 risk = risk + ide * (1.0 - float(i_tax))
                 ide = np.zeros(NP)
 
+        # --- 住宅ローン金利ショック: 就労中は返済増分を貯蓄から差し引く（不足は本体→現金）
+        rem_l = 0.0
+        l_extra = loan_extra.get(int(age), 0.0)
+        if l_extra and working:
+            sav = sav - l_extra
+            deficit = np.maximum(-sav, 0.0)
+            sav = np.maximum(sav, 0.0)
+            if np.any(deficit > 0.0):
+                g = np.minimum(risk, deficit / (1.0 - tax_rate))
+                risk -= g; rl = deficit - g * (1.0 - tax_rate)
+                pay = np.minimum(cash, rl); cash -= pay; rem_l = rl - pay
+
         # 教育費は (1)当年貯蓄の振替 → (2)別建て口座 → (3)本体 → (4)現金 の順
         use_sav = np.minimum(sav, need)             # savはスカラーまたはパス別ベクトル
         need = need - use_sav
@@ -273,6 +338,7 @@ def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
                 sp = spend
                 if spend_after70 is not None and age >= int(spend_change_age):
                     sp = spend_after70
+                sp = sp + l_extra                        # 金利ショックの返済増分（完済年齢まで）
                 p_start = retire_age if pension_from is None else int(pension_from)
                 pension = 0.0
                 if age >= p_start:
@@ -313,7 +379,7 @@ def simulate(mu=0.04, sigma=0.18, save=200.0, spend=360.0, spend_after70=None,
             rem_s = 0.0
 
         cash_hit |= (cash < float(cash0) - 0.1)
-        depleted = (rem_e > 1e-9) | (rem_r > 1e-9) | (rem_s > 1e-9)
+        depleted = (rem_e > 1e-9) | (rem_r > 1e-9) | (rem_s > 1e-9) | (rem_l > 1e-9)
         fail_age = np.where((fail_age < 0) & depleted, age, fail_age)
 
         if track:

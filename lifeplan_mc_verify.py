@@ -217,4 +217,32 @@ if __name__ == "__main__":
     print(f"μ不確実性: σμ=0 {base:.2f} / 0.01 {s1:.2f} / 0.02 {s2:.2f}")
     assert s2 < s1 < base, "μ不確実性の方向性NG"
 
-    print("\n✅ 独立検算 合格（決定論トレース＋実史形状＋収入リスク・死亡・μ不確実性）")
+    # ---------- 追加検算（2026-09-05: 住宅ローン金利ショック）
+    from lifeplan_montecarlo_20260717 import _annuity_payment, loan_shock_extra
+    # (j1) 元利均等の既知値: 3,000万・35年・0.5% → 月77,876円（±1円）
+    pay = _annuity_payment(3000.0, 0.005, 420) * 1e4
+    assert abs(pay - 77876) < 1.0, f"元利均等の既知値NG: {pay}"
+    # (j2) ゼロ効果: 上昇幅0・残高0は基準と厳密一致（opt-in性）
+    for kw in (dict(loan_shock=(4400, 0.005, 70, 45, 0.0)),
+               dict(loan_shock=(0, 0.005, 70, 45, 0.02))):
+        assert abs(simulate(**kw)["score"] - base) < 1e-12, f"金利ショックのゼロ効果NG {kw}"
+    # (j3) 等価性: ショック@50（完済70）= 就労中は save_cut(50,10,200-E)、退職後は shocks(60..69, E)
+    E = loan_shock_extra(4400, 0.005, 70, 50, 0.02)[50]
+    a = simulate(loan_shock=(4400, 0.005, 70, 50, 0.02))
+    b = simulate(save_cut=(50, 10, 200.0 - E), shocks=tuple((x, E) for x in range(60, 70)))
+    assert abs(a["score"] - b["score"]) < 1e-12, f"金利ショック等価性NG: {a['score']} != {b['score']}"
+    assert abs(a["terminal_p50"] - b["terminal_p50"]) < 1e-6 * a["terminal_p50"]
+    # (j4) 決定論トレース: 基準との差分 = E45 を45〜69歳に注入し複利4%で成長させた額（独立計算）
+    E45 = loan_shock_extra(4400, 0.005, 70, 45, 0.02)[45]
+    d0 = simulate(deterministic=True, track=True)["trajectory"]["p50"]
+    d1 = simulate(deterministic=True, track=True, loan_shock=(4400, 0.005, 70, 45, 0.02))["trajectory"]["p50"]
+    diff = 0.0
+    for j, age in enumerate(range(40, 96)):
+        diff *= 1.0 + R
+        if 45 <= age < 70:
+            diff += E45
+        assert abs((d0[j] - d1[j]) - diff) < 1e-6 * max(diff, 1.0), f"金利ショック決定論トレースNG @{age}"
+    print(f"住宅ローン金利ショック: 元利均等既知値 {pay:,.0f}円 / ゼロ効果2種 / save_cut+shocks等価 "
+          f"({a['score']:.3f}) / 決定論トレース(E={E45:.1f}万/年×25年) 全て OK")
+
+    print("\n✅ 独立検算 合格（決定論トレース＋実史形状＋収入リスク・死亡・μ不確実性＋金利ショック）")

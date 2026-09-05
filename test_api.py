@@ -1443,3 +1443,46 @@ class TestHoldingsEndpoints:
         assert client.put("/api/holdings/0", json={"code": "x", "fields": {"銘柄コード": "x"}}, headers=hdr).status_code == 409
         monkeypatch.setattr(m.svc, "delete_holding", boom(500))
         assert client.delete("/api/holdings/0?code=x", headers=hdr).status_code == 500
+
+
+class TestLifeplanLoanShock:
+    """住宅ローン金利ショック loan_shock=(残高,現行金利,完済齢,ショック齢,上昇幅) — API配線と回帰保護"""
+
+    def test_zero_effect_and_direction(self):
+        import api.service as svc
+        base = svc.run_lifeplan_mc({})["score"]
+        assert svc.run_lifeplan_mc({"loan_shock": [4400, 0.005, 70, 45, 0]})["score"] == base  # opt-in
+        s1 = svc.run_lifeplan_mc({"loan_shock": [4400, 0.005, 70, 45, 0.01]})["score"]
+        s2 = svc.run_lifeplan_mc({"loan_shock": [4400, 0.005, 70, 45, 0.02]})["score"]
+        assert s2 < s1 < base
+
+    def test_coercion_matches_engine(self):
+        import api.service as svc
+        from lifeplan_montecarlo_20260717 import simulate
+        via = svc.run_lifeplan_mc({"loan_shock": [4400, 0.005, 70, 45, 0.02], "n_paths": 2000})
+        direct = simulate(loan_shock=(4400.0, 0.005, 70.0, 45.0, 0.02), n_paths=2000)
+        assert via["score"] == direct["score"] and via["terminal_p50"] == direct["terminal_p50"]
+
+    def test_extra_formula(self):
+        from lifeplan_montecarlo_20260717 import _annuity_payment, loan_shock_extra
+        assert abs(_annuity_payment(3000.0, 0.005, 420) * 1e4 - 77876) < 1.0  # 既知値(円/月)
+        ex = loan_shock_extra(4400, 0.005, 70, 40, 0.02)                      # 0.5%→2.5%
+        assert set(ex) == set(range(40, 70)) and abs(ex[40] - 50.65) < 0.01    # 月+42,210円
+        assert loan_shock_extra(4400, 0.005, 70, 45, 0.0) == {}
+        assert loan_shock_extra(0, 0.005, 70, 45, 0.02) == {}
+
+    def test_validation(self):
+        import api.service as svc
+        for bad in ([4400, 0.005, 70, 45],            # 要素数
+                    [4400, 0.005, 70, 75, 0.02],      # ショック齢 >= 完済齢
+                    [4400, 0.005, 70, 45, 0.5],       # 上昇幅 範囲外
+                    [-1, 0.005, 70, 45, 0.02],        # 残高 負
+                    [4400, 0.005, 40, 39, 0.02]):     # 完済齢 <= 開始齢
+            with pytest.raises(ValueError):
+                svc.run_lifeplan_mc({"loan_shock": bad})
+
+    def test_replay_accepts_loan_shock(self):
+        # 決定論レバーなので開始年リプレイでは除外されない
+        import api.service as svc
+        r = svc.run_lifeplan_replay({"loan_shock": [4400, 0.005, 70, 45, 0.02]})
+        assert r["dropped"] == [] and r["n_starts"] > 0

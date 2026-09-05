@@ -46,8 +46,32 @@ const DEFAULTS = {
   jhs2: 40, hs2: 150, un2: 250, lo2: 0,
   ageEnd: 95, infl: 0, taxh: 0,
   crashOn: false, crashPct: -40, crashAge: 40, ccOn: false, ccYears: 3,
+  // 住宅ローン金利ショック(既定OFF)。残高4,400=令和7年の住宅ローン控除30.7万÷0.7%からの推定
+  loanOn: false, loanBal: 4400, loanRate: 0.5, loanEnd: 70, loanShockAge: 45, loanDelta: 2,
   shocks: [{ age: 60, amount: -281.15 }],
 };
+
+// 元利均等の月額返済(残高と同じ単位)。エンジン loan_shock_extra と同一式(表示用)
+function annuityPay(balance, rate, months) {
+  if (months <= 0) return 0;
+  const r = rate / 12;
+  if (Math.abs(r) < 1e-12) return balance / months;
+  return (balance * r) / (1 - Math.pow(1 + r, -months));
+}
+
+// 金利ショックの返済増分プレビュー(万円)。エンジンと同じ「ショック時点の残高を残期間で再計算」
+function loanShockPreview(bal, ratePct, endAge, shockAge, deltaPct) {
+  const rate = ratePct / 100;
+  const total = (endAge - 40) * 12;
+  const k = (shockAge - 40) * 12;
+  const basePay = annuityPay(bal, rate, total);
+  const r = rate / 12;
+  const balK = Math.abs(r) < 1e-12
+    ? bal - basePay * k
+    : bal * Math.pow(1 + r, k) - (basePay * (Math.pow(1 + r, k) - 1)) / r;
+  const newPay = annuityPay(balK, rate + deltaPct / 100, total - k);
+  return { basePay, newPay, balK, yearly: (newPay - basePay) * 12, years: Math.max(endAge - shockAge, 0) };
+}
 
 // 繰上げ-0.4%/月・繰下げ+0.7%/月の換算(基準=65歳受給額)
 function pensionApplied(pSelf, pFrom) {
@@ -89,6 +113,9 @@ function buildParams(s) {
     if (s.crashAge === 40) p.crash_year1 = s.crashPct / 100;
     else p.crash_at = [s.crashAge, s.crashPct / 100];
     if (s.ccOn) p.save_cut = [s.crashAge, s.ccYears, 84];
+  }
+  if (s.loanOn && s.loanBal > 0 && s.loanDelta !== 0 && s.loanShockAge < s.loanEnd) {
+    p.loan_shock = [s.loanBal, s.loanRate / 100, s.loanEnd, s.loanShockAge, s.loanDelta / 100];
   }
   const rows = s.shocks
     .filter((r) => r.amount !== 0 && r.age >= 40 && r.age <= s.ageEnd)
@@ -289,6 +316,12 @@ export default function Lifeplan() {
         "前提_年金": `夫${s.pSelf}万@${s.pFrom}歳・妻${s.pSp}万@夫${s.spFrom}歳(平均値ベース、スケール${s.pensionScale})`,
         "前提_教育費": `総額${fmt0(eduTotal)}万(2人分・実質、教育口座流入なし)`,
         "一時支出": s.shocks.filter((r) => r.amount !== 0).map((r) => `${r.age}歳${r.amount > 0 ? "-" : "+"}${fmt0(Math.abs(r.amount))}万`).join("、") || "なし",
+        "住宅ローン金利ショック": params.loan_shock
+          ? (() => {
+              const v = loanShockPreview(s.loanBal, s.loanRate, s.loanEnd, s.loanShockAge, s.loanDelta);
+              return `${s.loanShockAge}歳で${s.loanRate}%→${(s.loanRate + s.loanDelta).toFixed(1)}%(残高${fmt0(s.loanBal)}万、返済 年+${fmt1(v.yearly)}万を${s.loanEnd}歳の完済まで)`;
+            })()
+          : "なし",
       };
       const d = await apiPost("/api/ai/lifeplan/generate", { inputs });
       setAi({ busy: false, text: d.text, err: null });
@@ -468,6 +501,33 @@ export default function Lifeplan() {
                 )}
               </>
             )}
+            <Check label="住宅ローン金利ショック" checked={s.loanOn} onChange={set("loanOn")}
+              help="変動金利がショック年齢で一気に上がり以後戻らない決定論ストレス。返済増分(元利均等で即時再計算。5年・125%ルールは適用せず保守側)を就労中は年間貯蓄から差し引き、退職後は老後支出に上乗せ、完済年齢で消える。団信前提で死亡後は適用しない。実測(実運用基準94.2): 45歳で+2%→91.0、+3%→88.7、41歳で+3%→85.9" />
+            {s.loanOn && (
+              <>
+                <NumInput label="ローン残高(万円・現在)" value={s.loanBal} onChange={set("loanBal")} step={100} min={0} max={20000}
+                  help="既定4,400=令和7年の住宅ローン控除30.7万÷0.7%からの推定。実残高に置き換えて" />
+                <NumInput label="現行金利(%)" value={s.loanRate} onChange={set("loanRate")} step={0.1} min={0} max={10}
+                  help="優遇後の実行金利(店頭金利−優遇幅)。全期間固定なら本レバーは不要" />
+                <NumInput label="完済年齢" value={s.loanEnd} onChange={set("loanEnd")} step={1} min={41} max={105}
+                  help="この年齢から返済なし。上の「完済年齢(支出が変わる年齢)」と揃える" />
+                <NumInput label="金利上昇の年齢" value={s.loanShockAge} onChange={set("loanShockAge")} step={1} min={40} max={104}
+                  help="早いほど残高が大きく残期間も長いので痛い。住宅ローン控除が切れる入居13年後の前後を試すのが実用的" />
+                <NumInput label="上昇幅(%pt)" value={s.loanDelta} onChange={set("loanDelta")} step={0.5} min={-5} max={15}
+                  help="+2=0.5%→2.5%。日本の変動金利は短プラ連動で政策金利に追随する。予想を当てるのではなく「どこまで上がっても平気か」の閾値を探す用途" />
+                {s.loanShockAge >= s.loanEnd ? (
+                  <p className="caption" style={{ margin: 0, color: "var(--gold)" }}>⚠ 金利上昇の年齢は完済年齢より前にして(未適用)</p>
+                ) : (() => {
+                  const v = loanShockPreview(s.loanBal, s.loanRate, s.loanEnd, s.loanShockAge, s.loanDelta);
+                  return (
+                    <p className="caption" style={{ margin: 0 }}>
+                      → 月返済 {fmt1(v.basePay)}万 → {fmt1(v.newPay)}万(年{v.yearly >= 0 ? "+" : ""}{fmt1(v.yearly)}万)を
+                      {s.loanShockAge}〜{s.loanEnd - 1}歳の{v.years}年間計上。ショック時点の残高 {fmt0(v.balK)}万
+                    </p>
+                  );
+                })()}
+              </>
+            )}
             <p className="caption" style={{ margin: "0.3rem 0 0" }}>
               一時支出(介護・リフォーム・車等)。マイナス金額=一時収入(相続・退職一時金等)。
               既定の-281.15万@60歳=企業年金一時金(実測+1.4pt)。同年齢に複数行あれば合算される
@@ -571,6 +631,10 @@ export default function Lifeplan() {
                     {s.crashOn && (
                       <ReferenceLine x={s.crashAge} stroke="#FF5252" strokeDasharray="4 4"
                         label={{ value: `暴落${s.crashPct}%`, position: "insideTopRight", fill: "#FF5252", fontSize: 10 }} />
+                    )}
+                    {params.loan_shock && (
+                      <ReferenceLine x={s.loanShockAge} stroke="#FFD54F" strokeDasharray="4 4"
+                        label={{ value: `金利+${s.loanDelta}%`, position: "insideBottomRight", fill: "#FFD54F", fontSize: 10 }} />
                     )}
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -683,6 +747,7 @@ export default function Lifeplan() {
                     <li>教育費: 別建て口座(流入42万/年、各子18歳まで)→当年貯蓄振替→本体→現金の順で充当</li>
                     <li>リターン: 既定=年次i.i.d.対数正規。「複利4%」は中央値複利=4%の意味(算術平均≈5.7%)</li>
                     <li>実史形状: ブートストラップは実史(S&P500 1928-2024)の形状・連鎖のみ借り、水準はμ・σを貼り直す</li>
+                    <li>住宅ローン: 返済は生活費・貯蓄の裏側に内包。金利ショックは元利均等の即時再計算(5年・125%ルール非適用=キャッシュフローは保守側)、1回で以後戻らない決定論、団信前提で死亡後は不適用</li>
                     <li>収入リスク・死亡保障・状態依存切替などの研究系レバーはローカルのStreamlit GUIで検証する</li>
                   </ul>
                 </div>

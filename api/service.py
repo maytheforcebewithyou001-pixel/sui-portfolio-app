@@ -681,7 +681,8 @@ _LP_INT_KEYS = frozenset({
     "retire_age", "spouse_from", "age_end", "reemploy_until", "pension_from",
     "block_len", "n_paths", "seed", "spend_change_age"})
 _LP_TUPLE_KEYS = {"calm65": 2, "guardrail": 2, "ideco": 5, "bonus_risk": 3,
-                  "disable_risk": 2, "death": 4, "crash_at": 2, "save_cut": 3}
+                  "disable_risk": 2, "death": 4, "crash_at": 2, "save_cut": 3,
+                  "loan_shock": 5}   # (残高万円, 現行金利, 完済年齢, ショック年齢, 上昇幅)
 
 
 def _lp_num(v, name):
