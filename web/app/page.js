@@ -76,19 +76,37 @@ function dayChangeTotal(rows, cashJpy) {
   return { diff: cur - prev, pct: prev > 0 ? ((cur - prev) / prev) * 100 : 0 };
 }
 
-// 集中リスク: 単一銘柄30%超 or HHI2500超(app.py:437-448 と同一。分母は証券のみ)
+// 集中リスク: 単一銘柄30%超 or HHI2500超(分母は証券評価額)。
+// 分散型の器(投資信託・債券/国債・広範分散ETF)は中身が分散済みで単一銘柄リスクの対象外のため、
+// 判定・HHIとも除外する。セクターETF(2644等)は集中ベットなので個別銘柄扱いのまま。
+// 同一銘柄は口座横断で集約(保有一覧の groups と同じキー)してから判定する
+const DIVERSIFIED_MARKETS = new Set(["投資信託", "債券/国債"]);
+const DIVERSIFIED_ETFS = new Set(["VT", "WDIV"]);
+const isDiversified = (r) =>
+  DIVERSIFIED_MARKETS.has(r["市場"]) || DIVERSIFIED_ETFS.has(String(r["銘柄コード"]));
+
 function concentration(rows, totalAsset) {
   if (!rows.length || totalAsset <= 0) return null;
-  const shares = rows.map((r) => (r["評価額(円)"] || 0) / totalAsset);
-  const hhi = shares.reduce((s, x) => s + x * x, 0) * 10000;
+  const byName = new Map();
+  rows.forEach((r) => {
+    if (isDiversified(r)) return;
+    const key = `${r["銘柄コード"]}|${r["銘柄名"]}`;
+    const g = byName.get(key) || { name: r["銘柄名"], value: 0 };
+    g.value += r["評価額(円)"] || 0;
+    byName.set(key, g);
+  });
+  let hhi = 0;
   let top = 0;
   let topName = "";
-  rows.forEach((r, i) => {
-    if (shares[i] > top) {
-      top = shares[i];
-      topName = r["銘柄名"];
+  byName.forEach((g) => {
+    const share = g.value / totalAsset;
+    hhi += share * share;
+    if (share > top) {
+      top = share;
+      topName = g.name;
     }
   });
+  hhi *= 10000;
   if (top * 100 >= 30.0) return { kind: "single", name: topName, pct: top * 100, hhi };
   if (hhi >= 2500) return { kind: "hhi", hhi };
   return null;
@@ -207,13 +225,13 @@ export default function Dashboard() {
 
       {conc && conc.kind === "single" && (
         <div className="alert down">
-          ⚠ 集中リスク: <b>{conc.name}</b> が総資産の {conc.pct.toFixed(1)}% を占めています（推奨上限 30%）。
-          HHI={Math.round(conc.hhi).toLocaleString("ja-JP")}（2500超で高集中）
+          ⚠ 集中リスク: <b>{conc.name}</b> が証券評価額の {conc.pct.toFixed(1)}% を占めています（推奨上限 30%）。
+          個別銘柄HHI={Math.round(conc.hhi).toLocaleString("ja-JP")}（2500超で高集中）
         </div>
       )}
       {conc && conc.kind === "hhi" && (
         <div className="alert down">
-          ⚠ ポートフォリオ集中度が高め（HHI={Math.round(conc.hhi).toLocaleString("ja-JP")}・2500超）。分散を検討してください。
+          ⚠ 個別銘柄の集中度が高め（HHI={Math.round(conc.hhi).toLocaleString("ja-JP")}・2500超）。分散を検討してください。
         </div>
       )}
 
