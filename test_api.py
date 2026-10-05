@@ -1626,3 +1626,67 @@ class TestSonnetModelResolution:
 
     def test_api_failure_falls_back(self, monkeypatch):
         assert self._resolve(monkeypatch, [], "claude-sonnet-4-6", status=500) == "claude-sonnet-4-6"
+
+
+class TestClaude5Request:
+    """Claude 5世代移行(2026-10-05)のリクエスト形状回帰: thinking=adaptive / effort / max_tokens 拡張"""
+
+    def _capture(self, monkeypatch):
+        import ai_review
+        monkeypatch.setattr(ai_review, "_resolve_sonnet_model", lambda key, fb: "claude-sonnet-5-5")
+        sent = {}
+        class R:
+            status_code = 200
+            def iter_lines(self, decode_unicode=True):
+                for ev in ({"type": "content_block_start", "content_block": {"type": "thinking"}},
+                           {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "考え中"}},
+                           {"type": "content_block_start", "content_block": {"type": "text", "text": ""}},
+                           {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "本文"}},
+                           {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+                            "usage": {"output_tokens": 900, "output_tokens_details": {"thinking_tokens": 500}}}):
+                    yield f"data: {json.dumps(ev)}"
+            def close(self): pass
+        def fake_post(url, **kw):
+            sent.update(kw["json"]); sent["_timeout"] = kw["timeout"]
+            return R()
+        monkeypatch.setattr(ai_review.requests, "post", fake_post)
+        return ai_review, sent
+
+    def test_request_shape(self, monkeypatch):
+        import config
+        ai, sent = self._capture(monkeypatch)
+        ok, text, stop = ai._call_claude("k", "sys", "user", max_tokens=config.AI_MAX_TOKENS)
+        assert ok and text == "本文" and stop == "end_turn"   # thinking_delta は本文に混ざらない
+        assert sent["model"] == "claude-sonnet-5-5"
+        assert sent["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert "budget_tokens" not in json.dumps(sent)          # 5世代では 400 になる旧パラメータ
+        assert sent["output_config"] == {"effort": config.AI_EFFORT}
+        assert sent["max_tokens"] == config.AI_MAX_TOKENS >= 16000
+        assert sent["stream"] is True and sent["_timeout"][1] >= 180
+        for k in ("temperature", "top_p", "top_k"):             # 5世代はサンプリング指定が 400
+            assert k not in sent
+
+    def test_config_generation(self):
+        import config
+        assert config.AI_MODEL.startswith("claude-sonnet-5")
+        assert config.AI_EFFORT in ("low", "medium", "high", "xhigh", "max")
+
+    def test_generate_uses_config_max_tokens(self, monkeypatch):
+        import api.service as svc
+        import config
+        seen = {}
+        def fake_call(key, sp, uc, max_tokens=2000):
+            seen["max_tokens"] = max_tokens
+            return True, "本文", "end_turn"
+        monkeypatch.setattr(svc, "_call_claude", fake_call)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        monkeypatch.setattr(svc, "_compute_state",
+                            lambda: {"display_df": pd.DataFrame({"a": [1]}), "totals": {"total_asset": 100},
+                                     "jpy_usd_rate": 150.0})
+        monkeypatch.setattr(svc, "build_portfolio_summary_text", lambda *a, **k: "PTXT")
+        monkeypatch.setattr(svc, "load_history", lambda: None)
+        monkeypatch.setattr(svc, "load_ai_review_history", lambda n=10: [])
+        monkeypatch.setattr(svc, "load_settings", lambda: {})
+        monkeypatch.setattr(svc, "save_ai_review", lambda dt, t: None)
+        out = svc.generate_ai_review()
+        assert seen["max_tokens"] == config.AI_MAX_TOKENS and out["truncated"] is False

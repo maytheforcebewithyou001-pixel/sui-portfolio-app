@@ -9,6 +9,7 @@ import json
 import pandas as pd
 
 from config import (
+    AI_MAX_TOKENS,
     FALLBACK_USDJPY,
     NISA_GROWTH_ANNUAL,
     NISA_GROWTH_LIFETIME,
@@ -295,7 +296,7 @@ def generate_ai_review() -> dict:
     system_prompt = build_review_system_prompt(
         policy_memo, bool(past_reviews), kurisu=_current_user() in KURISU_USERS)
     user_content = build_review_user_content(ptxt, policy_memo, history_context)
-    ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=4000)
+    ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=AI_MAX_TOKENS)
     if not ok:
         raise AIGenerationError(result)
     ns = _dt.now(_JST).strftime("%Y/%m/%d %H:%M")
@@ -651,7 +652,7 @@ def generate_lifeplan(inputs: dict) -> dict:
     api_key = _anthropic_api_key()
     system_prompt = build_lifeplan_system_prompt()
     user_content = build_lifeplan_user_content(inputs)
-    ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=8000)
+    ok, result, stop = _call_claude(api_key, system_prompt, user_content, max_tokens=AI_MAX_TOKENS)
     if not ok:
         raise AIGenerationError(result)
     ns = _dt.now(_JST).strftime("%Y/%m/%d %H:%M")

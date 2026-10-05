@@ -24,9 +24,16 @@ SESSION_TTL_SEC = 8 * 3600  # 8時間
 # USD/JPY レート取得失敗時のフォールバック概算値（円）
 FALLBACK_USDJPY = 150.0
 
-# AI モデル — 通常はtab_aiが /v1/models から最新Sonnetを動的解決する。
-# これは解決失敗時のフォールバック既定値（最後の砦）。
-AI_MODEL = "claude-sonnet-4-6"
+# AI モデル — ai_review._resolve_sonnet_model が /v1/models から「この値と同じメジャー世代」の
+# 最新Sonnetを動的解決する(5 → 5.5 等)。世代跨ぎはここを書き換えた時だけ起きる。
+# 解決失敗時はこの値をそのまま使う(最後の砦)。2026-10-05 に 4.6 → 5世代へ移行。
+AI_MODEL = "claude-sonnet-5"
+# Claude 5世代は thinking が常時ON(disabled 指定は不可)で、制御レバーは effort のみ。
+# low=短考・低遅延 / medium=標準 / high〜max=長考・高コスト。総評・ライフプラン共通
+AI_EFFORT = "medium"
+# 出力上限。thinking も max_tokens を消費するので本文想定(〜6,000)の2倍以上を確保。
+# 旧 4,000 では 2026-09-26 の総評が本文途中で打ち切られた
+AI_MAX_TOKENS = 16000
 
 # NISA 年間・生涯枠（2024年新NISA）
 NISA_GROWTH_ANNUAL = 2_400_000      # 成長投資枠 年間上限

@@ -114,7 +114,7 @@ function ReviewTab() {
       </details>
 
       {generating ? (
-        <div className="alert warn">⏳ Claudeが分析中...（20〜30秒）</div>
+        <div className="alert warn">⏳ Claudeが分析中...（60〜120秒）</div>
       ) : needConfirm ? (
         <>
           <div className="alert warn">⏱ {relTime(dt)}に生成済み。再生成でAPIクレジット消費。</div>
@@ -286,7 +286,7 @@ function LifeplanTab({ taAll }) {
       </div>
 
       {generating ? (
-        <div className="alert warn">⏳ Claudeがライフプランを試算中...（40〜60秒）</div>
+        <div className="alert warn">⏳ Claudeがライフプランを試算中...（60〜120秒）</div>
       ) : (
         <button className="ghost wide" onClick={submit}>🧮 将来必要資産を試算する</button>
       )}

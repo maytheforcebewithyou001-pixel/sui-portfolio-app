@@ -8,7 +8,7 @@ import re as _re
 
 import requests
 
-from config import AI_MODEL, logger
+from config import AI_EFFORT, AI_MODEL, logger
 from cacheutil import ttl_cache
 
 _MODELS_URL = "https://api.anthropic.com/v1/models"
@@ -91,6 +91,11 @@ def _sanitize(text):
 def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
     """Claude /v1/messages 共通呼び出し。モデル動的解決＋404自己修復＋リトライ。
 
+    Claude 5世代前提: thinking は adaptive(省略時と同義、disabled は 5.5 系で 400)、
+    思考量は output_config.effort で制御。display=summarized は思考中も SSE が流れ続けるようにする
+    ため(既定の omitted だと思考中は ping 以外ほぼ無音で read timeout を踏みうる)。課金は display 非依存。
+    thinking ブロックは max_tokens を消費するので、呼び出し側は本文の2倍以上を渡すこと。
+
     戻り値: (ok: bool, text_or_error: str, stop_reason: str|None)
     stop_reason が "max_tokens" の場合は出力が上限で打ち切られている。
     テキストが空の応答(stop_reason=refusal 等)は ok=False として返し、呼び出し側が空レポートを保存しないようにする。
@@ -104,8 +109,10 @@ def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
             resp = requests.post("https://api.anthropic.com/v1/messages",
                                  headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
                                  json={"model": model_id, "max_tokens": max_tokens, "system": system_prompt,
-                                       "messages": [{"role": "user", "content": user_content}], "stream": True},
-                                 timeout=(15, 120), stream=True)
+                                       "messages": [{"role": "user", "content": user_content}], "stream": True,
+                                       "thinking": {"type": "adaptive", "display": "summarized"},
+                                       "output_config": {"effort": AI_EFFORT}},
+                                 timeout=(15, 180), stream=True)
         except Exception as e:
             return False, f"通信エラー: {e}", None
         if resp.status_code == 200:
@@ -130,8 +137,10 @@ def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
                     elif et == "error":
                         return False, f"APIエラー: {ev.get('error', {}).get('message', '不明')}", None
                 text = _sanitize("".join(parts))
-                diag = (f"model={model_id} stop_reason={stop_reason} blocks={block_types} "
-                        f"out_tokens={usage.get('output_tokens')} chars={len(text)}")
+                diag = (f"model={model_id} effort={AI_EFFORT} stop_reason={stop_reason} blocks={block_types} "
+                        f"out_tokens={usage.get('output_tokens')} "
+                        f"thinking_tokens={(usage.get('output_tokens_details') or {}).get('thinking_tokens')} "
+                        f"chars={len(text)}")
                 if stop_reason == "refusal":
                     logger.warning("Claude応答が安全分類器により停止: %s", diag)
                     return False, f"モデル応答が安全分類器により停止されました ({diag})", stop_reason
