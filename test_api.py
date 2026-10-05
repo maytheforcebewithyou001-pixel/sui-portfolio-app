@@ -1486,3 +1486,143 @@ class TestLifeplanLoanShock:
         import api.service as svc
         r = svc.run_lifeplan_replay({"loan_shock": [4400, 0.005, 70, 45, 0.02]})
         assert r["dropped"] == [] and r["n_starts"] > 0
+
+
+class TestAIEmptyResponse:
+    """2026-10-02〜 本番で総評が空文字で保存された件の回帰
+    (_call_claude が text_delta ゼロの200応答を ok=True で返し、空行がシートに積まれた)"""
+
+    @staticmethod
+    def _fake_post(events, status=200):
+        class R:
+            status_code = status
+            text = ""
+            def iter_lines(self, decode_unicode=True):
+                for ev in events:
+                    yield f"event: {ev['type']}"
+                    yield f"data: {json.dumps(ev)}"
+                    yield ""
+            def close(self): pass
+            def json(self): return {}
+        return lambda *a, **k: R()
+
+    @pytest.fixture
+    def ai(self, monkeypatch):
+        import ai_review
+        monkeypatch.setattr(ai_review, "_resolve_sonnet_model", lambda key, fb: "claude-test-model")
+        return ai_review
+
+    def _events(self, texts, stop, extra_blocks=()):
+        ev = [{"type": "message_start", "message": {"id": "m1"}}]
+        for bt in extra_blocks:
+            ev.append({"type": "content_block_start", "index": 0, "content_block": {"type": bt}})
+        if texts:
+            ev.append({"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}})
+            for t in texts:
+                ev.append({"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": t}})
+        ev.append({"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 7}})
+        ev.append({"type": "message_stop"})
+        return ev
+
+    def test_normal_text(self, ai, monkeypatch):
+        monkeypatch.setattr(ai.requests, "post", self._fake_post(self._events(["総評", "本文"], "end_turn")))
+        ok, text, stop = ai._call_claude("k", "sys", "user")
+        assert ok and text == "総評本文" and stop == "end_turn"
+
+    def test_max_tokens_still_ok(self, ai, monkeypatch):
+        monkeypatch.setattr(ai.requests, "post", self._fake_post(self._events(["途中"], "max_tokens")))
+        ok, text, stop = ai._call_claude("k", "sys", "user")
+        assert ok and text == "途中" and stop == "max_tokens"
+
+    def test_empty_text_is_failure(self, ai, monkeypatch):
+        monkeypatch.setattr(ai.requests, "post", self._fake_post(self._events([], "end_turn")))
+        ok, msg, stop = ai._call_claude("k", "sys", "user")
+        assert not ok and stop == "end_turn"
+        assert "空" in msg and "claude-test-model" in msg and "stop_reason=end_turn" in msg
+
+    def test_refusal_is_failure(self, ai, monkeypatch):
+        monkeypatch.setattr(ai.requests, "post", self._fake_post(self._events([], "refusal")))
+        ok, msg, stop = ai._call_claude("k", "sys", "user")
+        assert not ok and stop == "refusal" and "安全分類器" in msg
+
+    def test_non_text_block_reported(self, ai, monkeypatch):
+        """thinking等テキスト以外のブロックしか来なかった場合も失敗+ブロック種別を診断文に含める"""
+        monkeypatch.setattr(ai.requests, "post",
+                            self._fake_post(self._events([], "end_turn", extra_blocks=("thinking",))))
+        ok, msg, _ = ai._call_claude("k", "sys", "user")
+        assert not ok and "thinking" in msg
+
+    def test_generate_does_not_save_empty(self, ai, monkeypatch):
+        """空応答は AIGenerationError になり save_ai_review に到達しない"""
+        import api.service as svc
+        monkeypatch.setattr(ai.requests, "post", self._fake_post(self._events([], "end_turn")))
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        df = pd.DataFrame({"a": [1]})
+        monkeypatch.setattr(svc, "_compute_state",
+                            lambda: {"display_df": df, "totals": {"total_asset": 100}, "jpy_usd_rate": 150.0})
+        monkeypatch.setattr(svc, "build_portfolio_summary_text", lambda *a, **k: "PTXT")
+        monkeypatch.setattr(svc, "load_history", lambda: None)
+        monkeypatch.setattr(svc, "load_ai_review_history", lambda n=10: [])
+        monkeypatch.setattr(svc, "load_settings", lambda: {})
+        saved = []
+        monkeypatch.setattr(svc, "save_ai_review", lambda dt, t: saved.append(t))
+        with pytest.raises(svc.AIGenerationError, match="空"):
+            svc.generate_ai_review()
+        assert saved == []
+
+    def test_load_skips_empty_rows(self, monkeypatch):
+        import data
+        rows = [["生成日時", "分析レポート"],
+                ["2026/09/26 14:06", "正常な本文"],
+                ["2026/10/02 21:50", ""],
+                ["2026/10/02 21:51", "   "],
+                ["2026/10/05 11:00", ""]]
+        monkeypatch.setattr(data, "_get_sheet_values", lambda name: rows if name == "AI総評" else [])
+        assert data.load_ai_review() == ("2026/09/26 14:06", "正常な本文")
+        assert data.load_ai_review_history(10) == [("2026/09/26 14:06", "正常な本文")]
+
+    def test_save_skips_empty(self, monkeypatch):
+        import data
+        def boom(): raise AssertionError("空文字で get_spreadsheet が呼ばれた")
+        monkeypatch.setattr(data, "get_spreadsheet", boom)
+        data.save_ai_review("2026/10/05 11:00", "")
+        data.save_ai_review("2026/10/05 11:00", "  \n ")
+
+
+class TestSonnetModelResolution:
+    """モデル自動解決は config と同じメジャー世代内に限定(2026-10-02 の Sonnet 5.5 黙殺切替の再発防止)"""
+
+    # 2026-10-05 時点の /v1/models 実リスト
+    LIVE_IDS = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-opus-5", "claude-sonnet-5",
+                "claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6",
+                "claude-opus-4-5-20251101", "claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"]
+
+    def _resolve(self, monkeypatch, ids, fallback, status=200):
+        import ai_review
+        class R:
+            status_code = status
+            def json(self): return {"data": [{"id": i} for i in ids]}
+        monkeypatch.setattr(ai_review.requests, "get", lambda *a, **k: R())
+        ai_review._resolve_sonnet_model.clear()
+        try:
+            return ai_review._resolve_sonnet_model("k", fallback)
+        finally:
+            ai_review._resolve_sonnet_model.clear()
+
+    def test_stays_in_major_4(self, monkeypatch):
+        assert self._resolve(monkeypatch, self.LIVE_IDS, "claude-sonnet-4-6") == "claude-sonnet-4-6"
+
+    def test_minor_upgrade_within_major(self, monkeypatch):
+        ids = self.LIVE_IDS + ["claude-sonnet-4-7"]
+        assert self._resolve(monkeypatch, ids, "claude-sonnet-4-6") == "claude-sonnet-4-7"
+
+    def test_major_follows_config(self, monkeypatch):
+        # config を 5 世代に上げれば 5.x の最新を選ぶ(マイナー無し表記も可)
+        assert self._resolve(monkeypatch, self.LIVE_IDS, "claude-sonnet-5") == "claude-sonnet-5-5"
+
+    def test_retired_major_falls_back(self, monkeypatch):
+        ids = [i for i in self.LIVE_IDS if not i.startswith("claude-sonnet-4")]
+        assert self._resolve(monkeypatch, ids, "claude-sonnet-4-6") == "claude-sonnet-4-6"
+
+    def test_api_failure_falls_back(self, monkeypatch):
+        assert self._resolve(monkeypatch, [], "claude-sonnet-4-6", status=500) == "claude-sonnet-4-6"

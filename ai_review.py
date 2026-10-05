@@ -8,12 +8,14 @@ import re as _re
 
 import requests
 
-from config import AI_MODEL
+from config import AI_MODEL, logger
 from cacheutil import ttl_cache
 
 _MODELS_URL = "https://api.anthropic.com/v1/models"
 # 例: claude-sonnet-4-6 / claude-sonnet-4-5-20250929 にマッチ（旧式 4.0 のclaude-sonnet-4-20250514は除外）
 _SONNET_RE = _re.compile(r"^claude-sonnet-(\d+)-(\d{1,2})(?:-\d{8})?$")
+# config.AI_MODEL からメジャー世代を取る用（claude-sonnet-5 のようにマイナー無しでも可）
+_SONNET_MAJOR_RE = _re.compile(r"^claude-sonnet-(\d+)")
 
 # 文体・スタンスブロック（総評・ライフプランで共通）
 _PERSONA = (
@@ -46,7 +48,11 @@ _KURISU_PERSONA = (
 def _resolve_sonnet_model(_api_key, fallback):
     """利用可能な最新Sonnetを /v1/models から動的解決（退役モデルの自己修復用）。
 
-    取得失敗・該当なしなら fallback（config.AI_MODEL）を返す。結果は24時間キャッシュ。
+    fallback（config.AI_MODEL）と同じメジャー世代の中で最新マイナーを選ぶ（4.6→4.7 等）。
+    世代跨ぎ（4.x→5.x）は thinking 既定ON・max_tokens の意味・料金が変わり本呼び出しの前提が
+    崩れるため自動では行わない（2026-10-02 に claude-sonnet-5-5 へ黙って切替わり、thinking で
+    出力枠を使い切って総評が空になった事故の再発防止）。世代更新は config.AI_MODEL の明示変更で行う。
+    取得失敗・該当なしなら fallback を返す。結果は24時間キャッシュ。
     404発生時は呼び出し側で .clear() してから再解決する。
     """
     try:
@@ -55,14 +61,20 @@ def _resolve_sonnet_model(_api_key, fallback):
                          timeout=15)
         if r.status_code != 200:
             return fallback
+        fm = _SONNET_MAJOR_RE.match(fallback or "")
+        want_major = int(fm.group(1)) if fm else None
         best, best_key = None, None
         for m in r.json().get("data", []):
             mm = _SONNET_RE.match(m.get("id", ""))
             if not mm:
                 continue
             key = (int(mm.group(1)), int(mm.group(2)))  # (major, minor) で最新を選択
+            if want_major is not None and key[0] != want_major:
+                continue
             if best_key is None or key > best_key:
                 best, best_key = m["id"], key
+        if best and best != fallback:
+            logger.warning("Sonnetモデルを同世代内で更新: %s -> %s", fallback, best)
         return best or fallback
     except Exception:
         return fallback
@@ -81,6 +93,7 @@ def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
 
     戻り値: (ok: bool, text_or_error: str, stop_reason: str|None)
     stop_reason が "max_tokens" の場合は出力が上限で打ち切られている。
+    テキストが空の応答(stop_reason=refusal 等)は ok=False として返し、呼び出し側が空レポートを保存しないようにする。
     """
     import time as _time
     model_id = _resolve_sonnet_model(api_key, AI_MODEL)
@@ -97,7 +110,7 @@ def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
             return False, f"通信エラー: {e}", None
         if resp.status_code == 200:
             try:
-                parts, stop_reason = [], None
+                parts, stop_reason, block_types, usage = [], None, [], {}
                 for line in resp.iter_lines(decode_unicode=True):
                     if not line or not line.startswith("data:"):
                         continue
@@ -108,12 +121,26 @@ def _call_claude(api_key, system_prompt, user_content, max_tokens=2000):
                     et = ev.get("type")
                     if et == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
                         parts.append(ev["delta"].get("text", ""))
+                    elif et == "content_block_start":
+                        block_types.append(ev.get("content_block", {}).get("type", "?"))
                     elif et == "message_delta":
                         sr = ev.get("delta", {}).get("stop_reason")
                         if sr: stop_reason = sr
+                        usage = ev.get("usage", {}) or usage
                     elif et == "error":
                         return False, f"APIエラー: {ev.get('error', {}).get('message', '不明')}", None
-                return True, _sanitize("".join(parts)), stop_reason
+                text = _sanitize("".join(parts))
+                diag = (f"model={model_id} stop_reason={stop_reason} blocks={block_types} "
+                        f"out_tokens={usage.get('output_tokens')} chars={len(text)}")
+                if stop_reason == "refusal":
+                    logger.warning("Claude応答が安全分類器により停止: %s", diag)
+                    return False, f"モデル応答が安全分類器により停止されました ({diag})", stop_reason
+                if not text.strip():
+                    logger.warning("Claude応答が空: %s", diag)
+                    return False, f"モデル応答が空でした ({diag})", stop_reason
+                if stop_reason == "max_tokens":
+                    logger.warning("Claude応答が上限で打ち切り: %s", diag)
+                return True, text, stop_reason
             except Exception as e:
                 return False, f"ストリーム処理エラー: {e}", None
             finally:

@@ -441,7 +441,7 @@ def load_ai_review():
         if vals and len(vals) >= 2:
             # 最終行が最新
             for row in reversed(vals[1:]):
-                if len(row) >= 2 and row[0].strip():
+                if len(row) >= 2 and row[0].strip() and row[1].strip():
                     return row[0], row[1]
     except Exception as e:
         logger.debug("AI総評シートなし: %s", e)
@@ -453,14 +453,18 @@ def load_ai_review_history(n=10):
         vals = _get_sheet_values("AI総評")
         if not vals or len(vals) < 2:
             return []
-        rows = [(r[0], r[1]) for r in vals[1:] if len(r) >= 2 and r[0].strip()]
+        # 本文が空の行(生成失敗の残骸)は履歴・プロンプトの双方から除外
+        rows = [(r[0], r[1]) for r in vals[1:] if len(r) >= 2 and r[0].strip() and r[1].strip()]
         return rows[-n:]  # 直近n件
     except Exception as e:
         logger.debug("AI総評履歴読み込みスキップ: %s", e)
         return []
 
 def save_ai_review(dt_str, text):
-    """分析結果を追記保存（履歴蓄積）"""
+    """分析結果を追記保存（履歴蓄積）。空文字は保存しない"""
+    if not (text or "").strip():
+        logger.warning("AI総評が空のため保存をスキップ (%s)", dt_str)
+        return
     sh = get_spreadsheet()
     if sh is None: return
     try:
